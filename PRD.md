@@ -21,7 +21,7 @@ The primary objective of this project is to implement a software program that **
 ### 2.1 Git Integration and Change Detection
 *   **Default Behavior:** The scanner must monitor the target directory and identify **files with uncommitted changes**.
 *   **Whole File Analysis:** When a file is modified, the scanner analyzes the **entire file content**, not just the diff/changed lines, to ensure full context is available for the AI.
-*   **Specific Commit Analysis:** Users must have the option to scan against a specific **Git commit hash** by passing it as a command-line argument to the application.
+*   **Specific Commit Analysis:** Users must have the option to scan changes **relative to a specific commit hash** (similar to `git reset --soft <hash>`). This allows scanning cumulative changes against a parent branch. After the initial scan, the application continues to monitor for new changes relative to that base.
 *   **Monitoring Loop:** The application will run in a continuous loop. If changes are detected via Git, the scanner must **restart from the beginning** of the check list. If no changes occur, the application will **poll every 30 seconds** for new updates.
 *   **Startup Behavior:** If no uncommitted changes exist at startup, the application must **enter the wait state immediately** and poll for changes. It should not exit.
 *   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
@@ -32,14 +32,17 @@ The primary objective of this project is to implement a software program that **
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
 *   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model.
+*   **Context Safety:** If a file is too large for the AI model's context window, the scanner must **skip analysis** for that file and log a warning to the system log (not the user output).
 *   **AI Configuration:** The scanner should default to connecting to LM Studio at `localhost` with default ports, but these values (host, port, model) must be overridable via the TOML config.
 
 ### 2.3 Output and Reporting
-*   **Log Generation:** The system must produce a **text log file** as its primary and only User Interface.
-*   **Detailed Findings:** For every issue found, the log must specify the **exact file**, the **specific line number**, the nature of the issue, and a **suggested implementation fix**.
-*   **State Management:** The system must maintain an internal model of detected issues.
+*   **Log Generation:** The system must produce a **Markdown log file** (`.md`) as its primary and only User Interface.
+*   **Detailed Findings:** For every issue found, the log must specify the **exact file**, the **specific line number**, the nature of the issue, and a **suggested implementation fix** (using markdown code blocks).
+*   **State Management & Persistence:** The system must maintain an internal model of detected issues.
+    *   **Startup Restoration:** On startup, the scanner must **read the existing output file** to rebuild its internal state. this ensures previously resolved or open issues are tracked correctly across sessions.
     *   **Deduplication:** If an issue is re-detected (same file, line, nature) and is already in the logical model, it must **not** be appended/duplicated in the text file.
     *   **Resolution Tracking:** If the scanner determines that a previously reported issue is no longer present (fixed), it must update the status of that issue in the output to **"RESOLVED"**. The original entry should remain for historical context, but its status changes.
+    *   **File Rewriting:** To reflect these status updates, the scanner **rewrites the entire output file** each time the internal model changes.
 *   **System Verbosity:** The output should include system information and **verbose logging** to capture all issues and runtime data for debugging purposes.
 
 ---
@@ -62,19 +65,21 @@ The primary objective of this project is to implement a software program that **
 *   **Input Handling:** The application must accept a configuration file for queries and support optional Git commit hashes as input arguments.
 
 ### 3.3 Execution Workflow
-1.  Initialize by reading the **TOML config file** (once at startup) and checking the **Git status**.
+1.  Initialize by **reading the existing output file** (to restore state) and the **TOML config file**.
 2.  Start the **Git watcher thread** to monitor for changes every 30 seconds.
 3.  Start the **AI scanner thread**.
-4.  **Wait Loop:** If no changes exist, wait until the Git watcher signals a modification.
+4.  **Wait Loop:** If no uncommitted changes (relative to HEAD or specified commit) exist, the scanner **must idle/wait**.
 5.  **Scanning:** When changes are found, identify the **entire content** of the modified files.
+    *   *Check:* If file > context limit, skip and warn.
 6.  Trigger the **LLM query loop**, processing check prompts sequentially.
 7.  Communicate with the **LM Studio local server** via its API.
-8.  **Update Output:**
-    *   Append **new unique issues** to the output text file.
-    *   Mark **fixed issues** as "RESOLVED" in the output text file.
-    *   Ignore **duplicate active issues**.
-9.  Upon completing all checks, **loop back** to the first check and continue.
-10. If the Git watcher detects new changes, **restart the scanner** from the beginning of the check list.
+8.  **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop (Finish-Then-Restart strategy).
+9.  **Update Output:**
+    *   Update the internal model with new findings.
+    *   Mark fixed issues as "RESOLVED".
+    *   **Rewrite the output Markdown file** with the full list of detected and resolved issues.
+10. Upon completing all checks, **loop back** to the first check and continue.
+11. If the Git watcher detects new changes, **restart the scanner** from the beginning of the check list.
 
 ### 3.4 Sample Configuration Checks
 The following checks are provided as **examples only** and can be completely customized or replaced by the user in the TOML configuration file. These samples demonstrate C++/Qt-specific checks but the scanner supports **any language**:
