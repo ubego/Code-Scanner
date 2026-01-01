@@ -40,8 +40,10 @@ The primary objective of this project is to implement a software program that **
 *   **Detailed Findings:** For every issue found, the log must specify the **exact file**, the **specific line number**, the nature of the issue, and a **suggested implementation fix** (using markdown code blocks).
 *   **State Management & Persistence:** The system must maintain an internal model of detected issues.
     *   **Startup Restoration:** On startup, the scanner must **read the existing output file** to rebuild its internal state. this ensures previously resolved or open issues are tracked correctly across sessions.
-    *   **Deduplication:** If an issue is re-detected (same file, line, nature) and is already in the logical model, it must **not** be appended/duplicated in the text file.
+    *   **Smart Matching & Deduplication:** Issues are tracked primarily by **file** and **issue nature/description/code pattern**, not strictly by line number.
+        *   If an issue is detected at a different line number (e.g., due to code added above it) but matches an existing open issue's pattern, the scanner must **update the line number** in the existing record rather than creating a duplicate or resolving/re-opening.
     *   **Resolution Tracking:** If the scanner determines that a previously reported issue is no longer present (fixed), it must update the status of that issue in the output to **"RESOLVED"**. The original entry should remain for historical context, but its status changes.
+    *   **Source of Truth:** The scanner is the **authoritative source** for the log file. Any manual edits by the user (e.g., deleting an "OPEN" issue) will be **overwritten** if the scanner detects that the issue still exists in the code during the next scan.
     *   **File Rewriting:** To reflect these status updates, the scanner **rewrites the entire output file** each time the internal model changes.
 *   **System Verbosity:** The output should include system information and **verbose logging** to capture all issues and runtime data for debugging purposes.
 
