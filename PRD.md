@@ -11,6 +11,8 @@ The primary objective of this project is to implement a software program that **
 *   **Binary File Handling:** Binary files (images, compiled objects, etc.) are **silently skipped** during scanning.
 *   **Privacy and Efficiency:** By utilizing a **local AI model**, the application ensures that source code does not leave the local environment while providing the intelligence of a Large Language Model (LLM).
 *   **MVP Philosophy:** The initial delivery will be an **MVP (Minimum Viable Product)**, focusing on core functionality without excessive configuration or customization.
+*   **Cross-Platform:** The scanner must be **cross-platform**, supporting Windows, macOS, and Linux.
+*   **Interactive Mode Only:** The scanner is designed for **interactive terminal use only**. Non-interactive environments (CI, daemons) are not supported.
 *   **Passive Operation:** The scanner operates as a **passive background tool** that only reports issues to a log file. It does **not** modify any source files in the target directory.
 *   **Success Criteria:** 
     *   Ability to accurately identify issues based on user-provided queries in a configuration file.
@@ -27,7 +29,7 @@ The primary objective of this project is to implement a software program that **
     *   **Staged files** (added to index with `git add`)
     *   **Unstaged files** (modified but not staged)
     *   **Untracked files** (new files not yet added to Git)
-*   **Deleted Files:** When a file is deleted (uncommitted deletion), the scanner must **trigger resolution** of any open issues associated with that file.
+*   **Deleted Files:** When a file is deleted (uncommitted deletion), the scanner must **trigger resolution** of any open issues associated with that file. Resolution occurs during the **next full scan cycle** (not immediately upon detection).
 *   **Whole File Analysis:** When a file is modified, the scanner analyzes the **entire file content**, not just the diff/changed lines, to ensure full context is available for the AI.
 *   **Specific Commit Analysis:** Users must have the option to scan changes **relative to a specific commit hash** (similar to `git reset --soft <hash>`). This allows scanning cumulative changes against a parent branch. After the initial scan, the application continues to monitor for new changes relative to that base.
 *   **Monitoring Loop:** The application will run in a continuous loop. If changes are detected via Git, the scanner must **restart from the beginning** of the check list. If no changes occur, the application will **poll every 30 seconds** for new updates.
@@ -41,9 +43,10 @@ The primary objective of this project is to implement a software program that **
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
 *   **Aggregated Context:** Each query is sent to the AI with the **entire content of all modified files** as context, not file-by-file.
 *   **Context Overflow Strategy:** If the combined content of all modified files exceeds the AI model's context window:
-    1.  **Group by directory:** Attempt to batch files from the same directory together.
+    1.  **Group by directory hierarchy:** Batch files from the same directory together, considering the **full directory hierarchy** (e.g., `src/utils/helpers/` first, then `src/utils/`, then `src/`).
     2.  **File-by-file fallback:** If a directory group still exceeds the limit, process files individually.
     3.  **Skip oversized files:** If a single file exceeds the context limit, skip it and log a warning.
+    4.  **Merged Results:** When a check runs across multiple batches, all issues from all batches are **merged into a single result set**.
 *   **Token Estimation:** Use a **simple character/word ratio** approximation to estimate token count before sending to the LLM.
 *   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model.
@@ -54,15 +57,19 @@ The primary objective of this project is to implement a software program that **
     *   Response is an **array of issues** (multiple issues per query are supported).
     *   Each issue contains: file, line number, description, suggested fix.
     *   **No issues found:** Return an empty array `[]`.
-*   **Malformed Response Handling:** If the LLM returns invalid JSON or doesn't follow the schema, **retry the query**. Log retry attempts to system log.
+*   **Malformed Response Handling:** If the LLM returns invalid JSON or doesn't follow the schema:
+    *   **Retry immediately** (no delay/backoff).
+    *   **Maximum 3 retries** before skipping the query and logging an error.
+    *   Log all retry attempts to system log.
 
 ### 2.3 Output and Reporting
 *   **Log Generation:** The system must produce a **Markdown log file** named `code_scanner_results.md` as its primary and only User Interface.
 *   **Output Location:** The output file is written to the **target directory** root.
 *   **Detailed Findings:** For every issue found, the log must specify the **exact file**, the **specific line number**, the nature of the issue, and a **suggested implementation fix** (using markdown code blocks).
-*   **State Management & Persistence:** The system must maintain an internal model of detected issues.
-    *   **No State Restoration:** The scanner does **not** restore state from the existing output file. On startup, if `code_scanner_results.md` exists, **prompt the user** to confirm deletion/overwrite of the old file before proceeding.
-    *   **Lock File:** The scanner must create a **lock file** in the target directory to prevent multiple instances from running simultaneously. If a lock file exists, fail with an error.
+*   **State Management & Persistence:** The system must maintain an internal model of detected issues **in memory only**.
+    *   **No Persistence Across Restarts:** State is **not persisted** to disk. Each scanner session starts fresh. On startup, if `code_scanner_results.md` exists, **prompt the user** (interactive only) to confirm deletion/overwrite of the old file before proceeding.
+    *   **In-Session Tracking:** Smart matching, deduplication, and resolution tracking apply **within a single session** only.
+    *   **Lock File:** The scanner must create a lock file named **`.code_scanner.lock`** in the target directory to prevent multiple instances from running simultaneously. If a lock file exists, **fail with a clear error message** explaining the situation (no force-override flag).
     *   **Smart Matching & Deduplication:** Issues are tracked primarily by **file** and **issue nature/description/code pattern**, not strictly by line number.
         *   **Matching Algorithm:** Issue matching compares the source code snippet with **whitespace-normalized comparison** (truncating/collapsing spaces). This algorithm may be improved in future versions.
         *   If an issue is detected at a different line number (e.g., due to code added above it) but matches an existing open issue's pattern, the scanner must **update the line number** in the existing record rather than creating a duplicate or resolving/re-opening.
@@ -107,7 +114,7 @@ The primary objective of this project is to implement a software program that **
     *   *Skip oversized:* If a single file exceeds context limit, skip and warn.
 8.  Trigger the **LLM query loop**, processing check prompts sequentially.
 9.  Communicate with the **LM Studio local server** via its API.
-    *   *Retry on failure:* If LLM returns malformed JSON, retry the query.
+    *   *Retry on failure:* If LLM returns malformed JSON, retry immediately (max 3 retries).
 10. **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop (Finish-Then-Restart strategy). Upon restart, **discard findings only from the interrupted query**, preserving results from all previously completed queries in that cycle.
 11. **Update Output:**
     *   Update the internal model with new findings.
