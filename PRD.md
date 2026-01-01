@@ -23,6 +23,11 @@ The primary objective of this project is to implement a software program that **
 
 ### 2.1 Git Integration and Change Detection
 *   **Default Behavior:** The scanner must monitor the target directory and identify **files with uncommitted changes**.
+*   **Change Scope:** Uncommitted changes include:
+    *   **Staged files** (added to index with `git add`)
+    *   **Unstaged files** (modified but not staged)
+    *   **Untracked files** (new files not yet added to Git)
+*   **Deleted Files:** When a file is deleted (uncommitted deletion), the scanner must **trigger resolution** of any open issues associated with that file.
 *   **Whole File Analysis:** When a file is modified, the scanner analyzes the **entire file content**, not just the diff/changed lines, to ensure full context is available for the AI.
 *   **Specific Commit Analysis:** Users must have the option to scan changes **relative to a specific commit hash** (similar to `git reset --soft <hash>`). This allows scanning cumulative changes against a parent branch. After the initial scan, the application continues to monitor for new changes relative to that base.
 *   **Monitoring Loop:** The application will run in a continuous loop. If changes are detected via Git, the scanner must **restart from the beginning** of the check list. If no changes occur, the application will **poll every 30 seconds** for new updates.
@@ -35,20 +40,29 @@ The primary objective of this project is to implement a software program that **
 *   **Structure:** Checks in the TOML file are simple prompt strings without complex metadata.
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
 *   **Aggregated Context:** Each query is sent to the AI with the **entire content of all modified files** as context, not file-by-file.
+*   **Context Overflow Strategy:** If the combined content of all modified files exceeds the AI model's context window:
+    1.  **Group by directory:** Attempt to batch files from the same directory together.
+    2.  **File-by-file fallback:** If a directory group still exceeds the limit, process files individually.
+    3.  **Skip oversized files:** If a single file exceeds the context limit, skip it and log a warning.
+*   **Token Estimation:** Use a **simple character/word ratio** approximation to estimate token count before sending to the LLM.
 *   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model.
-*   **Context Safety:** If the combined content of all modified files is too large for the AI model's context window, the scanner must **skip analysis** for that scan cycle and log a warning to the system log (not the user output).
 *   **Context Limit Detection:** The AI model's context window size must be **queried from LM Studio** at runtime (not hardcoded).
 *   **AI Configuration:** The scanner should default to connecting to LM Studio at `localhost` with default ports, but these values (host, port, model) must be overridable via the TOML config.
 *   **Prompt Format:** Use an optimized prompt structure that is well-understood by LLMs (system prompt with instructions, user prompt with code context).
-*   **Response Format:** The scanner must request a **structured JSON response** from the LLM with a fixed schema for parsing issues (file, line number, description, suggested fix).
+*   **Response Format:** The scanner must request a **structured JSON response** from the LLM with a fixed schema:
+    *   Response is an **array of issues** (multiple issues per query are supported).
+    *   Each issue contains: file, line number, description, suggested fix.
+    *   **No issues found:** Return an empty array `[]`.
+*   **Malformed Response Handling:** If the LLM returns invalid JSON or doesn't follow the schema, **retry the query**. Log retry attempts to system log.
 
 ### 2.3 Output and Reporting
 *   **Log Generation:** The system must produce a **Markdown log file** named `code_scanner_results.md` as its primary and only User Interface.
 *   **Output Location:** The output file is written to the **target directory** root.
 *   **Detailed Findings:** For every issue found, the log must specify the **exact file**, the **specific line number**, the nature of the issue, and a **suggested implementation fix** (using markdown code blocks).
 *   **State Management & Persistence:** The system must maintain an internal model of detected issues.
-    *   **Startup Restoration:** On startup, the scanner must **read the existing output file** to rebuild its internal state. this ensures previously resolved or open issues are tracked correctly across sessions.
+    *   **No State Restoration:** The scanner does **not** restore state from the existing output file. On startup, if `code_scanner_results.md` exists, **prompt the user** to confirm deletion/overwrite of the old file before proceeding.
+    *   **Lock File:** The scanner must create a **lock file** in the target directory to prevent multiple instances from running simultaneously. If a lock file exists, fail with an error.
     *   **Smart Matching & Deduplication:** Issues are tracked primarily by **file** and **issue nature/description/code pattern**, not strictly by line number.
         *   **Matching Algorithm:** Issue matching compares the source code snippet with **whitespace-normalized comparison** (truncating/collapsing spaces). This algorithm may be improved in future versions.
         *   If an issue is detected at a different line number (e.g., due to code added above it) but matches an existing open issue's pattern, the scanner must **update the line number** in the existing record rather than creating a duplicate or resolving/re-opening.
@@ -56,7 +70,8 @@ The primary objective of this project is to implement a software program that **
     *   **Resolved Issues Lifecycle:** Resolved issues remain in the log **indefinitely** for historical tracking. Users may manually remove them if desired.
     *   **Source of Truth:** The scanner is the **authoritative source** for the log file. Any manual edits by the user (e.g., deleting an "OPEN" issue) will be **overwritten** if the scanner detects that the issue still exists in the code during the next scan.
     *   **File Rewriting:** To reflect these status updates, the scanner **rewrites the entire output file** each time the internal model changes.
-*   **System Verbosity:** The output should include system information and **verbose logging** to capture all issues and runtime data for debugging purposes.
+*   **System Verbosity:** Verbose logging is **always enabled** (no quiet mode). The output includes system information and detailed runtime data for debugging purposes.
+*   **Graceful Shutdown:** On `Ctrl+C` (SIGINT), the scanner performs an **immediate exit** without waiting for the current query to complete.
 
 ---
 
@@ -81,21 +96,26 @@ The primary objective of this project is to implement a software program that **
     *   An optional **Git commit hash** to scan changes relative to a specific commit.
 
 ### 3.3 Execution Workflow
-1.  Initialize by **reading the existing output file** (to restore state) and the **TOML config file**.
-2.  Start the **Git watcher thread** to monitor for changes every 30 seconds.
-3.  Start the **AI scanner thread**.
-4.  **Wait Loop:** If no uncommitted changes (relative to HEAD or specified commit) exist, the scanner **must idle/wait**.
-5.  **Scanning:** When changes are found, identify the **entire content** of the modified files.
-    *   *Check:* If file > context limit, skip and warn.
-6.  Trigger the **LLM query loop**, processing check prompts sequentially.
-7.  Communicate with the **LM Studio local server** via its API.
-*   **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop (Finish-Then-Restart strategy). Upon restart, **discard findings only from the interrupted query**, preserving results from all previously completed queries in that cycle.
-9.  **Update Output:**
+1.  **Check for lock file.** If exists, fail with error. Otherwise, create lock file.
+2.  **Check for existing output file.** If `code_scanner_results.md` exists, prompt user to confirm overwrite.
+3.  Initialize by reading the **TOML config file**.
+4.  Start the **Git watcher thread** to monitor for changes every 30 seconds.
+5.  Start the **AI scanner thread**.
+6.  **Wait Loop:** If no uncommitted changes (relative to HEAD or specified commit) exist, the scanner **must idle/wait**.
+7.  **Scanning:** When changes are found, identify the **entire content** of the modified files.
+    *   *Context Check:* If combined files exceed context limit, apply **context overflow strategy** (group by directory, then file-by-file).
+    *   *Skip oversized:* If a single file exceeds context limit, skip and warn.
+8.  Trigger the **LLM query loop**, processing check prompts sequentially.
+9.  Communicate with the **LM Studio local server** via its API.
+    *   *Retry on failure:* If LLM returns malformed JSON, retry the query.
+10. **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop (Finish-Then-Restart strategy). Upon restart, **discard findings only from the interrupted query**, preserving results from all previously completed queries in that cycle.
+11. **Update Output:**
     *   Update the internal model with new findings.
     *   Mark fixed issues as "RESOLVED".
     *   **Rewrite the output Markdown file** with the full list of detected and resolved issues.
-10. Upon completing all checks, **loop back** to the first check and continue.
-11. If the Git watcher detects new changes, **restart the scanner** from the beginning of the check list.
+12. Upon completing all checks, **loop back** to the first check and continue.
+13. If the Git watcher detects new changes, **restart the scanner** from the beginning of the check list.
+14. On **SIGINT**, immediately exit and remove lock file.
 
 ### 3.4 Sample Configuration Checks
 The following checks are provided as **examples only** and can be completely customized or replaced by the user in the TOML configuration file. These samples demonstrate C++/Qt-specific checks but the scanner supports **any language**:
