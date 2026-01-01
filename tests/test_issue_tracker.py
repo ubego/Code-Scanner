@@ -1,0 +1,345 @@
+"""Tests for issue tracker module."""
+
+import pytest
+from datetime import datetime
+from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from code_scanner.models import Issue, IssueStatus
+from code_scanner.issue_tracker import IssueTracker
+
+
+class TestIssueMatching:
+    """Tests for issue matching/deduplication."""
+
+    def test_identical_issues_match(self):
+        """Test that identical issues match."""
+        issue1 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="Fix it",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code here",
+        )
+        issue2 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="Fix it",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code here",
+        )
+        
+        assert issue1.matches(issue2)
+
+    def test_different_line_same_code_matches(self):
+        """Test that issues with different lines but same code match."""
+        issue1 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="Fix it",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code here",
+        )
+        issue2 = Issue(
+            file_path="src/main.cpp",
+            line_number=15,  # Different line
+            description="Test issue",
+            suggested_fix="Fix it",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code here",  # Same code
+        )
+        
+        assert issue1.matches(issue2)
+
+    def test_different_files_dont_match(self):
+        """Test that issues in different files don't match."""
+        issue1 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="Fix it",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code here",
+        )
+        issue2 = Issue(
+            file_path="src/other.cpp",  # Different file
+            line_number=10,
+            description="Test issue",
+            suggested_fix="Fix it",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code here",
+        )
+        
+        assert not issue1.matches(issue2)
+
+    def test_whitespace_normalized_matching(self):
+        """Test that whitespace is normalized for matching."""
+        issue1 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Test   issue   here",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="",
+        )
+        issue2 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Test issue here",  # Normalized whitespace
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="",
+        )
+        
+        assert issue1.matches(issue2)
+
+
+class TestIssueTracker:
+    """Tests for IssueTracker class."""
+
+    def test_add_new_issue(self):
+        """Test adding a new issue."""
+        tracker = IssueTracker()
+        issue = Issue(
+            file_path="test.cpp",
+            line_number=1,
+            description="Test",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+        )
+        
+        added = tracker.add_issue(issue)
+        
+        assert added is True
+        assert len(tracker.issues) == 1
+        assert tracker.has_changed
+
+    def test_add_duplicate_returns_false(self):
+        """Test that adding duplicate issue returns False."""
+        tracker = IssueTracker()
+        issue1 = Issue(
+            file_path="test.cpp",
+            line_number=1,
+            description="Test",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code",
+        )
+        issue2 = Issue(
+            file_path="test.cpp",
+            line_number=1,
+            description="Test",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code",
+        )
+        
+        tracker.add_issue(issue1)
+        added = tracker.add_issue(issue2)
+        
+        assert added is False
+        assert len(tracker.issues) == 1
+
+    def test_line_number_updated_for_moved_issue(self):
+        """Test that line number is updated for moved issues."""
+        tracker = IssueTracker()
+        issue1 = Issue(
+            file_path="test.cpp",
+            line_number=10,
+            description="Test",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code",
+        )
+        issue2 = Issue(
+            file_path="test.cpp",
+            line_number=15,  # Moved
+            description="Test",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code",  # Same code
+        )
+        
+        tracker.add_issue(issue1)
+        tracker.add_issue(issue2)
+        
+        assert len(tracker.issues) == 1
+        assert tracker.issues[0].line_number == 15  # Updated
+
+    def test_resolve_issues_for_file(self):
+        """Test resolving all issues for a file."""
+        tracker = IssueTracker()
+        issue1 = Issue(
+            file_path="test.cpp",
+            line_number=1,
+            description="Issue 1",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code1",  # Different snippets to avoid dedup
+        )
+        issue2 = Issue(
+            file_path="test.cpp",
+            line_number=2,
+            description="Issue 2 different",  # Different description
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code2",  # Different snippet
+        )
+        
+        tracker.add_issue(issue1)
+        tracker.add_issue(issue2)
+        
+        resolved = tracker.resolve_issues_for_file("test.cpp")
+        
+        assert resolved == 2
+        assert all(i.status == IssueStatus.RESOLVED for i in tracker.issues)
+
+    def test_reopen_resolved_issue(self):
+        """Test that resolved issues can be reopened."""
+        tracker = IssueTracker()
+        issue = Issue(
+            file_path="test.cpp",
+            line_number=1,
+            description="Test",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code",
+        )
+        
+        tracker.add_issue(issue)
+        tracker.resolve_issues_for_file("test.cpp")
+        
+        # Add same issue again
+        new_issue = Issue(
+            file_path="test.cpp",
+            line_number=1,
+            description="Test",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="code",
+        )
+        tracker.add_issue(new_issue)
+        
+        assert len(tracker.issues) == 1
+        assert tracker.issues[0].status == IssueStatus.OPEN
+
+    def test_get_issues_by_file(self):
+        """Test grouping issues by file."""
+        tracker = IssueTracker()
+        tracker.add_issue(Issue(
+            file_path="a.cpp",
+            line_number=1,
+            description="A1 issue",
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+            code_snippet="snippet_a1",  # Unique snippet
+        ))
+        tracker.add_issue(Issue(
+            file_path="b.cpp",
+            line_number=1,
+            description="B1 issue",
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+            code_snippet="snippet_b1",  # Unique snippet
+        ))
+        tracker.add_issue(Issue(
+            file_path="a.cpp",
+            line_number=2,
+            description="A2 different issue",  # Different description
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+            code_snippet="snippet_a2",  # Unique snippet
+        ))
+        
+        by_file = tracker.get_issues_by_file()
+        
+        assert len(by_file) == 2
+        assert len(by_file["a.cpp"]) == 2
+        assert len(by_file["b.cpp"]) == 1
+
+    def test_get_stats(self):
+        """Test getting issue statistics."""
+        tracker = IssueTracker()
+        tracker.add_issue(Issue(
+            file_path="a.cpp",
+            line_number=1,
+            description="Open 1",
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+        ))
+        tracker.add_issue(Issue(
+            file_path="b.cpp",
+            line_number=1,
+            description="To resolve",
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+        ))
+        tracker.resolve_issues_for_file("b.cpp")
+        
+        stats = tracker.get_stats()
+        
+        assert stats["open"] == 1
+        assert stats["resolved"] == 1
+        assert stats["total"] == 2
+
+    def test_update_from_scan(self):
+        """Test updating tracker from scan results."""
+        tracker = IssueTracker()
+        
+        # Add initial issue
+        tracker.add_issue(Issue(
+            file_path="a.cpp",
+            line_number=1,
+            description="Initial",
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+            code_snippet="code",
+        ))
+        
+        # Scan finds new issue, old issue gone
+        new_issues = [
+            Issue(
+                file_path="a.cpp",
+                line_number=5,
+                description="New issue",
+                suggested_fix="",
+                check_query="",
+                timestamp=datetime.now(),
+                code_snippet="different code",
+            )
+        ]
+        
+        new_count, resolved = tracker.update_from_scan(new_issues, ["a.cpp"])
+        
+        assert new_count == 1
+        assert resolved == 1
+        assert len(tracker.open_issues) == 1
+        assert len(tracker.resolved_issues) == 1
