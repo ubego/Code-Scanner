@@ -33,6 +33,7 @@ def mock_dependencies(mock_config):
     llm_client = MagicMock()
     llm_client.context_limit = 8000
     issue_tracker = MagicMock()
+    issue_tracker.add_issues.return_value = 0  # Default: no new issues added
     output_generator = MagicMock()
     
     return {
@@ -250,6 +251,8 @@ class TestRunCheck:
     def test_returns_issues_from_llm(self, mock_dependencies):
         """Issues are parsed from LLM response."""
         scanner = Scanner(**mock_dependencies)
+        scanner._scan_info = {"checks_run": 0}  # Initialize scan_info for output writes
+        scanner.issue_tracker.add_issues.return_value = 1  # 1 new issue added
         scanner.llm_client.query.return_value = {
             "issues": [
                 {
@@ -272,6 +275,7 @@ class TestRunCheck:
     def test_empty_response_returns_no_issues(self, mock_dependencies):
         """Empty LLM response returns no issues."""
         scanner = Scanner(**mock_dependencies)
+        scanner._scan_info = {"checks_run": 0}  # Initialize scan_info for output writes
         scanner.llm_client.query.return_value = {"issues": []}
         
         batches = [{"test.py": "content"}]

@@ -383,6 +383,9 @@ class Scanner:
     ) -> list[Issue]:
         """Run a single check against all batches.
 
+        Issues are added to tracker and output is updated after each batch
+        for immediate feedback, rather than waiting for all batches to complete.
+
         Args:
             check_query: The check query to run.
             batches: List of file batches.
@@ -416,6 +419,7 @@ class Scanner:
                 logger.info(f"LLM returned {len(issues_data)} issue(s) for batch {batch_idx + 1}")
                 timestamp = datetime.now()
 
+                batch_issues: list[Issue] = []
                 for issue_data in issues_data:
                     try:
                         issue = Issue.from_llm_response(
@@ -423,10 +427,21 @@ class Scanner:
                             check_query=check_query,
                             timestamp=timestamp,
                         )
+                        batch_issues.append(issue)
                         all_issues.append(issue)
                         logger.debug(f"Parsed issue: {issue.file_path}:{issue.line_number}")
                     except Exception as e:
                         logger.warning(f"Failed to parse issue: {e}, data: {issue_data}")
+
+                # Immediately add batch issues to tracker and update output
+                if batch_issues:
+                    new_count = self.issue_tracker.add_issues(batch_issues)
+                    if new_count > 0:
+                        logger.info(f"Added {new_count} new issue(s) from batch {batch_idx + 1}")
+
+                # Update output after each batch for immediate feedback
+                self.output_generator.write(self.issue_tracker, self._scan_info)
+                logger.info(f"Output updated after batch {batch_idx + 1}/{len(batches)}")
 
             except LLMClientError as e:
                 logger.error(f"Check failed after retries: {e}")

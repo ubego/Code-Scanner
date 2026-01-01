@@ -706,11 +706,14 @@ class TestScannerIncrementalOutput:
         with patch.object(scanner, "_get_files_content", return_value=files_content):
             scanner._run_scan(state)
         
-        # Should have incremental checks_run values
-        # First call should have checks_run=1, second should have checks_run=2
+        # Output is now written per batch (inside _run_check) and per rule completion
+        # With 2 rules for *.py pattern, each with 1 batch, we get:
+        # - 1 write per batch in _run_check (checks_run=0 for first batch)
+        # - 1 write after rule completes in _run_scan (checks_run=1 for first rule)
+        # Total writes should be at least 2, with checks_run incrementing
         assert len(write_calls_scan_info) >= 2
-        assert write_calls_scan_info[0] == 1
-        assert write_calls_scan_info[1] == 2
+        # Last call should have checks_run=2 (both rules completed)
+        assert write_calls_scan_info[-1] == 2
 
     def test_restart_signal_returns_immediately(self, mock_dependencies):
         """Restart signal causes immediate return, not inline restart."""
