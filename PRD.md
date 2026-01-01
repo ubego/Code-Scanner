@@ -6,6 +6,9 @@ The primary objective of this project is to implement a software program that **
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
+*   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
+*   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
+*   **Binary File Handling:** Binary files (images, compiled objects, etc.) are **silently skipped** during scanning.
 *   **Privacy and Efficiency:** By utilizing a **local AI model**, the application ensures that source code does not leave the local environment while providing the intelligence of a Large Language Model (LLM).
 *   **MVP Philosophy:** The initial delivery will be an **MVP (Minimum Viable Product)**, focusing on core functionality without excessive configuration or customization.
 *   **Passive Operation:** The scanner operates as a **passive background tool** that only reports issues to a log file. It does **not** modify any source files in the target directory.
@@ -27,22 +30,30 @@ The primary objective of this project is to implement a software program that **
 *   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
 
 ### 2.2 Query and Analysis Engine
-*   **Configuration Input:** The scanner will take a **TOML configuration file** containing a simple list of user-defined prompts. The configuration file is **read once at startup**.
+*   **Configuration Input:** The scanner will take a **TOML configuration file** containing a simple list of user-defined prompts. The configuration file is **read once at startup** (no hot-reload support).
+*   **Config File Location:** The TOML config file is specified via **CLI argument**, or defaults to the **scanner's script directory** if not provided.
 *   **Structure:** Checks in the TOML file are simple prompt strings without complex metadata.
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
+*   **Aggregated Context:** Each query is sent to the AI with the **entire content of all modified files** as context, not file-by-file.
 *   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model.
-*   **Context Safety:** If a file is too large for the AI model's context window, the scanner must **skip analysis** for that file and log a warning to the system log (not the user output).
+*   **Context Safety:** If the combined content of all modified files is too large for the AI model's context window, the scanner must **skip analysis** for that scan cycle and log a warning to the system log (not the user output).
+*   **Context Limit Detection:** The AI model's context window size must be **queried from LM Studio** at runtime (not hardcoded).
 *   **AI Configuration:** The scanner should default to connecting to LM Studio at `localhost` with default ports, but these values (host, port, model) must be overridable via the TOML config.
+*   **Prompt Format:** Use an optimized prompt structure that is well-understood by LLMs (system prompt with instructions, user prompt with code context).
+*   **Response Format:** The scanner must request a **structured JSON response** from the LLM with a fixed schema for parsing issues (file, line number, description, suggested fix).
 
 ### 2.3 Output and Reporting
-*   **Log Generation:** The system must produce a **Markdown log file** (`.md`) as its primary and only User Interface.
+*   **Log Generation:** The system must produce a **Markdown log file** named `code_scanner_results.md` as its primary and only User Interface.
+*   **Output Location:** The output file is written to the **target directory** root.
 *   **Detailed Findings:** For every issue found, the log must specify the **exact file**, the **specific line number**, the nature of the issue, and a **suggested implementation fix** (using markdown code blocks).
 *   **State Management & Persistence:** The system must maintain an internal model of detected issues.
     *   **Startup Restoration:** On startup, the scanner must **read the existing output file** to rebuild its internal state. this ensures previously resolved or open issues are tracked correctly across sessions.
     *   **Smart Matching & Deduplication:** Issues are tracked primarily by **file** and **issue nature/description/code pattern**, not strictly by line number.
+        *   **Matching Algorithm:** Issue matching compares the source code snippet with **whitespace-normalized comparison** (truncating/collapsing spaces). This algorithm may be improved in future versions.
         *   If an issue is detected at a different line number (e.g., due to code added above it) but matches an existing open issue's pattern, the scanner must **update the line number** in the existing record rather than creating a duplicate or resolving/re-opening.
     *   **Resolution Tracking:** If the scanner determines that a previously reported issue is no longer present (fixed), it must update the status of that issue in the output to **"RESOLVED"**. The original entry should remain for historical context, but its status changes.
+    *   **Resolved Issues Lifecycle:** Resolved issues remain in the log **indefinitely** for historical tracking. Users may manually remove them if desired.
     *   **Source of Truth:** The scanner is the **authoritative source** for the log file. Any manual edits by the user (e.g., deleting an "OPEN" issue) will be **overwritten** if the scanner detects that the issue still exists in the code during the next scan.
     *   **File Rewriting:** To reflect these status updates, the scanner **rewrites the entire output file** each time the internal model changes.
 *   **System Verbosity:** The output should include system information and **verbose logging** to capture all issues and runtime data for debugging purposes.
@@ -64,7 +75,10 @@ The primary objective of this project is to implement a software program that **
     2.  **AI Scanner Thread:** Executes checks sequentially against the LM Studio API.
 *   **Thread Communication:** When the Git watcher detects changes, it must signal the AI scanner thread to **restart from the beginning** of the check list.
 *   **Runtime Monitoring:** It is critical to include robust logging to identify all possible issues during the application's runtime.
-*   **Input Handling:** The application must accept a configuration file for queries and support optional Git commit hashes as input arguments.
+*   **Input Handling:** The application must accept:
+    *   A **target directory** as a required CLI argument.
+    *   A **configuration file path** as an optional CLI argument (defaults to scanner's script directory).
+    *   An optional **Git commit hash** to scan changes relative to a specific commit.
 
 ### 3.3 Execution Workflow
 1.  Initialize by **reading the existing output file** (to restore state) and the **TOML config file**.
@@ -75,7 +89,7 @@ The primary objective of this project is to implement a software program that **
     *   *Check:* If file > context limit, skip and warn.
 6.  Trigger the **LLM query loop**, processing check prompts sequentially.
 7.  Communicate with the **LM Studio local server** via its API.
-8.  **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop (Finish-Then-Restart strategy).
+*   **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop (Finish-Then-Restart strategy). Upon restart, **discard findings only from the interrupted query**, preserving results from all previously completed queries in that cycle.
 9.  **Update Output:**
     *   Update the internal model with new findings.
     *   Mark fixed issues as "RESOLVED".
