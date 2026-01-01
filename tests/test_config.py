@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from code_scanner.config import load_config, ConfigError, get_default_config_path
+from code_scanner.models import CheckGroup
 
 
 class TestLoadConfig:
@@ -31,8 +32,11 @@ port = 8080
         
         assert config.target_directory == temp_dir
         assert config.config_file == config_file
-        assert len(config.checks) == 2
-        assert config.checks[0] == "Check for errors"
+        # Legacy format creates one group with pattern "*"
+        assert len(config.check_groups) == 1
+        assert config.check_groups[0].pattern == "*"
+        assert len(config.check_groups[0].rules) == 2
+        assert config.check_groups[0].rules[0] == "Check for errors"
         assert config.llm.host == "192.168.1.100"
         assert config.llm.port == 8080
 
@@ -141,4 +145,120 @@ context_limit = 16384
         
         assert config.output_path == temp_dir / "code_scanner_results.md"
         assert config.log_path == temp_dir / "code_scanner.log"
-        assert config.lock_path == temp_dir / ".code_scanner.lock"
+        # Lock file is in scanner's script directory, not target directory
+        assert config.lock_path.name == ".code_scanner.lock"
+
+
+class TestCheckGroupFormat:
+    """Tests for new [[checks]] table format."""
+
+    def test_load_new_format_single_group(self, temp_dir: Path):
+        """Test loading new format with single check group."""
+        config_file = temp_dir / "config.toml"
+        config_file.write_text("""
+[[checks]]
+pattern = "*.cpp, *.h"
+rules = ["Check for errors", "Check for memory leaks"]
+""")
+        
+        config = load_config(temp_dir, config_file)
+        
+        assert len(config.check_groups) == 1
+        assert config.check_groups[0].pattern == "*.cpp, *.h"
+        assert len(config.check_groups[0].rules) == 2
+        assert config.check_groups[0].rules[0] == "Check for errors"
+
+    def test_load_new_format_multiple_groups(self, temp_dir: Path):
+        """Test loading new format with multiple check groups."""
+        config_file = temp_dir / "config.toml"
+        config_file.write_text("""
+[[checks]]
+pattern = "*.cpp, *.h"
+rules = ["Check C++ code"]
+
+[[checks]]
+pattern = "*.py"
+rules = ["Check Python code"]
+
+[[checks]]
+pattern = "*"
+rules = ["Check all files"]
+""")
+        
+        config = load_config(temp_dir, config_file)
+        
+        assert len(config.check_groups) == 3
+        assert config.check_groups[0].pattern == "*.cpp, *.h"
+        assert config.check_groups[1].pattern == "*.py"
+        assert config.check_groups[2].pattern == "*"
+
+    def test_new_format_empty_rules_raises_error(self, temp_dir: Path):
+        """Test that empty rules list raises ConfigError."""
+        config_file = temp_dir / "config.toml"
+        config_file.write_text("""
+[[checks]]
+pattern = "*.cpp"
+rules = []
+""")
+        
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(temp_dir, config_file)
+        
+        assert "rules" in str(exc_info.value).lower()
+
+    def test_new_format_missing_pattern_uses_default(self, temp_dir: Path):
+        """Test that missing pattern defaults to '*'."""
+        config_file = temp_dir / "config.toml"
+        config_file.write_text("""
+[[checks]]
+rules = ["Check for errors"]
+""")
+        
+        config = load_config(temp_dir, config_file)
+        
+        assert config.check_groups[0].pattern == "*"
+
+
+class TestCheckGroupPatternMatching:
+    """Tests for CheckGroup.matches_file() pattern matching."""
+
+    def test_single_extension_matches(self):
+        """Test matching single extension pattern."""
+        group = CheckGroup(pattern="*.cpp", rules=["test"])
+        
+        assert group.matches_file("main.cpp") is True
+        assert group.matches_file("src/main.cpp") is True
+        assert group.matches_file("main.h") is False
+        assert group.matches_file("main.py") is False
+
+    def test_multiple_extensions_match(self):
+        """Test matching multiple extension patterns."""
+        group = CheckGroup(pattern="*.cpp, *.h, *.hpp", rules=["test"])
+        
+        assert group.matches_file("main.cpp") is True
+        assert group.matches_file("header.h") is True
+        assert group.matches_file("template.hpp") is True
+        assert group.matches_file("main.py") is False
+
+    def test_wildcard_matches_all(self):
+        """Test that '*' matches all files."""
+        group = CheckGroup(pattern="*", rules=["test"])
+        
+        assert group.matches_file("main.cpp") is True
+        assert group.matches_file("readme.md") is True
+        assert group.matches_file("src/deep/nested/file.txt") is True
+
+    def test_pattern_with_path(self):
+        """Test that pattern can match full paths."""
+        group = CheckGroup(pattern="src/*.cpp", rules=["test"])
+        
+        assert group.matches_file("src/main.cpp") is True
+        # Note: filename-only match also works
+        assert group.matches_file("main.cpp") is False
+
+    def test_pattern_whitespace_handling(self):
+        """Test that patterns handle whitespace correctly."""
+        group = CheckGroup(pattern="  *.cpp ,  *.h  ", rules=["test"])
+        
+        assert group.matches_file("main.cpp") is True
+        assert group.matches_file("header.h") is True

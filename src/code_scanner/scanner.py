@@ -11,7 +11,7 @@ from .config import Config
 from .git_watcher import GitWatcher
 from .issue_tracker import IssueTracker
 from .llm_client import LLMClient, LLMClientError, SYSTEM_PROMPT_TEMPLATE, build_user_prompt
-from .models import Issue, GitState, ChangedFile
+from .models import Issue, GitState, ChangedFile, CheckGroup
 from .output import OutputGenerator
 from .utils import (
     estimate_tokens,
@@ -142,55 +142,78 @@ class Scanner:
         batches = self._create_batches(files_content)
         logger.info(f"Created {len(batches)} batch(es) for scanning")
 
-        # Process all checks
-        self._current_check_index = 0
+        # Process all check groups
         all_issues: list[Issue] = []
+        total_rules = sum(len(g.rules) for g in self.config.check_groups)
+        current_rule_index = 0
 
-        while self._current_check_index < len(self.config.checks):
+        for group_idx, check_group in enumerate(self.config.check_groups):
             if self._stop_event.is_set():
                 break
 
-            check = self.config.checks[self._current_check_index]
-            logger.info(f"Running check {self._current_check_index + 1}/{len(self.config.checks)}: {check[:50]}...")
-
-            try:
-                # Run check against all batches
-                check_issues = self._run_check(check, batches)
-                all_issues.extend(check_issues)
-                self._scan_info["checks_run"] += 1
-
-            except LLMClientError as e:
-                if "Lost connection" in str(e):
-                    # Mid-session failure - wait for reconnection
-                    logger.warning("Lost LLM connection, waiting for reconnection...")
-                    self.llm_client.wait_for_connection(self.config.llm_retry_interval)
-                    continue  # Retry this check
-                else:
-                    logger.error(f"LLM error during check: {e}")
-                    # Skip this check after max retries
-
-            # Check for restart signal
-            if self._restart_event.is_set():
-                logger.info("Restart signal received, discarding current check results")
-                self._restart_event.clear()
-                self._current_check_index = 0
-                all_issues.clear()
-                
-                # Get fresh git state
-                git_state = self.git_watcher.get_state()
-                files_content = self._get_files_content(git_state.changed_files)
-                if not files_content:
-                    return
-                batches = self._create_batches(files_content)
-                scanned_files = list(files_content.keys())
+            # Filter batches to only include files matching this group's pattern
+            filtered_batches = self._filter_batches_by_pattern(batches, check_group)
+            if not filtered_batches:
+                logger.debug(f"No files match pattern '{check_group.pattern}', skipping group")
+                current_rule_index += len(check_group.rules)
                 continue
 
-            self._current_check_index += 1
+            logger.info(f"Check group {group_idx + 1}/{len(self.config.check_groups)}: pattern '{check_group.pattern}'")
+
+            for rule_idx, rule in enumerate(check_group.rules):
+                if self._stop_event.is_set():
+                    break
+
+                current_rule_index += 1
+                logger.info(f"Running rule {current_rule_index}/{total_rules}: {rule[:50]}...")
+
+                try:
+                    # Run check against filtered batches
+                    check_issues = self._run_check(rule, filtered_batches)
+                    all_issues.extend(check_issues)
+                    self._scan_info["checks_run"] += 1
+
+                except LLMClientError as e:
+                    if "Lost connection" in str(e):
+                        # Mid-session failure - wait for reconnection
+                        logger.warning("Lost LLM connection, waiting for reconnection...")
+                        self.llm_client.wait_for_connection(self.config.llm_retry_interval)
+                        # Retry this rule by decrementing counter
+                        current_rule_index -= 1
+                        continue
+                    else:
+                        logger.error(f"LLM error during check: {e}")
+                        # Skip this check after max retries
+
+                # Check for restart signal
+                if self._restart_event.is_set():
+                    logger.info("Restart signal received, restarting scan")
+                    self._restart_event.clear()
+                    all_issues.clear()
+
+                    # Get fresh git state
+                    git_state = self.git_watcher.get_state()
+                    files_content = self._get_files_content(git_state.changed_files)
+                    if not files_content:
+                        return
+                    batches = self._create_batches(files_content)
+                    scanned_files = list(files_content.keys())
+                    # Restart from beginning
+                    current_rule_index = 0
+                    break  # Break out of rule loop to restart group loop
+
+            # If restart signal was received, break out of group loop too
+            if self._restart_event.is_set():
+                self._restart_event.clear()
+                continue
 
         # Handle deleted files - resolve their issues
         deleted_files = [f.path for f in git_state.changed_files if f.is_deleted]
         for deleted_file in deleted_files:
             self.issue_tracker.resolve_issues_for_file(deleted_file)
+
+        # Log total issues found in this scan
+        logger.info(f"Scan found {len(all_issues)} total issue(s) across all checks")
 
         # Update issue tracker with scan results
         new_count, resolved_count = self.issue_tracker.update_from_scan(
@@ -198,13 +221,36 @@ class Scanner:
         )
         logger.info(f"Scan complete: {new_count} new issues, {resolved_count} resolved")
 
-        # Write output if there were changes
-        if self.issue_tracker.has_changed:
-            self.output_generator.write(self.issue_tracker, self._scan_info)
-            self.issue_tracker.reset_changed_flag()
+        # Write output
+        self.output_generator.write(self.issue_tracker, self._scan_info)
+        logger.info(f"Output file updated with {self.issue_tracker.get_stats()['total']} total issues")
 
-        # Loop back to first check and continue
-        self._current_check_index = 0
+    def _filter_batches_by_pattern(
+        self,
+        batches: list[dict[str, str]],
+        check_group: CheckGroup,
+    ) -> list[dict[str, str]]:
+        """Filter batches to only include files matching the check group's pattern.
+
+        Args:
+            batches: List of file batches.
+            check_group: The check group with pattern to filter by.
+
+        Returns:
+            Filtered batches with only matching files.
+        """
+        filtered_batches: list[dict[str, str]] = []
+
+        for batch in batches:
+            filtered_batch = {
+                file_path: content
+                for file_path, content in batch.items()
+                if check_group.matches_file(file_path)
+            }
+            if filtered_batch:
+                filtered_batches.append(filtered_batch)
+
+        return filtered_batches
 
     def _get_files_content(
         self,
@@ -373,6 +419,7 @@ class Scanner:
 
                 # Parse issues from response
                 issues_data = response.get("issues", [])
+                logger.info(f"LLM returned {len(issues_data)} issue(s) for batch {batch_idx + 1}")
                 timestamp = datetime.now()
 
                 for issue_data in issues_data:
@@ -383,8 +430,9 @@ class Scanner:
                             timestamp=timestamp,
                         )
                         all_issues.append(issue)
+                        logger.debug(f"Parsed issue: {issue.file_path}:{issue.line_number}")
                     except Exception as e:
-                        logger.warning(f"Failed to parse issue: {e}")
+                        logger.warning(f"Failed to parse issue: {e}, data: {issue_data}")
 
             except LLMClientError as e:
                 logger.error(f"Check failed after retries: {e}")

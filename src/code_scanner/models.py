@@ -137,6 +137,38 @@ class LLMConfig:
         return f"http://{self.host}:{self.port}/v1"
 
 
+@dataclass
+class CheckGroup:
+    """A group of checks that apply to files matching a pattern."""
+
+    pattern: str  # Glob pattern like "*.cpp, *.h" or "*" for all files
+    rules: list[str]  # List of check rules to run
+
+    def matches_file(self, file_path: str) -> bool:
+        """Check if the file matches this check group's pattern.
+
+        Args:
+            file_path: The file path to check.
+
+        Returns:
+            True if the file matches the pattern.
+        """
+        from fnmatch import fnmatch
+
+        # Split patterns by comma and strip whitespace
+        patterns = [p.strip() for p in self.pattern.split(",")]
+
+        # Get just the filename for matching
+        filename = file_path.split("/")[-1] if "/" in file_path else file_path
+
+        # Check if any pattern matches
+        for pattern in patterns:
+            if fnmatch(filename, pattern) or fnmatch(file_path, pattern):
+                return True
+
+        return False
+
+
 def _normalize_whitespace(text: str) -> str:
     """Normalize whitespace in text for comparison.
 

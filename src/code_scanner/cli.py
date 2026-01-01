@@ -1,6 +1,7 @@
 """CLI entry point and main application."""
 
 import argparse
+import atexit
 import logging
 import os
 import signal
@@ -63,6 +64,10 @@ class Application:
         except KeyboardInterrupt:
             logger.info("Interrupted by user")
             return 130  # Standard exit code for SIGINT
+        except SystemExit as e:
+            # User declined to overwrite or other sys.exit() call
+            # Make sure cleanup runs
+            raise
         except Exception as e:
             logger.error(f"Unexpected error: {e}", exc_info=True)
             return 1
@@ -84,7 +89,8 @@ class Application:
         logger.info(f"Target directory: {self.config.target_directory}")
         logger.info(f"Config file: {self.config.config_file}")
         logger.info(f"Output file: {self.config.output_path}")
-        logger.info(f"Checks: {len(self.config.checks)}")
+        total_rules = sum(len(g.rules) for g in self.config.check_groups)
+        logger.info(f"Check groups: {len(self.config.check_groups)}, Total rules: {total_rules}")
         logger.info("=" * 60)
 
         # Initialize components
@@ -136,6 +142,9 @@ class Application:
                 f.write(f"{os.getpid()}\n")
             self._lock_acquired = True
             logger.debug(f"Acquired lock: {lock_path}")
+            
+            # Register atexit handler to ensure lock is released on any exit
+            atexit.register(self._release_lock)
         except IOError as e:
             raise LockFileError(f"Could not create lock file: {e}")
 
@@ -264,7 +273,10 @@ class Application:
 
     def _cleanup(self) -> None:
         """Clean up resources."""
-        logger.info("Cleaning up...")
+        try:
+            logger.info("Cleaning up...")
+        except Exception:
+            pass  # Logging may not be set up yet
 
         self._stop_event.set()
 
@@ -276,7 +288,10 @@ class Application:
 
         self._release_lock()
 
-        logger.info("Cleanup complete")
+        try:
+            logger.info("Cleanup complete")
+        except Exception:
+            pass
 
 
 def parse_args() -> argparse.Namespace:

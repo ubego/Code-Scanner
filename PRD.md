@@ -40,13 +40,17 @@ The primary objective of this project is to implement a software program that **
 *   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
 
 ### 2.2 Query and Analysis Engine
-*   **Configuration Input:** The scanner will take a **TOML configuration file** containing a simple list of user-defined prompts. The configuration file is **read once at startup** (no hot-reload support).
+*   **Configuration Input:** The scanner will take a **TOML configuration file** containing user-defined prompts organized into check groups. The configuration file is **read once at startup** (no hot-reload support).
 *   **Config File Location:** The TOML config file is specified via **CLI argument**, or defaults to the **scanner's script directory** if not provided.
 *   **Missing Config File:** If no config file is found (not provided and not in script directory), **fail with error**.
 *   **Empty Checks List:** If the config file exists but contains no checks, **fail with error**.
-*   **Structure:** Checks in the TOML file are simple prompt strings without complex metadata.
+*   **Check Groups Structure:** Checks are organized into **groups**, each with a file pattern and list of rules:
+    *   **Pattern:** Glob pattern to match files (e.g., `"*.cpp, *.h"` for C++ files, `"*"` for all files).
+    *   **Rules:** List of prompt strings to run against matching files.
+    *   **Legacy Support:** Simple list of strings format is still supported (converted to single group with `"*"` pattern).
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
-*   **Aggregated Context:** Each query is sent to the AI with the **entire content of all modified files** as context, not file-by-file.
+*   **Pattern-Based Filtering:** For each check group, only files matching the group's pattern are included in the analysis batches.
+*   **Aggregated Context:** Each query is sent to the AI with the **entire content of all matching modified files** as context, not file-by-file.
 *   **Context Overflow Strategy:** If the combined content of all modified files exceeds the AI model's context window:
     1.  **Group by directory hierarchy:** Batch files from the same directory together, considering the **full directory hierarchy** (e.g., `src/utils/helpers/` first, then `src/utils/`, then `src/`).
     2.  **File-by-file fallback:** If a directory group still exceeds the limit, process files individually.
@@ -65,6 +69,8 @@ The primary objective of this project is to implement a software program that **
 *   **Model Selection:** Use the **first/default model** available in LM Studio. No explicit model selection required.
 *   **Prompt Format:** Use an optimized prompt structure that is well-understood by LLMs (system prompt with instructions, user prompt with code context).
 *   **Response Format:** The scanner must request a **structured JSON response** from the LLM with a fixed schema.
+    *   **Strict Prompt Instructions:** The system prompt must explicitly forbid markdown code fences, explanations, and any text outside the JSON object.
+    *   **Markdown Fence Stripping:** If the LLM wraps JSON in markdown fences (` ```json ... ``` `), the scanner must **automatically strip them** before parsing.
     *   **JSON Enforcement:** Use the API parameter `response_format={ "type": "json_object" }` to guarantee valid JSON output.
     *   **Response Format Fallback:** If the LLM API does not support `response_format` parameter (returns error), the scanner must **automatically retry without the parameter** and rely on the system prompt for JSON formatting.
     *   Response is an **array of issues** (multiple issues per query are supported).
@@ -72,9 +78,11 @@ The primary objective of this project is to implement a software program that **
     *   **No issues found:** Return an empty array `[]`.
 *   **Reasoning Effort:** The scanner must set **`reasoning_effort = "high"`** in API requests to maximize analysis quality.
 *   **Malformed Response Handling:** If the LLM returns invalid JSON or doesn't follow the schema:
-    *   **Retry immediately** (no delay/backoff).
+    *   **Reformat Request:** First, ask the LLM to **reformat its own response** into valid JSON. This is more effective than blind retrying.
+    *   **Retry on failure:** If reformatting fails, retry the original query (no delay/backoff).
     *   **Maximum 3 retries** before skipping the query and logging an error.
-    *   Log all retry attempts to system log.
+    *   Log all retry attempts with attempt count (e.g., "attempt 1/3") to system log.
+    *   Common causes: model timeout, context overflow, or model returning explanation text instead of JSON.
 *   **LM Studio Connection Handling:**
     *   **Startup Failure:** If LM Studio is not running or unreachable at startup, **fail immediately** with a clear error message.
     *   **Mid-Session Failure:** If LM Studio becomes unavailable during scanning, **pause and retry every 10 seconds** until connection is restored.
@@ -109,7 +117,10 @@ The primary objective of this project is to implement a software program that **
 *   **System Log Destination:** Internal system logs (retry attempts, skipped files, warnings, debug info) are written to **both**:
     *   **Console** (stdout/stderr) for real-time monitoring.
     *   **Separate log file** named `code_scanner.log` in the target directory.
-*   **Graceful Shutdown:** On `Ctrl+C` (SIGINT), the scanner performs an **immediate exit** without waiting for the current query to complete.
+*   **Graceful Shutdown:** On `Ctrl+C` (SIGINT), SIGTERM, or any termination:
+    *   **Immediate exit** without waiting for the current query to complete.
+    *   **Lock file cleanup** is guaranteed via `atexit` handler and signal handlers.
+    *   The lock file is removed even on `sys.exit()`, exceptions, or crashes.
 
 ---
 
@@ -156,16 +167,36 @@ The primary objective of this project is to implement a software program that **
 14. On **SIGINT**, immediately exit and remove lock file.
 
 ### 3.4 Sample Configuration Checks
-The following checks are provided as **examples only** and can be completely customized or replaced by the user in the TOML configuration file. These samples demonstrate C++/Qt-specific checks but the scanner supports **any language**:
+The following checks are provided as **examples only** and can be completely customized or replaced by the user in the TOML configuration file. Checks are organized into **groups by file pattern**:
 
-*   **Autonomous Iteration:** Check that iteration continues automatically until the final result, without requiring user prompts to proceed.
-*   **Compile-Time Programming:** Check that `constexpr` and compile-time programming techniques are applied where appropriate.
-*   **Stack Allocation Preference:** Check that stack allocation is preferred over heap allocation whenever possible.
-*   **QStringView for Literals:** Check that string literals are handled through `QStringView` variables.
-*   **Named QStringView Constants:** Check that string literals used multiple times are stored in named `QStringView` constants instead of being repeated.
-*   **Error Detection:** Check for any detectable errors and suggest code simplifications where possible.
-*   **Meaningful Comments:** Check that comments provide meaningful context or rationale and avoid restating obvious code behavior.
-*   **Implementation in .cpp Files:** Check that functions are implemented in `.cpp` files rather than `.h` files.
+**C++/Qt-specific checks (pattern: `"*.cpp, *.h, *.cxx, *.hpp"`):**
+*   Check that iteration continues automatically until the final result, without requiring user prompts to proceed.
+*   Check that `constexpr` and compile-time programming techniques are applied where appropriate.
+*   Check that stack allocation is preferred over heap allocation whenever possible.
+*   Check that string literals are handled through `QStringView` variables.
+*   Check that string literals used multiple times are stored in named `QStringView` constants instead of being repeated.
+*   Check that comments provide meaningful context or rationale and avoid restating obvious code behavior.
+*   Check that functions are implemented in `.cpp` files rather than `.h` files.
+
+**General checks for all files (pattern: `"*"`):**
+*   Check for any detectable errors and suggest code simplifications where possible.
+*   Check for unused files or dead code.
+
+**Example TOML configuration:**
+```toml
+[[checks]]
+pattern = "*.cpp, *.h"
+rules = [
+    "Check for memory leaks",
+    "Check that RAII is used properly"
+]
+
+[[checks]]
+pattern = "*"
+rules = [
+    "Check for unused code"
+]
+```
 
 ***
 

@@ -11,7 +11,7 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
-from .models import LLMConfig
+from .models import LLMConfig, CheckGroup
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class Config:
 
     target_directory: Path
     config_file: Path
-    checks: list[str]
+    check_groups: list[CheckGroup]
     commit_hash: Optional[str] = None
     llm: LLMConfig = field(default_factory=LLMConfig)
 
@@ -114,21 +114,58 @@ def load_config(
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"Invalid TOML in config file: {e}")
 
-    # Extract checks
-    checks = data.get("checks", [])
-    if not checks:
+    # Extract checks - support both old format (list of strings) and new format (array of tables)
+    checks_data = data.get("checks", [])
+    if not checks_data:
         raise ConfigError(
             "No checks defined in configuration file.\n"
             "Add checks to your config.toml:\n"
-            '  checks = ["Check for errors", "Check for style issues"]'
+            '[[checks]]\n'
+            'pattern = "*"\n'
+            'rules = ["Check for errors", "Check for style issues"]'
         )
 
-    if not isinstance(checks, list):
-        raise ConfigError("'checks' must be a list of strings")
+    check_groups: list[CheckGroup] = []
 
-    for i, check in enumerate(checks):
-        if not isinstance(check, str) or not check.strip():
-            raise ConfigError(f"Check at index {i} must be a non-empty string")
+    # Detect format: list of strings (old) vs list of dicts (new)
+    if isinstance(checks_data, list) and len(checks_data) > 0:
+        if isinstance(checks_data[0], str):
+            # Old format: list of strings - convert to single group with "*" pattern
+            logger.info("Using legacy config format (list of strings). Consider migrating to [[checks]] format.")
+            for i, check in enumerate(checks_data):
+                if not isinstance(check, str) or not check.strip():
+                    raise ConfigError(f"Check at index {i} must be a non-empty string")
+            check_groups.append(CheckGroup(
+                pattern="*",
+                rules=[c.strip() for c in checks_data]
+            ))
+        elif isinstance(checks_data[0], dict):
+            # New format: array of tables
+            for i, group_data in enumerate(checks_data):
+                if not isinstance(group_data, dict):
+                    raise ConfigError(f"Check group at index {i} must be a table")
+
+                pattern = group_data.get("pattern", "*")
+                rules = group_data.get("rules", [])
+
+                if not isinstance(pattern, str) or not pattern.strip():
+                    raise ConfigError(f"Check group at index {i}: 'pattern' must be a non-empty string")
+
+                if not isinstance(rules, list) or not rules:
+                    raise ConfigError(f"Check group at index {i}: 'rules' must be a non-empty list")
+
+                for j, rule in enumerate(rules):
+                    if not isinstance(rule, str) or not rule.strip():
+                        raise ConfigError(f"Check group {i}, rule {j}: must be a non-empty string")
+
+                check_groups.append(CheckGroup(
+                    pattern=pattern.strip(),
+                    rules=[r.strip() for r in rules]
+                ))
+        else:
+            raise ConfigError("'checks' must be a list of strings or array of tables")
+    else:
+        raise ConfigError("'checks' must be a non-empty list")
 
     # Extract LLM config
     llm_data = data.get("llm", {})
@@ -144,12 +181,13 @@ def load_config(
     config = Config(
         target_directory=target_directory,
         config_file=config_file,
-        checks=[c.strip() for c in checks],
+        check_groups=check_groups,
         commit_hash=commit_hash,
         llm=llm_config,
     )
 
-    logger.info(f"Loaded {len(config.checks)} checks from configuration")
+    total_rules = sum(len(g.rules) for g in config.check_groups)
+    logger.info(f"Loaded {len(config.check_groups)} check group(s) with {total_rules} total rules")
     logger.debug(f"LM Studio endpoint: {config.llm.base_url}")
 
     return config

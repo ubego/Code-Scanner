@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time
 from typing import Any, Optional
 
@@ -218,8 +219,11 @@ class LLMClient:
 
                 content = response.choices[0].message.content
                 if not content:
-                    logger.warning(f"Empty response from LLM (attempt {attempt + 1})")
+                    logger.warning(f"Empty response from LLM (attempt {attempt + 1}/{max_retries}). Will retry automatically.")
                     continue
+
+                # Strip markdown code fences if present (common LLM behavior)
+                content = self._strip_markdown_fences(content)
 
                 # Parse JSON response
                 try:
@@ -227,10 +231,21 @@ class LLMClient:
                     logger.debug("Successfully parsed JSON response")
                     return result
                 except json.JSONDecodeError as e:
+                    # Log raw response at WARNING level so it's always visible
+                    raw_preview = content[:1000] if content else "(empty)"
                     logger.warning(
-                        f"Malformed JSON response (attempt {attempt + 1}): {e}"
+                        f"Malformed JSON response (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Asking LLM to reformat response.\n"
+                        f"--- Raw LLM response ---\n{raw_preview}\n--- End raw response ---"
                     )
-                    logger.debug(f"Raw response: {content[:500]}...")
+                    
+                    # Try to get LLM to fix its own response
+                    fix_result = self._try_fix_json_response(content, request_params)
+                    if fix_result is not None:
+                        logger.info("LLM successfully reformatted response to valid JSON.")
+                        return fix_result
+                    
+                    # If fix failed, continue to next retry attempt
                     continue
 
             except APIConnectionError as e:
@@ -253,6 +268,88 @@ class LLMClient:
         raise LLMClientError(
             f"Failed to get valid JSON response after {max_retries} attempts"
         )
+
+    def _try_fix_json_response(self, malformed_content: str, original_params: dict) -> Optional[dict]:
+        """Try to get LLM to fix its own malformed JSON response.
+
+        Args:
+            malformed_content: The malformed response from LLM.
+            original_params: The original request parameters.
+
+        Returns:
+            Parsed JSON dict if successful, None if fix attempt failed.
+        """
+        if self._client is None:
+            return None
+
+        try:
+            # Create a fix request asking LLM to reformat its response
+            fix_params = {
+                "model": self._model_id,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a JSON extractor. Extract and return ONLY valid JSON. "
+                            "Do NOT include markdown code fences (```), explanations, or any other text. "
+                            "Output ONLY the raw JSON object, nothing else. "
+                            "Expected format: {\"issues\": [{\"file\": \"...\", \"line_number\": N, "
+                            "\"description\": \"...\", \"suggested_fix\": \"...\", \"code_snippet\": \"...\"}]} "
+                            "If the input has no valid issues, return: {\"issues\": []}"
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Extract the JSON from this response:\n\n{malformed_content[:4000]}"
+                    },
+                ],
+                "temperature": 0.0,  # Very low temperature for deterministic output
+            }
+
+            # Add response_format if supported
+            if self._supports_json_format:
+                fix_params["response_format"] = {"type": "json_object"}
+
+            response = self._client.chat.completions.create(**fix_params)
+            content = response.choices[0].message.content
+
+            if content:
+                # Strip markdown fences from fix response too
+                content = self._strip_markdown_fences(content)
+                result = json.loads(content)
+                return result
+
+        except Exception as e:
+            logger.debug(f"JSON fix attempt failed: {e}")
+
+        return None
+
+    def _strip_markdown_fences(self, content: str) -> str:
+        """Strip markdown code fences from content.
+
+        LLMs often wrap JSON in ```json ... ``` blocks despite instructions not to.
+        This extracts the content inside the fences.
+
+        Args:
+            content: Raw response content.
+
+        Returns:
+            Content with markdown fences stripped.
+        """
+        content = content.strip()
+
+        # Pattern to match ```json or ``` at start and ``` at end
+        # Handles: ```json\n{...}\n``` or ```\n{...}\n```
+        fence_pattern = re.compile(
+            r'^```(?:json)?\s*\n?(.*?)\n?```\s*$',
+            re.DOTALL | re.IGNORECASE
+        )
+
+        match = fence_pattern.match(content)
+        if match:
+            return match.group(1).strip()
+
+        return content
 
     def wait_for_connection(self, retry_interval: int = 10) -> None:
         """Wait for LM Studio to become available.
@@ -316,27 +413,22 @@ class LLMClient:
 # System prompt template for code analysis
 SYSTEM_PROMPT_TEMPLATE = """You are a code analysis assistant. Your task is to analyze source code and identify issues based on specific checks.
 
-IMPORTANT: You must respond with a JSON object containing an "issues" array. Each issue must have:
-- "file": the file path where the issue was found
-- "line_number": the line number (1-based)
-- "description": a clear description of the issue
-- "suggested_fix": the suggested fix as code
-- "code_snippet": the problematic code snippet (for context)
+CRITICAL: Your response must be ONLY a valid JSON object. Do NOT include:
+- Markdown code fences (```)
+- Explanations or comments before/after the JSON
+- Any text outside the JSON object
 
-If no issues are found, return: {"issues": []}
+REQUIRED OUTPUT FORMAT (copy this structure exactly):
+{"issues": [{"file": "path/to/file.ext", "line_number": 42, "description": "Issue description", "suggested_fix": "How to fix it", "code_snippet": "problematic code"}]}
 
-Example response format:
-{
-  "issues": [
-    {
-      "file": "src/main.cpp",
-      "line_number": 42,
-      "description": "Heap allocation used where stack allocation would suffice",
-      "suggested_fix": "MyClass obj;  // Use stack allocation instead",
-      "code_snippet": "MyClass* obj = new MyClass();"
-    }
-  ]
-}
+Each issue in the array must have these exact keys:
+- "file": string - the file path where the issue was found
+- "line_number": integer - the line number (1-based)
+- "description": string - clear description of the issue
+- "suggested_fix": string - the suggested fix
+- "code_snippet": string - the problematic code snippet
+
+If no issues are found, return exactly: {"issues": []}
 
 Be precise with line numbers. Only report actual issues, not potential or hypothetical ones."""
 

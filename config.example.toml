@@ -1,8 +1,12 @@
 # Code Scanner Configuration
 
-# List of checks to run against code changes.
-# Each check is a prompt string that will be sent to the LLM.
-checks = [
+# Checks are organized into groups, each with a file pattern and list of rules.
+# Pattern uses glob syntax: "*.cpp, *.h" matches C++ files, "*" matches all files.
+
+# C++/Qt specific checks
+[[checks]]
+pattern = "*.cpp, *.h, *.cxx, *.hpp"
+rules = [
     "Check for any detectable errors and suggest code simplifications where possible.",
     "Check that iteration continues automatically until the final result, without requiring user prompts to proceed.",
     "Check that constexpr and compile-time programming techniques are applied where appropriate.",
@@ -11,6 +15,13 @@ checks = [
     "Check that string literals used multiple times are stored in named QStringView constants instead of being repeated.",
     "Check that comments provide meaningful context or rationale and avoid restating obvious code behavior.",
     "Check that functions are implemented in .cpp files rather than .h files.",
+]
+
+# General checks for all files
+[[checks]]
+pattern = "*"
+rules = [
+    "Check for unused files or dead code.",
 ]
 
 # LM Studio connection settings (optional - these are the defaults)

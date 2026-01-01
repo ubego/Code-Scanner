@@ -39,13 +39,25 @@ pip install -e .
 
 See `config.example.toml` for all available options.
 
-### Basic Configuration
+### Check Groups
+
+Checks are organized into **groups**, each with a file pattern and list of rules:
 
 ```toml
-# List of checks to run against code changes
-checks = [
+# C++/Qt specific checks
+[[checks]]
+pattern = "*.cpp, *.h, *.cxx, *.hpp"
+rules = [
     "Check for any detectable errors and suggest code simplifications where possible.",
     "Check that stack allocation is preferred over heap allocation whenever possible.",
+    "Check that string literals are handled through QStringView variables.",
+]
+
+# General checks for all files
+[[checks]]
+pattern = "*"
+rules = [
+    "Check for unused files or dead code.",
 ]
 
 # LM Studio connection settings
@@ -56,6 +68,17 @@ port = 1234
 timeout = 120
 # context_limit = 8192  # See "Context Limit" section below
 ```
+
+**Pattern syntax:**
+- `"*.cpp, *.h"` - Match multiple extensions (comma-separated)
+- `"*"` - Match all files
+- `"src/*.py"` - Match files in specific directories
+
+**Legacy format:** Simple list of strings is still supported:
+```toml
+checks = ["Check for errors", "Check for style issues"]
+```
+This is converted to a single group with `"*"` pattern.
 
 ### Context Limit
 
@@ -104,7 +127,15 @@ Options:
 
 ### Lock File
 
-The scanner creates a lock file `.code_scanner.lock` in the **scanner's script directory** (not the target project directory) to prevent multiple instances from running simultaneously. If the lock file exists (e.g., after a crash), you must manually delete it.
+The scanner creates a lock file `.code_scanner.lock` in the **scanner's script directory** (not the target project directory) to prevent multiple instances from running simultaneously.
+
+**Graceful cleanup**: The lock file is automatically removed when the scanner exits via:
+- Normal exit
+- Ctrl+C (SIGINT)
+- SIGTERM
+- Any exception or error
+
+The cleanup is guaranteed via `atexit` handler and signal handlers. If the lock file exists after a crash (rare), you must manually delete it.
 
 ### LLM Compatibility
 
@@ -113,6 +144,24 @@ The scanner is designed to work with various LM Studio models:
 - **JSON response format**: Uses `response_format={"type": "json_object"}` if supported. Automatically falls back to prompt-based JSON formatting if the model doesn't support this parameter.
 - **Reasoning effort**: Uses `reasoning_effort="high"` for thorough code analysis.
 - **Context limit**: Auto-detected from API, with interactive prompt fallback.
+
+### Error Handling
+
+**Markdown fence stripping**: LLMs often wrap JSON in markdown code fences (` ```json ... ``` `) despite being told not to. The scanner automatically detects and strips these fences before parsing.
+
+**Malformed JSON responses**: LLMs occasionally return incomplete or non-JSON responses. The scanner handles this intelligently:
+1. Automatically strips markdown code fences if present
+2. If parsing still fails, asks the LLM to **reformat its own response** into valid JSON
+3. If reformatting fails, retries the original query (up to 3 times)
+
+```
+WARNING - Malformed JSON response (attempt 1/3): Expecting value: line 1 column 1 (char 0). Asking LLM to reformat response.
+INFO - LLM successfully reformatted response to valid JSON.
+```
+
+This is normal behavior - the scanner handles it automatically.
+
+**Empty responses**: If the LLM returns an empty response, the scanner retries automatically.
 
 ### Excluded Files
 
