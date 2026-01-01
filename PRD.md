@@ -5,6 +5,7 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
+*   **Quality Assurance:** The codebase maintains **91% test coverage** with 430+ unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
@@ -113,6 +114,7 @@ The primary objective of this project is to implement a software program that **
     *   **Resolved Issues Lifecycle:** Resolved issues remain in the log **indefinitely** for historical tracking. Users may manually remove them if desired.
     *   **Source of Truth:** The scanner is the **authoritative source** for the log file. Any manual edits by the user (e.g., deleting an "OPEN" issue) will be **overwritten** if the scanner detects that the issue still exists in the code during the next scan.
     *   **File Rewriting:** To reflect these status updates, the scanner **rewrites the entire output file** each time the internal model changes.
+*   **Real-Time Updates:** The output file is updated **immediately** when new issues are found during scanning, not just at the end of a scan cycle. This provides instant feedback to the user.
 *   **System Verbosity:** Verbose logging is **always enabled** (no quiet mode). The output includes system information and detailed runtime data for debugging purposes.
 *   **System Log Destination:** Internal system logs (retry attempts, skipped files, warnings, debug info) are written to **both**:
     *   **Console** (stdout/stderr) for real-time monitoring.
@@ -155,13 +157,12 @@ The primary objective of this project is to implement a software program that **
     *   *Context Check:* If combined files exceed context limit, apply **context overflow strategy** (group by directory, then file-by-file).
     *   *Skip oversized:* If a single file exceeds context limit, skip and warn.
 8.  Trigger the **LLM query loop**, processing check prompts sequentially.
-9.  Communicate with the **LM Studio local server** via its API.
-    *   *Retry on failure:* If LLM returns malformed JSON, retry immediately (max 3 retries).
-10. **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop (Finish-Then-Restart strategy). Upon restart, **discard findings only from the interrupted query**, preserving results from all previously completed queries in that cycle.
-11. **Update Output:**
-    *   Update the internal model with new findings.
-    *   Mark fixed issues as "RESOLVED".
-    *   **Rewrite the output Markdown file** with the full list of detected and resolved issues.
+    9.  Communicate with the **LM Studio local server** via its API.
+        *   *Retry on failure:* If LLM returns malformed JSON, retry immediately (max 3 retries).
+    10. **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop.
+    11. **Update Output (Incremental):** After *each* completed query:
+        *   Update the internal model with new findings.
+        *   **immediatelyrewrite the output Markdown file** to provide real-time feedback.
 12. Upon completing all checks, **loop back** to the first check and continue.
 13. If the Git watcher detects new changes, **restart the scanner** from the beginning of the check list.
 14. On **SIGINT**, immediately exit and remove lock file.

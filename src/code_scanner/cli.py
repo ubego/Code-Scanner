@@ -215,8 +215,17 @@ class Application:
                     "Please delete the file manually or run interactively."
                 )
 
+            # Get file stats
+            try:
+                stats = output_path.stat()
+                size_mb = stats.st_size / (1024 * 1024)
+                mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
+                file_info = f" (Size: {size_mb:.2f} MB, Modified: {mtime})"
+            except OSError:
+                file_info = ""
+
             if not prompt_yes_no(
-                f"Output file {output_path} already exists. Overwrite?",
+                f"Output file {output_path} already exists{file_info}. Overwrite?",
                 default=False,
             ):
                 logger.info("User declined to overwrite, exiting")

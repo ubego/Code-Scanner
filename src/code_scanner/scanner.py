@@ -173,6 +173,14 @@ class Scanner:
                     all_issues.extend(check_issues)
                     self._scan_info["checks_run"] += 1
 
+                    # Immediately add new issues to tracker and update output file
+                    if check_issues:
+                        new_count = self.issue_tracker.add_issues(check_issues)
+                        if new_count > 0:
+                            logger.info(f"Added {new_count} new issue(s) to tracker")
+                            self.output_generator.write(self.issue_tracker, self._scan_info)
+                            logger.info(f"Output file updated with {self.issue_tracker.get_stats()['total']} total issues")
+
                 except LLMClientError as e:
                     if "Lost connection" in str(e):
                         # Mid-session failure - wait for reconnection

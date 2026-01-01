@@ -1,0 +1,523 @@
+"""Additional LLM client tests for better coverage."""
+
+import pytest
+import json
+from unittest.mock import MagicMock, patch, PropertyMock
+from openai import APIError, APIConnectionError
+
+from code_scanner.llm_client import (
+    LLMClient,
+    LLMClientError,
+    build_user_prompt,
+    SYSTEM_PROMPT_TEMPLATE,
+)
+from code_scanner.config import LLMConfig
+
+
+class TestLLMClientConnect:
+    """Tests for LLMClient connection."""
+
+    def test_connect_success(self):
+        """Test successful connection to LM Studio."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        mock_openai = MagicMock()
+        mock_models = MagicMock()
+        mock_model = MagicMock()
+        mock_model.id = "test-model"
+        mock_models.list.return_value.data = [mock_model]
+        mock_openai.models = mock_models
+        
+        with patch('code_scanner.llm_client.OpenAI', return_value=mock_openai):
+            client.connect()
+        
+        assert client.is_connected()
+        assert client.model_id == "test-model"
+
+    def test_connect_no_models(self):
+        """Test connection fails when no models available."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        mock_openai = MagicMock()
+        mock_openai.models.list.return_value.data = []
+        
+        with patch('code_scanner.llm_client.OpenAI', return_value=mock_openai):
+            with pytest.raises(LLMClientError) as exc_info:
+                client.connect()
+        
+        assert "No models available" in str(exc_info.value)
+
+    def test_connect_connection_error(self):
+        """Test connection fails on connection error."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        with patch('code_scanner.llm_client.OpenAI') as mock_openai_class:
+            mock_openai_class.side_effect = APIConnectionError(request=MagicMock())
+            
+            with pytest.raises(LLMClientError) as exc_info:
+                client.connect()
+        
+        assert "Could not connect" in str(exc_info.value)
+
+
+class TestLLMClientQuery:
+    """Tests for LLMClient query method."""
+
+    def test_query_not_connected(self):
+        """Query raises error when not connected."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        with pytest.raises(LLMClientError) as exc_info:
+            client.query("system", "user")
+        
+        assert "not connected" in str(exc_info.value).lower()
+
+    def test_query_valid_json_response(self):
+        """Query returns parsed JSON on valid response."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test-model"
+        client._context_limit = 8000
+        
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"issues": []}'
+        client._client.chat.completions.create.return_value = mock_response
+        
+        result = client.query("system", "user")
+        
+        assert result == {"issues": []}
+
+    def test_query_json_with_markdown_fences(self):
+        """Query handles JSON wrapped in markdown fences."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test-model"
+        client._context_limit = 8000
+        
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '```json\n{"issues": []}\n```'
+        client._client.chat.completions.create.return_value = mock_response
+        
+        result = client.query("system", "user")
+        
+        assert result == {"issues": []}
+
+    def test_query_response_format_fallback(self):
+        """Query retries without response_format when not supported."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test-model"
+        client._context_limit = 8000
+        client._supports_json_format = True
+        
+        # First call fails with response_format error
+        api_error = APIError(
+            message="response_format is not supported",
+            request=MagicMock(),
+            body=None
+        )
+        
+        # Second call succeeds
+        success_response = MagicMock()
+        success_response.choices = [MagicMock()]
+        success_response.choices[0].message.content = '{"issues": []}'
+        
+        client._client.chat.completions.create.side_effect = [
+            api_error,
+            success_response
+        ]
+        
+        result = client.query("system", "user")
+        
+        assert result == {"issues": []}
+        assert client._supports_json_format is False
+
+    def test_query_connection_lost(self):
+        """Query raises error on connection loss."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test-model"
+        client._context_limit = 8000
+        
+        client._client.chat.completions.create.side_effect = APIConnectionError(
+            request=MagicMock()
+        )
+        
+        with pytest.raises(LLMClientError) as exc_info:
+            client.query("system", "user")
+        
+        assert "Lost connection" in str(exc_info.value)
+
+    def test_query_max_retries_exceeded(self):
+        """Query fails after max retries."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test-model"
+        client._context_limit = 8000
+        
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = 'not valid json'
+        client._client.chat.completions.create.return_value = mock_response
+        
+        with pytest.raises(LLMClientError) as exc_info:
+            client.query("system", "user", max_retries=2)
+        
+        assert "Failed to get valid JSON" in str(exc_info.value)
+
+    def test_query_empty_response_retry(self):
+        """Query retries on empty response."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test-model"
+        client._context_limit = 8000
+        
+        empty_response = MagicMock()
+        empty_response.choices = [MagicMock()]
+        empty_response.choices[0].message.content = ''
+        
+        valid_response = MagicMock()
+        valid_response.choices = [MagicMock()]
+        valid_response.choices[0].message.content = '{"issues": []}'
+        
+        client._client.chat.completions.create.side_effect = [
+            empty_response,
+            valid_response
+        ]
+        
+        result = client.query("system", "user")
+        
+        assert result == {"issues": []}
+
+
+class TestTryFixJsonResponse:
+    """Tests for _try_fix_json_response method."""
+
+    def test_fix_not_connected_returns_none(self):
+        """Returns None when not connected."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = None
+        
+        result = client._try_fix_json_response("bad json", {})
+        
+        assert result is None
+
+    def test_fix_success(self):
+        """Returns fixed JSON on success."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test-model"
+        client._supports_json_format = True
+        
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"issues": []}'
+        client._client.chat.completions.create.return_value = mock_response
+        
+        result = client._try_fix_json_response("broken json", {})
+        
+        assert result == {"issues": []}
+
+    def test_fix_returns_none_on_error(self):
+        """Returns None when fix attempt fails."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test-model"
+        
+        client._client.chat.completions.create.side_effect = Exception("API error")
+        
+        result = client._try_fix_json_response("bad json", {})
+        
+        assert result is None
+
+    def test_fix_returns_none_on_invalid_json(self):
+        """Returns None when fix response is also invalid."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test-model"
+        
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = 'still not json'
+        client._client.chat.completions.create.return_value = mock_response
+        
+        result = client._try_fix_json_response("bad json", {})
+        
+        assert result is None
+
+
+class TestStripMarkdownFences:
+    """Tests for _strip_markdown_fences method."""
+
+    def test_strip_json_fence(self):
+        """Strips ```json fence."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        content = '```json\n{"key": "value"}\n```'
+        result = client._strip_markdown_fences(content)
+        
+        assert result == '{"key": "value"}'
+
+    def test_strip_plain_fence(self):
+        """Strips plain ``` fence."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        content = '```\n{"key": "value"}\n```'
+        result = client._strip_markdown_fences(content)
+        
+        assert result == '{"key": "value"}'
+
+    def test_strip_with_extra_whitespace(self):
+        """Handles extra whitespace around fences."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        content = '  ```json\n  {"key": "value"}  \n```  '
+        result = client._strip_markdown_fences(content)
+        
+        assert '{"key": "value"}' in result
+
+    def test_no_fence_unchanged(self):
+        """Content without fence passes through."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        content = '{"key": "value"}'
+        result = client._strip_markdown_fences(content)
+        
+        assert result == '{"key": "value"}'
+
+    def test_case_insensitive(self):
+        """Strips fences regardless of case."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        content = '```JSON\n{"key": "value"}\n```'
+        result = client._strip_markdown_fences(content)
+        
+        assert result == '{"key": "value"}'
+
+
+class TestBuildUserPrompt:
+    """Tests for build_user_prompt function."""
+
+    def test_single_file(self):
+        """Prompt built correctly for single file."""
+        files = {"test.py": "print('hello')"}
+        query = "Check for issues"
+        
+        prompt = build_user_prompt(query, files)
+        
+        assert "Check for issues" in prompt
+        assert "test.py" in prompt
+        assert "print('hello')" in prompt
+
+    def test_multiple_files(self):
+        """Prompt built correctly for multiple files."""
+        files = {
+            "a.py": "code_a",
+            "b.py": "code_b",
+        }
+        query = "Check"
+        
+        prompt = build_user_prompt(query, files)
+        
+        assert "a.py" in prompt
+        assert "b.py" in prompt
+        assert "code_a" in prompt
+        assert "code_b" in prompt
+
+    def test_empty_files(self):
+        """Prompt handles empty files dict."""
+        files = {}
+        query = "Check"
+        
+        prompt = build_user_prompt(query, files)
+        
+        assert "Check" in prompt
+
+
+class TestLLMClientProperties:
+    """Tests for LLMClient property methods."""
+
+    def test_context_limit_not_connected(self):
+        """context_limit raises error when not connected."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        with pytest.raises(LLMClientError):
+            _ = client.context_limit
+
+    def test_context_limit_connected(self):
+        """context_limit returns value when set."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._context_limit = 16384
+        
+        assert client.context_limit == 16384
+
+    def test_model_id_not_connected(self):
+        """model_id raises error when not connected."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        with pytest.raises(LLMClientError):
+            _ = client.model_id
+
+    def test_model_id_connected(self):
+        """model_id returns value when set."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._model_id = "test-model"
+        
+        assert client.model_id == "test-model"
+
+    def test_is_connected_false_initially(self):
+        """is_connected() returns False before connect."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        assert client.is_connected() is False
+
+    def test_is_connected_true_after_client_set(self):
+        """is_connected() returns True when client is set."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        
+        assert client.is_connected() is True
+
+    def test_is_ready_false_without_context_limit(self):
+        """is_ready() returns False without context limit."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test"
+        client._context_limit = None
+        
+        assert client.is_ready() is False
+
+    def test_is_ready_true_when_complete(self):
+        """is_ready() returns True when fully configured."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._model_id = "test"
+        client._context_limit = 8000
+        
+        assert client.is_ready() is True
+
+
+class TestLLMClientSetContextLimit:
+    """Tests for set_context_limit method."""
+
+    def test_set_valid_limit(self):
+        """Valid context limit is set."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        client.set_context_limit(16384)
+        
+        assert client._context_limit == 16384
+
+    def test_set_invalid_limit_raises(self):
+        """Invalid context limit raises error."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        with pytest.raises(ValueError):
+            client.set_context_limit(0)
+        
+        with pytest.raises(ValueError):
+            client.set_context_limit(-1)
+
+
+class TestLLMClientNeedsContextLimit:
+    """Tests for needs_context_limit method."""
+
+    def test_needs_limit_not_connected(self):
+        """Returns False when not connected."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        assert client.needs_context_limit() is False
+
+    def test_needs_limit_when_none(self):
+        """Returns True when connected but context_limit is None."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._context_limit = None
+        
+        assert client.needs_context_limit() is True
+
+    def test_no_need_when_set(self):
+        """Returns False when context_limit is set."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        client._client = MagicMock()
+        client._context_limit = 8000
+        
+        assert client.needs_context_limit() is False
+
+
+class TestSystemPromptTemplate:
+    """Tests for system prompt template."""
+
+    def test_prompt_contains_json_instructions(self):
+        """System prompt contains JSON formatting instructions."""
+        assert "JSON" in SYSTEM_PROMPT_TEMPLATE
+        assert "issues" in SYSTEM_PROMPT_TEMPLATE
+
+    def test_prompt_forbids_markdown(self):
+        """System prompt forbids markdown fences."""
+        assert "markdown" in SYSTEM_PROMPT_TEMPLATE.lower() or "```" in SYSTEM_PROMPT_TEMPLATE
+
+    def test_prompt_specifies_required_fields(self):
+        """System prompt specifies required issue fields."""
+        assert "file" in SYSTEM_PROMPT_TEMPLATE.lower()
+        assert "line" in SYSTEM_PROMPT_TEMPLATE.lower()
+        assert "description" in SYSTEM_PROMPT_TEMPLATE.lower()
+
+
+class TestLLMClientWaitForConnection:
+    """Tests for wait_for_connection method."""
+
+    def test_wait_reconnects_successfully(self):
+        """wait_for_connection reconnects when possible."""
+        config = LLMConfig()
+        client = LLMClient(config)
+        
+        call_count = [0]
+        
+        def connect_side_effect():
+            call_count[0] += 1
+            if call_count[0] < 2:
+                raise LLMClientError("Not ready")
+            # Success on second call
+            client._client = MagicMock()
+            client._model_id = "test"
+        
+        with patch.object(client, 'connect', side_effect=connect_side_effect):
+            with patch('time.sleep'):
+                client.wait_for_connection(retry_interval=1)
+        
+        assert call_count[0] == 2

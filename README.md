@@ -7,9 +7,10 @@ AI-powered code scanner that uses local LLM (LM Studio) to identify issues in yo
 - **Language-agnostic**: Works with any programming language
 - **Local LLM**: Uses LM Studio with OpenAI-compatible API
 - **Git integration**: Monitors repository changes and scans modified files
-- **Configurable checks**: Define custom checks via TOML configuration
+- **Configurable checks**: Define custom checks via TOML configuration with file pattern support
 - **Issue tracking**: Tracks issue lifecycle (new, existing, resolved)
-- **Markdown output**: Generates readable reports in `code_scanner_results.md` in the **target project directory** (created at startup)
+- **Real-time updates**: Output file updates immediately when issues are found (not just at end of scan)
+- **Markdown output**: Generates readable reports in `code_scanner_results.md`
 
 ## Installation
 
@@ -173,8 +174,92 @@ The scanner automatically excludes its own output files from scanning:
 
 ### Running Tests
 
+The project has comprehensive test coverage (91%) with 430+ tests.
+
 ```bash
+# Run all unit tests
 uv run pytest
+
+# Run tests with verbose output
+uv run pytest -v
+
+# Run specific test file
+uv run pytest tests/test_scanner.py -v
+
+# Run tests matching a pattern
+uv run pytest -k "test_scan" -v
+```
+
+### Coverage Reports
+
+```bash
+# Run with terminal coverage report (shows missing lines)
+uv run pytest --cov=code_scanner --cov-report=term-missing
+
+# Generate HTML coverage report (opens in browser)
+uv run pytest --cov=code_scanner --cov-report=html
+# Then open: htmlcov/index.html
+
+# Generate XML coverage report (for CI/CD)
+uv run pytest --cov=code_scanner --cov-report=xml
+
+# Combined: terminal + HTML reports
+uv run pytest --cov=code_scanner --cov-report=term-missing --cov-report=html
+```
+
+**Current Coverage by Module:**
+| Module | Coverage |
+|--------|----------|
+| issue_tracker.py | 100% |
+| models.py | 99% |
+| utils.py | 97% |
+| output.py | 97% |
+| cli.py | 93% |
+| config.py | 93% |
+| llm_client.py | 90% |
+| scanner.py | 87% |
+| git_watcher.py | 83% |
+
+### Integration Testing
+
+The project includes integration tests that can test with a real LM Studio instance:
+
+```bash
+# Run integration tests (requires LM Studio running)
+uv run pytest tests/test_integration.py -v --run-integration
+
+# Skip integration tests (default behavior)
+uv run pytest tests/test_integration.py -v
+```
+
+A sample C++ Qt project is provided in `tests/sample_qt_project/` for testing the scanner's ability to detect real code issues.
+
+### Test Structure
+
+```
+tests/
+├── conftest.py                  # Shared fixtures
+├── sample_qt_project/           # Sample C++ project for integration tests
+├── test_cli.py                  # CLI argument parsing tests
+├── test_cli_extended.py         # Extended CLI tests
+├── test_cli_coverage.py         # CLI coverage-focused tests
+├── test_config.py               # Configuration loading tests
+├── test_config_coverage.py      # Config coverage-focused tests
+├── test_git_watcher.py          # Git integration tests
+├── test_git_watcher_extended.py # Extended git tests
+├── test_git_watcher_coverage.py # Git coverage-focused tests
+├── test_integration.py          # Full integration tests (LM Studio)
+├── test_issue_tracker.py        # Issue tracking tests
+├── test_issue_tracker_extended.py
+├── test_llm_client.py           # LLM client tests
+├── test_llm_client_extended.py
+├── test_llm_client_coverage.py
+├── test_output.py               # Output generation tests
+├── test_qt_integration.py       # Qt project integration tests
+├── test_scanner.py              # Scanner logic tests
+├── test_scanner_extended.py
+├── test_scanner_coverage.py
+└── test_utils.py                # Utility function tests
 ```
 
 ### Project Structure

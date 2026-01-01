@@ -15,6 +15,36 @@ from code_scanner.issue_tracker import IssueTracker
 from datetime import datetime
 
 
+def pytest_addoption(parser):
+    """Add custom pytest options."""
+    parser.addoption(
+        "--run-integration",
+        action="store_true",
+        default=False,
+        help="Run integration tests that require LM Studio",
+    )
+
+
+def pytest_configure(config):
+    """Add custom markers."""
+    config.addinivalue_line(
+        "markers", "integration: mark test as integration test requiring LM Studio"
+    )
+
+
+@pytest.fixture
+def integration_enabled(request):
+    """Check if integration tests are enabled."""
+    return request.config.getoption("--run-integration")
+
+
+@pytest.fixture
+def skip_without_integration(integration_enabled):
+    """Skip test if integration tests are not enabled."""
+    if not integration_enabled:
+        pytest.skip("Integration tests disabled. Use --run-integration to enable.")
+
+
 @pytest.fixture
 def temp_dir() -> Generator[Path, None, None]:
     """Create a temporary directory for tests."""
