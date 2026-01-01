@@ -33,6 +33,8 @@ The primary objective of this project is to implement a software program that **
 *   **Deleted Files:** When a file is deleted (uncommitted deletion), the scanner must **trigger resolution** of any open issues associated with that file. Resolution occurs during the **next full scan cycle** (not immediately upon detection).
 *   **Whole File Analysis:** When a file is modified, the scanner analyzes the **entire file content**, not just the diff/changed lines, to ensure full context is available for the AI.
 *   **Specific Commit Analysis:** Users must have the option to scan changes **relative to a specific commit hash** (similar to `git reset --soft <hash>`). This allows scanning cumulative changes against a parent branch. After the initial scan, the application continues to monitor for new changes relative to that base.
+    *   **Untracked Files:** Untracked files are **still included** in commit-relative mode, regardless of the specified commit.
+*   **Rebase/Merge Conflict Handling:** If a rebase or merge with conflict resolution is in progress (detected via `.git/MERGE_HEAD`, `.git/REBASE_HEAD`, or similar), the scanner must **wait for completion** before launching new scans. Poll for resolution status during the wait state.
 *   **Monitoring Loop:** The application will run in a continuous loop. If changes are detected via Git, the scanner must **restart from the beginning** of the check list. If no changes occur, the application will **poll every 30 seconds** for new updates.
 *   **Startup Behavior:** If no uncommitted changes exist at startup, the application must **enter the wait state immediately** and poll for changes. It should not exit.
 *   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
@@ -93,6 +95,9 @@ The primary objective of this project is to implement a software program that **
     *   **Source of Truth:** The scanner is the **authoritative source** for the log file. Any manual edits by the user (e.g., deleting an "OPEN" issue) will be **overwritten** if the scanner detects that the issue still exists in the code during the next scan.
     *   **File Rewriting:** To reflect these status updates, the scanner **rewrites the entire output file** each time the internal model changes.
 *   **System Verbosity:** Verbose logging is **always enabled** (no quiet mode). The output includes system information and detailed runtime data for debugging purposes.
+*   **System Log Destination:** Internal system logs (retry attempts, skipped files, warnings, debug info) are written to **both**:
+    *   **Console** (stdout/stderr) for real-time monitoring.
+    *   **Separate log file** named `code_scanner.log` in the target directory.
 *   **Graceful Shutdown:** On `Ctrl+C` (SIGINT), the scanner performs an **immediate exit** without waiting for the current query to complete.
 
 ---
