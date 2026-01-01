@@ -19,3 +19,4 @@ host = "localhost"
 port = 1234
 # model = "specific-model-name"  # Leave commented to use default model
 timeout = 120
+context_limit = 36000  # Context window size in tokens

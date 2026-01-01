@@ -56,7 +56,10 @@ The primary objective of this project is to implement a software program that **
 *   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model.
 *   **Context Limit Detection:** The AI model's context window size must be **queried from LM Studio** at runtime (not hardcoded).
-    *   **Context Limit Failure:** If the API does not return a valid context limit, the application must **fail with an error** (it does not fallback to a default).
+    *   **Auto-detection:** First attempt to query context limit from LM Studio API.
+    *   **Config Override:** If `context_limit` is specified in the TOML config `[llm]` section, use that value instead of querying the API.
+    *   **Interactive Fallback:** If the API does not return a valid context limit and running interactively, **prompt the user** to enter the context limit manually. Display common values (4096, 8192, 16384, 32768, 131072) as guidance.
+    *   **Non-Interactive Failure:** If the API does not return a valid context limit and running non-interactively, the application must **fail with a clear error** instructing the user to set `context_limit` in config.toml.
 *   **AI Configuration:** The scanner should default to connecting to LM Studio at `localhost` with default ports, but these values (host, port, model) must be overridable via the TOML config.
 *   **LM Studio Client:** Use the **Python client library for LM Studio** (OpenAI-compatible API client).
 *   **Model Selection:** Use the **first/default model** available in LM Studio. No explicit model selection required.

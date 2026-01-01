@@ -107,6 +107,21 @@ checks = [
         assert config.llm.port == 1234
         assert config.llm.model is None
         assert config.llm.timeout == 120
+        assert config.llm.context_limit is None
+
+    def test_llm_context_limit_from_config(self, temp_dir: Path):
+        """Test that context_limit can be set in config."""
+        config_file = temp_dir / "config.toml"
+        config_file.write_text("""
+checks = ["test check"]
+
+[llm]
+context_limit = 16384
+""")
+        
+        config = load_config(temp_dir, config_file)
+        
+        assert config.llm.context_limit == 16384
 
     def test_commit_hash_passed_through(self, temp_dir: Path):
         """Test that commit hash is passed through to config."""

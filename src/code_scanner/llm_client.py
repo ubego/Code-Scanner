@@ -31,6 +31,7 @@ class LLMClient:
         self._client: Optional[OpenAI] = None
         self._context_limit: Optional[int] = None
         self._model_id: Optional[str] = None
+        self._supports_json_format: bool = True  # Assume supported, fallback if not
 
     def connect(self) -> None:
         """Establish connection to LM Studio and get model info.
@@ -66,15 +67,19 @@ class LLMClient:
 
             logger.info(f"Using model: {self._model_id}")
 
-            # Get context limit from model metadata
-            self._context_limit = self._get_context_limit()
-            if self._context_limit is None:
-                raise LLMClientError(
-                    "Could not determine context limit from LM Studio API. "
-                    "Please ensure the model is properly loaded."
-                )
-
-            logger.info(f"Context window size: {self._context_limit} tokens")
+            # Get context limit from config or model metadata
+            if self.config.context_limit:
+                self._context_limit = self.config.context_limit
+                logger.info(f"Using configured context limit: {self._context_limit} tokens")
+            else:
+                self._context_limit = self._get_context_limit()
+                if self._context_limit is not None:
+                    logger.info(f"Context window size: {self._context_limit} tokens")
+                else:
+                    logger.warning(
+                        "Could not determine context limit from LM Studio API. "
+                        "Context limit must be set manually."
+                    )
 
         except APIConnectionError as e:
             raise LLMClientError(
@@ -191,15 +196,21 @@ class LLMClient:
             try:
                 logger.debug(f"Sending query (attempt {attempt + 1}/{max_retries})")
 
-                response = self._client.chat.completions.create(
-                    model=self._model_id,
-                    messages=[
+                # Build request parameters
+                request_params = {
+                    "model": self._model_id,
+                    "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
                     ],
-                    response_format={"type": "json_object"},
-                    temperature=0.1,  # Low temperature for consistent output
-                )
+                    "temperature": 0.1,  # Low temperature for consistent output
+                }
+
+                # Only add response_format if supported
+                if self._supports_json_format:
+                    request_params["response_format"] = {"type": "json_object"}
+
+                response = self._client.chat.completions.create(**request_params)
 
                 content = response.choices[0].message.content
                 if not content:
@@ -222,6 +233,13 @@ class LLMClient:
                 # Connection lost mid-session - this needs special handling
                 raise LLMClientError(f"Lost connection to LM Studio: {e}")
             except APIError as e:
+                error_msg = str(e)
+                # Check if this is a response_format not supported error
+                if "response_format" in error_msg.lower() or "json_object" in error_msg.lower():
+                    logger.info("Model doesn't support json_object format, disabling")
+                    self._supports_json_format = False
+                    # Don't count this as a failed attempt, retry immediately
+                    continue
                 logger.warning(f"API error (attempt {attempt + 1}): {e}")
                 continue
 
@@ -255,7 +273,37 @@ class LLMClient:
         Returns:
             True if connected, False otherwise.
         """
+        return self._client is not None
+
+    def is_ready(self) -> bool:
+        """Check if client is ready for queries (connected and has context limit).
+
+        Returns:
+            True if ready, False otherwise.
+        """
         return self._client is not None and self._context_limit is not None
+
+    def needs_context_limit(self) -> bool:
+        """Check if context limit needs to be set manually.
+
+        Returns:
+            True if context limit is not set, False otherwise.
+        """
+        return self._client is not None and self._context_limit is None
+
+    def set_context_limit(self, limit: int) -> None:
+        """Manually set the context limit.
+
+        Args:
+            limit: Context limit in tokens.
+
+        Raises:
+            ValueError: If limit is not positive.
+        """
+        if limit <= 0:
+            raise ValueError("Context limit must be a positive integer")
+        self._context_limit = limit
+        logger.info(f"Context limit manually set to: {limit} tokens")
 
 
 # System prompt template for code analysis

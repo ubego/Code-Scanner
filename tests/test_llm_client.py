@@ -116,6 +116,78 @@ class TestLLMClient:
         assert "Not connected" in str(exc_info.value) or "connect" in str(exc_info.value).lower()
 
 
+    @patch('code_scanner.llm_client.OpenAI')
+    def test_context_limit_from_config(self, mock_openai):
+        """Test that context_limit from config is used when provided."""
+        config = LLMConfig(
+            host="localhost",
+            port=1234,
+            model="qwen-coder",
+            timeout=120,
+            context_limit=16384,
+        )
+        
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        mock_client.models.list.return_value = MagicMock(data=[MagicMock(id="qwen-coder")])
+        
+        client = LLMClient(config)
+        client.connect()
+        
+        assert client.context_limit == 16384
+        assert client.is_ready()
+
+    @patch('code_scanner.llm_client.OpenAI')
+    def test_needs_context_limit_when_not_detected(self, mock_openai, llm_config: LLMConfig):
+        """Test that needs_context_limit returns True when context limit unavailable."""
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        
+        # Create a model mock that explicitly doesn't have context_length
+        mock_model = MagicMock(spec=['id'])
+        mock_model.id = "qwen-coder"
+        mock_client.models.list.return_value = MagicMock(data=[mock_model])
+        
+        client = LLMClient(llm_config)
+        client.connect()
+        
+        # Context limit couldn't be detected
+        assert client.needs_context_limit()
+        assert not client.is_ready()
+
+    @patch('code_scanner.llm_client.OpenAI')
+    def test_set_context_limit_manually(self, mock_openai, llm_config: LLMConfig):
+        """Test that context limit can be set manually."""
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        mock_client.models.list.return_value = MagicMock(data=[MagicMock(id="qwen-coder")])
+        
+        client = LLMClient(llm_config)
+        client.connect()
+        
+        client.set_context_limit(8192)
+        
+        assert client.context_limit == 8192
+        assert client.is_ready()
+        assert not client.needs_context_limit()
+
+    @patch('code_scanner.llm_client.OpenAI')
+    def test_set_context_limit_invalid_value(self, mock_openai, llm_config: LLMConfig):
+        """Test that setting invalid context limit raises error."""
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        mock_client.models.list.return_value = MagicMock(data=[MagicMock(id="qwen-coder")])
+        
+        client = LLMClient(llm_config)
+        client.connect()
+        
+        with pytest.raises(ValueError):
+            client.set_context_limit(0)
+        
+        with pytest.raises(ValueError):
+            client.set_context_limit(-100)
+
+
 class TestTokenEstimation:
     """Tests for token estimation functionality - skipped since LLMClient doesn't have these methods."""
     pass

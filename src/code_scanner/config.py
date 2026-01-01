@@ -132,6 +132,7 @@ def load_config(
         port=llm_data.get("port", 1234),
         model=llm_data.get("model"),
         timeout=llm_data.get("timeout", 120),
+        context_limit=llm_data.get("context_limit"),
     )
 
     # Build config

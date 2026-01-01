@@ -129,6 +129,7 @@ class LLMConfig:
     port: int = 1234
     model: Optional[str] = None
     timeout: int = 120
+    context_limit: Optional[int] = None  # Manual override for context window size
 
     @property
     def base_url(self) -> str:

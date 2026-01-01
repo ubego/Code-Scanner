@@ -96,6 +96,10 @@ class Application:
         self.llm_client = LLMClient(self.config.llm)
         self.llm_client.connect()
 
+        # If context limit couldn't be determined, prompt user
+        if self.llm_client.needs_context_limit():
+            self._prompt_for_context_limit()
+
         self.issue_tracker = IssueTracker()
         self.output_generator = OutputGenerator(self.config.output_path)
 
@@ -141,6 +145,46 @@ class Application:
             except IOError as e:
                 logger.warning(f"Could not remove lock file: {e}")
             self._lock_acquired = False
+
+    def _prompt_for_context_limit(self) -> None:
+        """Prompt user to enter context limit when it can't be determined.
+
+        Raises:
+            LLMClientError: If running non-interactively or invalid input.
+        """
+        if not is_interactive():
+            raise LLMClientError(
+                "Could not determine context limit from LM Studio API and "
+                "running in non-interactive mode. Please set context_limit "
+                "in the [llm] section of config.toml."
+            )
+
+        print("\n" + "=" * 60)
+        print("Context limit could not be determined from LM Studio API.")
+        print("Please enter the context window size for your model.")
+        print("Common values: 4096, 8192, 16384, 32768, 131072")
+        print("=" * 60)
+
+        while True:
+            try:
+                user_input = input("\nEnter context limit (tokens): ").strip()
+                if not user_input:
+                    print("Please enter a value.")
+                    continue
+
+                limit = int(user_input)
+                if limit <= 0:
+                    print("Context limit must be a positive number.")
+                    continue
+
+                self.llm_client.set_context_limit(limit)
+                print(f"Context limit set to {limit} tokens.\n")
+                return
+
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+            except EOFError:
+                raise LLMClientError("No input provided for context limit.")
 
     def _check_output_file(self) -> None:
         """Check for existing output file and prompt for overwrite.

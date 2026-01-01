@@ -103,6 +103,8 @@ class GitWatcher:
     def _get_changed_files(self) -> list[ChangedFile]:
         """Get list of files with uncommitted changes.
 
+        Uses git status --porcelain for robust handling of submodules and edge cases.
+
         Returns:
             List of ChangedFile objects.
         """
@@ -112,49 +114,151 @@ class GitWatcher:
         changed_files: list[ChangedFile] = []
         seen_paths: set[str] = set()
 
-        # Base for comparison
-        if self.commit_hash:
-            base = self.commit_hash
-        else:
-            base = "HEAD"
-
         try:
-            # Get staged changes (diff against index)
-            staged_diff = self._repo.index.diff(base)
-            for diff_item in staged_diff:
-                path = diff_item.b_path or diff_item.a_path
-                if path and path not in seen_paths:
-                    status = "deleted" if diff_item.deleted_file else "staged"
+            # Use git status --porcelain for reliable output
+            # This handles submodules correctly and provides consistent output
+            status_output = self._repo.git.status("--porcelain", "--untracked-files=all")
+
+            for line in status_output.splitlines():
+                if not line or len(line) < 3:
+                    continue
+
+                # Format: XY filename
+                # X = index status, Y = working tree status
+                index_status = line[0]
+                work_tree_status = line[1]
+                path = line[3:]
+
+                # Handle renamed files (format: "R  old -> new" or "R  old" -> "new")
+                if " -> " in path:
+                    # Split and take the new path (after rename)
+                    parts = path.split(" -> ", 1)
+                    path = parts[1] if len(parts) > 1 else parts[0]
+
+                # Handle quoted paths (git quotes paths with special chars)
+                path = self._unquote_path(path)
+
+                if not path or path in seen_paths:
+                    continue
+
+                # Skip directories (submodules appear as directories)
+                full_path = self.repo_path / path
+                if full_path.is_dir():
+                    continue
+
+                # Determine status
+                if index_status == "D" or work_tree_status == "D":
+                    status = "deleted"
+                elif index_status == "?" and work_tree_status == "?":
+                    status = "untracked"
+                elif index_status != " " and index_status != "?":
+                    status = "staged"
+                else:
+                    status = "unstaged"
+
+                # Skip ignored files
+                if not self._is_ignored(path):
                     changed_files.append(ChangedFile(path=path, status=status))
                     seen_paths.add(path)
 
-            # Get unstaged changes (diff working tree against index)
-            unstaged_diff = self._repo.index.diff(None)
-            for diff_item in unstaged_diff:
-                path = diff_item.b_path or diff_item.a_path
-                if path and path not in seen_paths:
-                    status = "deleted" if diff_item.deleted_file else "unstaged"
-                    changed_files.append(ChangedFile(path=path, status=status))
-                    seen_paths.add(path)
+            # If comparing against a specific commit, also get files changed since that commit
+            if self.commit_hash:
+                try:
+                    diff_output = self._repo.git.diff(
+                        "--name-status", self.commit_hash, "--"
+                    )
+                    for line in diff_output.splitlines():
+                        if not line:
+                            continue
+                        parts = line.split("\t", 1)
+                        if len(parts) < 2:
+                            continue
+                        status_char, path = parts[0], parts[1]
 
-            # Get untracked files
-            untracked = self._repo.untracked_files
-            for path in untracked:
-                if path not in seen_paths and not self._is_ignored(path):
-                    changed_files.append(ChangedFile(path=path, status="untracked"))
-                    seen_paths.add(path)
+                        # Handle renamed files
+                        if "\t" in path:
+                            path = path.split("\t")[1]
+
+                        if path in seen_paths:
+                            continue
+
+                        if status_char == "D":
+                            status = "deleted"
+                        else:
+                            status = "staged"
+
+                        if not self._is_ignored(path):
+                            changed_files.append(ChangedFile(path=path, status=status))
+                            seen_paths.add(path)
+                except GitCommandError as e:
+                    logger.warning(f"Git diff error: {e}")
 
         except GitCommandError as e:
             logger.warning(f"Git command error: {e}")
 
-        # Filter out ignored files and sort
-        changed_files = [
-            f for f in changed_files
-            if not self._is_ignored(f.path)
-        ]
+        # Sort by path
         changed_files.sort(key=lambda f: f.path)
 
         return changed_files
+
+    def _unquote_path(self, path: str) -> str:
+        """Unquote a path from git status output.
+
+        Git quotes paths with special characters (spaces, non-ASCII, etc.)
+        using C-style escaping surrounded by double quotes.
+
+        Args:
+            path: Path string from git status.
+
+        Returns:
+            Unquoted path.
+        """
+        path = path.strip()
+
+        # Check if path is quoted
+        if path.startswith('"') and path.endswith('"'):
+            path = path[1:-1]
+            # Unescape common escape sequences
+            path = path.replace("\\\\", "\x00")  # Temporarily escape backslashes
+            path = path.replace("\\n", "\n")
+            path = path.replace("\\t", "\t")
+            path = path.replace('\\"', '"')
+            path = path.replace("\x00", "\\")  # Restore backslashes
+
+            # Handle octal escape sequences like \320\240 (UTF-8 bytes)
+            # These need to be decoded as a group of bytes
+            import re
+
+            def decode_octal_sequences(s: str) -> str:
+                """Decode consecutive octal escape sequences as UTF-8."""
+                result = []
+                i = 0
+                while i < len(s):
+                    if s[i] == '\\' and i + 3 < len(s) and s[i+1:i+4].isdigit():
+                        # Collect consecutive octal sequences
+                        byte_list = []
+                        while i < len(s) and s[i] == '\\' and i + 3 < len(s):
+                            octal_match = re.match(r'\\([0-7]{3})', s[i:])
+                            if octal_match:
+                                byte_list.append(int(octal_match.group(1), 8))
+                                i += 4
+                            else:
+                                break
+                        # Decode bytes as UTF-8
+                        if byte_list:
+                            try:
+                                result.append(bytes(byte_list).decode('utf-8'))
+                            except UnicodeDecodeError:
+                                # Fallback to latin-1 for single-byte chars
+                                result.append(bytes(byte_list).decode('latin-1'))
+                    else:
+                        result.append(s[i])
+                        i += 1
+                return ''.join(result)
+
+            path = decode_octal_sequences(path)
+
+        return path
 
     def _is_ignored(self, path: str) -> bool:
         """Check if a path is ignored by .gitignore.
