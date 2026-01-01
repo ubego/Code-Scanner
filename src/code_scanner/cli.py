@@ -83,6 +83,7 @@ class Application:
         logger.info("Code Scanner starting")
         logger.info(f"Target directory: {self.config.target_directory}")
         logger.info(f"Config file: {self.config.config_file}")
+        logger.info(f"Output file: {self.config.output_path}")
         logger.info(f"Checks: {len(self.config.checks)}")
         logger.info("=" * 60)
 
@@ -102,6 +103,10 @@ class Application:
 
         self.issue_tracker = IssueTracker()
         self.output_generator = OutputGenerator(self.config.output_path)
+
+        # Create initial output file so user knows it's working
+        self.output_generator.write(self.issue_tracker, {"status": "Scanning in progress..."})
+        logger.info(f"Created initial output file: {self.config.output_path}")
 
         self.scanner = Scanner(
             config=self.config,

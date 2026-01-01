@@ -66,9 +66,11 @@ The primary objective of this project is to implement a software program that **
 *   **Prompt Format:** Use an optimized prompt structure that is well-understood by LLMs (system prompt with instructions, user prompt with code context).
 *   **Response Format:** The scanner must request a **structured JSON response** from the LLM with a fixed schema.
     *   **JSON Enforcement:** Use the API parameter `response_format={ "type": "json_object" }` to guarantee valid JSON output.
+    *   **Response Format Fallback:** If the LLM API does not support `response_format` parameter (returns error), the scanner must **automatically retry without the parameter** and rely on the system prompt for JSON formatting.
     *   Response is an **array of issues** (multiple issues per query are supported).
     *   Each issue contains: file, line number, description, suggested fix.
     *   **No issues found:** Return an empty array `[]`.
+*   **Reasoning Effort:** The scanner must set **`reasoning_effort = "high"`** in API requests to maximize analysis quality.
 *   **Malformed Response Handling:** If the LLM returns invalid JSON or doesn't follow the schema:
     *   **Retry immediately** (no delay/backoff).
     *   **Maximum 3 retries** before skipping the query and logging an error.
@@ -80,6 +82,8 @@ The primary objective of this project is to implement a software program that **
 ### 2.3 Output and Reporting
 *   **Log Generation:** The system must produce a **Markdown log file** named `code_scanner_results.md` as its primary and only User Interface.
 *   **Output Location:** The output file is written to the **target directory** root.
+*   **Initial Output:** The output file must be **created at startup** (before scanning begins) to provide immediate feedback that the scanner is running.
+*   **Scanner Files Exclusion:** The scanner must automatically exclude its own output files (`code_scanner_results.md` and `code_scanner.log`) from scanning to prevent self-referential analysis.
 *   **Detailed Findings:** For every issue found, the log must include:
     *   **File path** (exact location)
     *   **Line number** (specific line)
@@ -92,7 +96,7 @@ The primary objective of this project is to implement a software program that **
     *   **No Persistence Across Restarts:** State is **not persisted** to disk. Each scanner session starts fresh.
     *   **Overwrite Confirmation:** On startup, if `code_scanner_results.md` exists, **prompt the user** (interactive only) to confirm deletion/overwrite. If the user declines (answers "No"), the application must **exit immediately**.
     *   **In-Session Tracking:** Smart matching, deduplication, and resolution tracking apply **within a single session** only.
-    *   **Lock File:** The scanner must create a lock file named **`.code_scanner.lock`** in the target directory to prevent multiple instances from running simultaneously.
+    *   **Lock File:** The scanner must create a lock file named **`.code_scanner.lock`** in the **scanner's script directory** (not the target directory) to prevent multiple instances from running simultaneously.
         *   **Stale Locks:** If a lock file exists, **fail with a clear error message**. The user must **manually delete** the file if it is stale (e.g., after a crash). There is no automatic stale lock detection.
     *   **Smart Matching & Deduplication:** Issues are tracked primarily by **file** and **issue nature/description/code pattern**, not strictly by line number.
         *   **Matching Algorithm:** Issue matching compares the source code snippet with **whitespace-normalized comparison** (truncating/collapsing spaces). This algorithm may be improved in future versions.

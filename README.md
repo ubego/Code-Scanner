@@ -9,7 +9,7 @@ AI-powered code scanner that uses local LLM (LM Studio) to identify issues in yo
 - **Git integration**: Monitors repository changes and scans modified files
 - **Configurable checks**: Define custom checks via TOML configuration
 - **Issue tracking**: Tracks issue lifecycle (new, existing, resolved)
-- **Markdown output**: Generates readable reports in `code_scanner_results.md`
+- **Markdown output**: Generates readable reports in `code_scanner_results.md` in the **target project directory** (created at startup)
 
 ## Installation
 
@@ -99,6 +99,26 @@ Options:
   --version           Show version
   --help              Show help message
 ```
+
+## Technical Details
+
+### Lock File
+
+The scanner creates a lock file `.code_scanner.lock` in the **scanner's script directory** (not the target project directory) to prevent multiple instances from running simultaneously. If the lock file exists (e.g., after a crash), you must manually delete it.
+
+### LLM Compatibility
+
+The scanner is designed to work with various LM Studio models:
+
+- **JSON response format**: Uses `response_format={"type": "json_object"}` if supported. Automatically falls back to prompt-based JSON formatting if the model doesn't support this parameter.
+- **Reasoning effort**: Uses `reasoning_effort="high"` for thorough code analysis.
+- **Context limit**: Auto-detected from API, with interactive prompt fallback.
+
+### Excluded Files
+
+The scanner automatically excludes its own output files from scanning:
+- `code_scanner_results.md` - The output report
+- `code_scanner.log` - The log file
 
 ## Development
 

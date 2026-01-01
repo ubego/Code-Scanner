@@ -161,6 +161,11 @@ def setup_logging(log_file: Path, console_level: int = logging.INFO) -> None:
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 
+    # Suppress verbose logs from third-party libraries
+    # These retry messages from OpenAI client are confusing without context
+    logging.getLogger("openai._base_client").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 def group_files_by_directory(files: list[str]) -> dict[str, list[str]]:
     """Group files by their parent directory.

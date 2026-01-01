@@ -206,6 +206,10 @@ class LLMClient:
                     "temperature": 0.1,  # Low temperature for consistent output
                 }
 
+                # Request high reasoning effort for better analysis
+                # This is supported by LM Studio and some other providers
+                request_params["reasoning_effort"] = "high"
+
                 # Only add response_format if supported
                 if self._supports_json_format:
                     request_params["response_format"] = {"type": "json_object"}
@@ -236,7 +240,10 @@ class LLMClient:
                 error_msg = str(e)
                 # Check if this is a response_format not supported error
                 if "response_format" in error_msg.lower() or "json_object" in error_msg.lower():
-                    logger.info("Model doesn't support json_object format, disabling")
+                    logger.info(
+                        "[OK] Model doesn't support response_format='json_object' parameter (this is normal for many models). "
+                        "Using prompt-based JSON formatting instead. This does not affect functionality."
+                    )
                     self._supports_json_format = False
                     # Don't count this as a failed attempt, retry immediately
                     continue

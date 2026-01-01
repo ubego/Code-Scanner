@@ -56,8 +56,13 @@ class Config:
 
     @property
     def lock_path(self) -> Path:
-        """Get full path to lock file."""
-        return self.target_directory / self.lock_file
+        """Get full path to lock file.
+        
+        Lock file is stored in the scanner's script directory (sibling to code-scanner)
+        to prevent multiple instances from running, regardless of target directory.
+        """
+        script_dir = Path(__file__).parent.parent.parent
+        return script_dir / self.lock_file
 
 
 def load_config(
