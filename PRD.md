@@ -8,6 +8,7 @@ The primary objective of this project is to implement a software program that **
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Privacy and Efficiency:** By utilizing a **local AI model**, the application ensures that source code does not leave the local environment while providing the intelligence of a Large Language Model (LLM).
 *   **MVP Philosophy:** The initial delivery will be an **MVP (Minimum Viable Product)**, focusing on core functionality without excessive configuration or customization.
+*   **Passive Operation:** The scanner operates as a **passive background tool** that only reports issues to a log file. It does **not** modify any source files in the target directory.
 *   **Success Criteria:** 
     *   Ability to accurately identify issues based on user-provided queries in a configuration file.
     *   Successful integration with a local LLM server (LM Studio).
@@ -20,16 +21,19 @@ The primary objective of this project is to implement a software program that **
 ### 2.1 Git Integration and Change Detection
 *   **Default Behavior:** The scanner must monitor the target directory and focus only on **uncommitted changes** within the current Git branch.
 *   **Specific Commit Analysis:** Users must have the option to scan against a specific **Git commit hash** by passing it as a command-line argument to the application.
-*   **Monitoring Loop:** The application will run in a "render loop." If changes are detected, the queries are restarted; if no changes occur, the application will **wait and periodically check** for new updates.
+*   **Monitoring Loop:** The application will run in a continuous loop. If changes are detected via Git, the scanner must **restart from the beginning** of the check list. If no changes occur, the application will **poll every 30 seconds** for new updates.
+*   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
 
 ### 2.2 Query and Analysis Engine
-*   **Configuration Input:** The scanner will take a **configuration file** containing multiple user-defined queries. 
-*   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes.
+*   **Configuration Input:** The scanner will take a **TOML configuration file** containing multiple user-defined checks/queries. The configuration file is **read once at startup**.
+*   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
+*   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model to find issues specified by the user (e.g., optimization ideas, architecture checks).
 
 ### 2.3 Output and Reporting
 *   **Log Generation:** The system must produce a **text log file** as its primary output.
 *   **Detailed Findings:** For every issue found, the log must specify the **exact file**, the **specific line number**, the nature of the issue, and a **suggested implementation fix**.
+*   **Deduplication:** The output file must contain **unique issues only**. If the same issue (same file, line, and nature) is detected in subsequent scans, it must **not** be duplicated in the output.
 *   **System Verbosity:** The output should include system information and **verbose logging** to capture all issues and runtime data for debugging purposes.
 
 ---
@@ -40,29 +44,36 @@ The primary objective of this project is to implement a software program that **
 *   **Language:** The application must be written in **Python**.
 *   **Dependency Management:** The project is required to use either **Poetry or UV** for managing packages and environments.
 *   **AI Backend:** The system requires a running and configured **LM Studio server** to host the local AI model.
+*   **Configuration Format:** The configuration file must be in **TOML format**.
 
 ### 3.2 System Architecture and Logic
 *   **Agnostic Design:** The scanner logic must remain **independent of the programming language** found in the target source directory.
-*   **Runtime Monitoring:** It is critical to include robust logging to identify all possible issues during the application’s runtime.
+*   **Multi-Threaded Architecture:** The application must use at least **two threads**:
+    1.  **Git Watcher Thread:** Monitors the target directory for uncommitted changes via Git, polling every 30 seconds.
+    2.  **AI Scanner Thread:** Executes checks sequentially against the LM Studio API.
+*   **Thread Communication:** When the Git watcher detects changes, it must signal the AI scanner thread to **restart from the beginning** of the check list.
+*   **Runtime Monitoring:** It is critical to include robust logging to identify all possible issues during the application's runtime.
 *   **Input Handling:** The application must accept a configuration file for queries and support optional Git commit hashes as input arguments.
 
 ### 3.3 Execution Workflow
-1.  Initialize by reading the **config file** and checking the **Git status**.
-2.  If uncommitted changes (or changes since a specified hash) exist, trigger the **LLM query loop**.
-3.  Communicate with the **LM Studio local server** via its API to process queries.
-4.  Write results and system logs to the designated **output text file**.
-5.  Enter a wait state, polling for changes at set intervals.
+1.  Initialize by reading the **TOML config file** (once at startup) and checking the **Git status**.
+2.  Start the **Git watcher thread** to monitor for changes every 30 seconds.
+3.  Start the **AI scanner thread** to process checks sequentially.
+4.  If uncommitted changes (or changes since a specified hash) exist, trigger the **LLM query loop**.
+5.  Communicate with the **LM Studio local server** via its API to process queries.
+6.  Write results to the designated **output text file**, ensuring **no duplicate issues**.
+7.  Upon completing all checks, **loop back** to the first check and continue.
+8.  If the Git watcher detects new changes, **restart the scanner** from the beginning of the check list.
 
-### 3.4 Default Configuration Checks
-The following checks must be included in the default configuration and applied to every scan:
+### 3.4 Sample Configuration Checks
+The following checks are provided as **examples only** and can be completely customized or replaced by the user in the TOML configuration file. These samples demonstrate C++/Qt-specific checks but the scanner supports **any language**:
 
 *   **Autonomous Iteration:** Check that iteration continues automatically until the final result, without requiring user prompts to proceed.
 *   **Compile-Time Programming:** Check that `constexpr` and compile-time programming techniques are applied where appropriate.
 *   **Stack Allocation Preference:** Check that stack allocation is preferred over heap allocation whenever possible.
 *   **QStringView for Literals:** Check that string literals are handled through `QStringView` variables.
 *   **Named QStringView Constants:** Check that string literals used multiple times are stored in named `QStringView` constants instead of being repeated.
-*   **Error Fixing and Simplification:** Check that any detected errors are fixed and that code simplifications are applied where possible.
-*   **Iterative Operations:** Check that all operations are performed iteratively without waiting for external prompts, and that necessary edits are made directly to files.
+*   **Error Detection:** Check for any detectable errors and suggest code simplifications where possible.
 *   **Meaningful Comments:** Check that comments provide meaningful context or rationale and avoid restating obvious code behavior.
 *   **Implementation in .cpp Files:** Check that functions are implemented in `.cpp` files rather than `.h` files.
 
