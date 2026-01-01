@@ -173,13 +173,15 @@ class Scanner:
                     all_issues.extend(check_issues)
                     self._scan_info["checks_run"] += 1
 
-                    # Immediately add new issues to tracker and update output file
+                    # Immediately add new issues to tracker
                     if check_issues:
                         new_count = self.issue_tracker.add_issues(check_issues)
                         if new_count > 0:
                             logger.info(f"Added {new_count} new issue(s) to tracker")
-                            self.output_generator.write(self.issue_tracker, self._scan_info)
-                            logger.info(f"Output file updated with {self.issue_tracker.get_stats()['total']} total issues")
+
+                    # Update output file after every check for incremental progress
+                    self.output_generator.write(self.issue_tracker, self._scan_info)
+                    logger.debug(f"Output file updated after check {self._scan_info['checks_run']}")
 
                 except LLMClientError as e:
                     if "Lost connection" in str(e):
@@ -193,27 +195,11 @@ class Scanner:
                         logger.error(f"LLM error during check: {e}")
                         # Skip this check after max retries
 
-                # Check for restart signal
+                # Check for restart signal - return immediately to let main loop restart cleanly
                 if self._restart_event.is_set():
-                    logger.info("Restart signal received, restarting scan")
+                    logger.info("Restart signal received, returning to main loop")
                     self._restart_event.clear()
-                    all_issues.clear()
-
-                    # Get fresh git state
-                    git_state = self.git_watcher.get_state()
-                    files_content = self._get_files_content(git_state.changed_files)
-                    if not files_content:
-                        return
-                    batches = self._create_batches(files_content)
-                    scanned_files = list(files_content.keys())
-                    # Restart from beginning
-                    current_rule_index = 0
-                    break  # Break out of rule loop to restart group loop
-
-            # If restart signal was received, break out of group loop too
-            if self._restart_event.is_set():
-                self._restart_event.clear()
-                continue
+                    return
 
         # Handle deleted files - resolve their issues
         deleted_files = [f.path for f in git_state.changed_files if f.is_deleted]

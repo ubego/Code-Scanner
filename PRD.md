@@ -119,7 +119,7 @@ The primary objective of this project is to implement a software program that **
 *   **System Log Destination:** Internal system logs (retry attempts, skipped files, warnings, debug info) are written to **both**:
     *   **Console** (stdout/stderr) for real-time monitoring.
     *   **Separate log file** named `code_scanner.log` in the target directory.
-*   **Graceful Shutdown:** On `Ctrl+C` (SIGINT), SIGTERM, or any termination:
+*   **Graceful Shutdown:** On `Ctrl+C` (SIGINT), SIGTERM, or any termination (killing the app):
     *   **Immediate exit** without waiting for the current query to complete.
     *   **Lock file cleanup** is guaranteed via `atexit` handler and signal handlers.
     *   The lock file is removed even on `sys.exit()`, exceptions, or crashes.

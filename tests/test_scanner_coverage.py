@@ -657,3 +657,85 @@ class TestScannerIntegration:
         
         # Should have queried LLM twice (once per check group)
         assert mock_dependencies["llm_client"].query.call_count == 2
+
+
+class TestScannerIncrementalOutput:
+    """Tests for Scanner incremental output updates."""
+
+    def test_output_updated_after_each_check(self, mock_dependencies):
+        """Output file is updated after every check, not just when issues found."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1\ny = 2\nz = 3"}
+        
+        # Return no issues - output should still be updated
+        mock_dependencies["llm_client"].query.return_value = {"issues": []}
+        mock_dependencies["issue_tracker"].add_issues.return_value = 0
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        # With 2 rules in *.py group, output should be updated twice (once per check)
+        # Plus one final update at the end of scan
+        assert mock_dependencies["output_generator"].write.call_count >= 2
+
+    def test_output_includes_checks_run_count(self, mock_dependencies):
+        """Output updates include incremental checks_run count."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1"}
+        
+        mock_dependencies["llm_client"].query.return_value = {"issues": []}
+        
+        # Track scan_info passed to output writer
+        write_calls_scan_info = []
+        def capture_write(tracker, scan_info=None):
+            if scan_info:
+                write_calls_scan_info.append(scan_info.get("checks_run", 0))
+        
+        mock_dependencies["output_generator"].write.side_effect = capture_write
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        # Should have incremental checks_run values
+        # First call should have checks_run=1, second should have checks_run=2
+        assert len(write_calls_scan_info) >= 2
+        assert write_calls_scan_info[0] == 1
+        assert write_calls_scan_info[1] == 2
+
+    def test_restart_signal_returns_immediately(self, mock_dependencies):
+        """Restart signal causes immediate return, not inline restart."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1"}
+        
+        # Set restart signal after first query
+        query_count = [0]
+        def query_side_effect(*args, **kwargs):
+            query_count[0] += 1
+            if query_count[0] == 1:
+                scanner._restart_event.set()
+            return {"issues": []}
+        
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        # Should only call query once since restart causes immediate return
+        assert mock_dependencies["llm_client"].query.call_count == 1
+        # Restart event should be cleared
+        assert not scanner._restart_event.is_set()

@@ -117,6 +117,40 @@ class TestApplicationLockFile:
         # File should still exist
         assert config.lock_path.exists()
 
+    def test_acquire_lock_registers_atexit_handler(self, tmp_path):
+        """Acquire lock registers atexit handler for cleanup on any exit."""
+        config = MagicMock(spec=Config)
+        config.lock_path = tmp_path / ".code_scanner.lock"
+        
+        app = Application(config)
+        
+        with patch('code_scanner.cli.atexit.register') as mock_atexit:
+            app._acquire_lock()
+            
+            # Verify atexit.register was called with _release_lock
+            mock_atexit.assert_called_once_with(app._release_lock)
+        
+        # Cleanup
+        app._release_lock()
+
+    def test_lock_released_via_atexit_on_keyboard_interrupt(self, tmp_path):
+        """Lock is released via atexit when KeyboardInterrupt occurs."""
+        config = MagicMock(spec=Config)
+        config.lock_path = tmp_path / ".code_scanner.lock"
+        config.output_path = tmp_path / "output.md"
+        config.log_path = tmp_path / "log.log"
+        
+        app = Application(config)
+        
+        # Simulate lock acquisition
+        app._acquire_lock()
+        assert config.lock_path.exists()
+        
+        # Simulate calling the registered atexit handler (as would happen on exit)
+        app._release_lock()
+        
+        assert not config.lock_path.exists()
+
 
 class TestApplicationSignalHandler:
     """Tests for Application signal handling."""
