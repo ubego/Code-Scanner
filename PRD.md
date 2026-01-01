@@ -29,6 +29,7 @@ The primary objective of this project is to implement a software program that **
     *   **Staged files** (added to index with `git add`)
     *   **Unstaged files** (modified but not staged)
     *   **Untracked files** (new files not yet added to Git)
+*   **Gitignore Respect:** Files matching patterns in `.gitignore` are **excluded** from scanning, even if they appear as untracked.
 *   **Deleted Files:** When a file is deleted (uncommitted deletion), the scanner must **trigger resolution** of any open issues associated with that file. Resolution occurs during the **next full scan cycle** (not immediately upon detection).
 *   **Whole File Analysis:** When a file is modified, the scanner analyzes the **entire file content**, not just the diff/changed lines, to ensure full context is available for the AI.
 *   **Specific Commit Analysis:** Users must have the option to scan changes **relative to a specific commit hash** (similar to `git reset --soft <hash>`). This allows scanning cumulative changes against a parent branch. After the initial scan, the application continues to monitor for new changes relative to that base.
@@ -39,6 +40,8 @@ The primary objective of this project is to implement a software program that **
 ### 2.2 Query and Analysis Engine
 *   **Configuration Input:** The scanner will take a **TOML configuration file** containing a simple list of user-defined prompts. The configuration file is **read once at startup** (no hot-reload support).
 *   **Config File Location:** The TOML config file is specified via **CLI argument**, or defaults to the **scanner's script directory** if not provided.
+*   **Missing Config File:** If no config file is found (not provided and not in script directory), **fail with error**.
+*   **Empty Checks List:** If the config file exists but contains no checks, **fail with error**.
 *   **Structure:** Checks in the TOML file are simple prompt strings without complex metadata.
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
 *   **Aggregated Context:** Each query is sent to the AI with the **entire content of all modified files** as context, not file-by-file.
@@ -52,6 +55,8 @@ The primary objective of this project is to implement a software program that **
 *   **AI Interaction:** Each query will be sent to the local AI model.
 *   **Context Limit Detection:** The AI model's context window size must be **queried from LM Studio** at runtime (not hardcoded).
 *   **AI Configuration:** The scanner should default to connecting to LM Studio at `localhost` with default ports, but these values (host, port, model) must be overridable via the TOML config.
+*   **LM Studio Client:** Use the **Python client library for LM Studio** (OpenAI-compatible API client).
+*   **Model Selection:** Use the **first/default model** available in LM Studio. No explicit model selection required.
 *   **Prompt Format:** Use an optimized prompt structure that is well-understood by LLMs (system prompt with instructions, user prompt with code context).
 *   **Response Format:** The scanner must request a **structured JSON response** from the LLM with a fixed schema:
     *   Response is an **array of issues** (multiple issues per query are supported).
@@ -61,11 +66,21 @@ The primary objective of this project is to implement a software program that **
     *   **Retry immediately** (no delay/backoff).
     *   **Maximum 3 retries** before skipping the query and logging an error.
     *   Log all retry attempts to system log.
+*   **LM Studio Connection Handling:**
+    *   **Startup Failure:** If LM Studio is not running or unreachable at startup, **fail immediately** with a clear error message.
+    *   **Mid-Session Failure:** If LM Studio becomes unavailable during scanning, **pause and retry every 10 seconds** until connection is restored.
 
 ### 2.3 Output and Reporting
 *   **Log Generation:** The system must produce a **Markdown log file** named `code_scanner_results.md` as its primary and only User Interface.
 *   **Output Location:** The output file is written to the **target directory** root.
-*   **Detailed Findings:** For every issue found, the log must specify the **exact file**, the **specific line number**, the nature of the issue, and a **suggested implementation fix** (using markdown code blocks).
+*   **Detailed Findings:** For every issue found, the log must include:
+    *   **File path** (exact location)
+    *   **Line number** (specific line)
+    *   **Issue description** (nature of the issue)
+    *   **Suggested fix** (using markdown code blocks)
+    *   **Timestamp** (when the issue was detected)
+    *   **Check query prompt** (which check/query caused this issue)
+*   **Output Organization:** Issues are grouped **by file**. Within each file section, each issue specifies which query/check caused it.
 *   **State Management & Persistence:** The system must maintain an internal model of detected issues **in memory only**.
     *   **No Persistence Across Restarts:** State is **not persisted** to disk. Each scanner session starts fresh. On startup, if `code_scanner_results.md` exists, **prompt the user** (interactive only) to confirm deletion/overwrite of the old file before proceeding.
     *   **In-Session Tracking:** Smart matching, deduplication, and resolution tracking apply **within a single session** only.
