@@ -56,11 +56,13 @@ The primary objective of this project is to implement a software program that **
 *   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model.
 *   **Context Limit Detection:** The AI model's context window size must be **queried from LM Studio** at runtime (not hardcoded).
+    *   **Context Limit Failure:** If the API does not return a valid context limit, the application must **fail with an error** (it does not fallback to a default).
 *   **AI Configuration:** The scanner should default to connecting to LM Studio at `localhost` with default ports, but these values (host, port, model) must be overridable via the TOML config.
 *   **LM Studio Client:** Use the **Python client library for LM Studio** (OpenAI-compatible API client).
 *   **Model Selection:** Use the **first/default model** available in LM Studio. No explicit model selection required.
 *   **Prompt Format:** Use an optimized prompt structure that is well-understood by LLMs (system prompt with instructions, user prompt with code context).
-*   **Response Format:** The scanner must request a **structured JSON response** from the LLM with a fixed schema:
+*   **Response Format:** The scanner must request a **structured JSON response** from the LLM with a fixed schema.
+    *   **JSON Enforcement:** Use the API parameter `response_format={ "type": "json_object" }` to guarantee valid JSON output.
     *   Response is an **array of issues** (multiple issues per query are supported).
     *   Each issue contains: file, line number, description, suggested fix.
     *   **No issues found:** Return an empty array `[]`.
@@ -84,9 +86,11 @@ The primary objective of this project is to implement a software program that **
     *   **Check query prompt** (which check/query caused this issue)
 *   **Output Organization:** Issues are grouped **by file**. Within each file section, each issue specifies which query/check caused it.
 *   **State Management & Persistence:** The system must maintain an internal model of detected issues **in memory only**.
-    *   **No Persistence Across Restarts:** State is **not persisted** to disk. Each scanner session starts fresh. On startup, if `code_scanner_results.md` exists, **prompt the user** (interactive only) to confirm deletion/overwrite of the old file before proceeding.
+    *   **No Persistence Across Restarts:** State is **not persisted** to disk. Each scanner session starts fresh.
+    *   **Overwrite Confirmation:** On startup, if `code_scanner_results.md` exists, **prompt the user** (interactive only) to confirm deletion/overwrite. If the user declines (answers "No"), the application must **exit immediately**.
     *   **In-Session Tracking:** Smart matching, deduplication, and resolution tracking apply **within a single session** only.
-    *   **Lock File:** The scanner must create a lock file named **`.code_scanner.lock`** in the target directory to prevent multiple instances from running simultaneously. If a lock file exists, **fail with a clear error message** explaining the situation (no force-override flag).
+    *   **Lock File:** The scanner must create a lock file named **`.code_scanner.lock`** in the target directory to prevent multiple instances from running simultaneously.
+        *   **Stale Locks:** If a lock file exists, **fail with a clear error message**. The user must **manually delete** the file if it is stale (e.g., after a crash). There is no automatic stale lock detection.
     *   **Smart Matching & Deduplication:** Issues are tracked primarily by **file** and **issue nature/description/code pattern**, not strictly by line number.
         *   **Matching Algorithm:** Issue matching compares the source code snippet with **whitespace-normalized comparison** (truncating/collapsing spaces). This algorithm may be improved in future versions.
         *   If an issue is detected at a different line number (e.g., due to code added above it) but matches an existing open issue's pattern, the scanner must **update the line number** in the existing record rather than creating a duplicate or resolving/re-opening.
