@@ -5,6 +5,120 @@ import os
 import sys
 from pathlib import Path
 
+# ANSI color codes for terminal output
+class Colors:
+    """ANSI color codes for terminal coloring."""
+    
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    
+    # Foreground colors
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
+    GRAY = "\033[90m"
+    
+    # Bright foreground colors
+    BRIGHT_RED = "\033[91m"
+    BRIGHT_GREEN = "\033[92m"
+    BRIGHT_YELLOW = "\033[93m"
+    BRIGHT_BLUE = "\033[94m"
+    BRIGHT_CYAN = "\033[96m"
+
+
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter that adds colors to log messages based on level."""
+    
+    # Level-specific colors
+    LEVEL_COLORS = {
+        logging.DEBUG: Colors.GRAY,
+        logging.INFO: Colors.BRIGHT_CYAN,
+        logging.WARNING: Colors.BRIGHT_YELLOW,
+        logging.ERROR: Colors.BRIGHT_RED,
+        logging.CRITICAL: Colors.BOLD + Colors.BRIGHT_RED,
+    }
+    
+    # Level name colors (for the level label itself)
+    LEVEL_NAME_COLORS = {
+        logging.DEBUG: Colors.GRAY,
+        logging.INFO: Colors.GREEN,
+        logging.WARNING: Colors.YELLOW,
+        logging.ERROR: Colors.RED,
+        logging.CRITICAL: Colors.BOLD + Colors.RED,
+    }
+    
+    def __init__(self, fmt: str | None = None, datefmt: str | None = None, use_colors: bool = True):
+        """Initialize the colored formatter.
+        
+        Args:
+            fmt: Log message format string.
+            datefmt: Date format string.
+            use_colors: Whether to use colors (auto-detected if terminal supports it).
+        """
+        super().__init__(fmt, datefmt)
+        self.use_colors = use_colors and self._supports_color()
+    
+    @staticmethod
+    def _supports_color() -> bool:
+        """Check if the terminal supports colors."""
+        # Check if output is a TTY
+        if not hasattr(sys.stderr, "isatty") or not sys.stderr.isatty():
+            return False
+        
+        # Check for NO_COLOR environment variable (standard for disabling colors)
+        if os.environ.get("NO_COLOR"):
+            return False
+        
+        # Check for FORCE_COLOR environment variable
+        if os.environ.get("FORCE_COLOR"):
+            return True
+        
+        # Check terminal type
+        term = os.environ.get("TERM", "")
+        if term == "dumb":
+            return False
+        
+        # Most modern terminals support colors
+        return True
+    
+    def format(self, record: logging.LogRecord) -> str:
+        """Format the log record with colors.
+        
+        Args:
+            record: The log record to format.
+            
+        Returns:
+            Formatted and colored log string.
+        """
+        if not self.use_colors:
+            return super().format(record)
+        
+        # Get colors for this level
+        level_color = self.LEVEL_COLORS.get(record.levelno, "")
+        level_name_color = self.LEVEL_NAME_COLORS.get(record.levelno, "")
+        
+        # Color the timestamp
+        original_asctime = self.formatTime(record, self.datefmt)
+        colored_asctime = f"{Colors.DIM}{original_asctime}{Colors.RESET}"
+        
+        # Color the level name
+        colored_levelname = f"{level_name_color}{record.levelname:8}{Colors.RESET}"
+        
+        # Color the logger name
+        colored_name = f"{Colors.BLUE}{record.name}{Colors.RESET}"
+        
+        # Color the message
+        colored_message = f"{level_color}{record.getMessage()}{Colors.RESET}"
+        
+        # Build the formatted string
+        return f"{colored_asctime} - {colored_name} - {colored_levelname} - {colored_message}"
+
+
 # Known binary file extensions
 BINARY_EXTENSIONS = frozenset({
     # Images
@@ -139,8 +253,14 @@ def setup_logging(log_file: Path, console_level: int = logging.INFO) -> None:
         log_file: Path to the log file.
         console_level: Logging level for console output.
     """
-    # Create formatter
-    formatter = logging.Formatter(
+    # Create formatter for file (no colors)
+    file_formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    
+    # Create colored formatter for console
+    console_formatter = ColoredFormatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
@@ -149,16 +269,16 @@ def setup_logging(log_file: Path, console_level: int = logging.INFO) -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
 
-    # Console handler
+    # Console handler (with colors)
     console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setLevel(console_level)
-    console_handler.setFormatter(formatter)
+    console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
 
-    # File handler
+    # File handler (no colors)
     file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
+    file_handler.setFormatter(file_formatter)
     root_logger.addHandler(file_handler)
 
     # Suppress verbose logs from third-party libraries

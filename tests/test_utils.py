@@ -20,6 +20,8 @@ from code_scanner.utils import (
     is_interactive,
     prompt_yes_no,
     CHARS_PER_TOKEN,
+    Colors,
+    ColoredFormatter,
 )
 
 
@@ -306,3 +308,112 @@ class TestSetupLogging:
         for handler in root.handlers[:]:
             handler.close()
             root.removeHandler(handler)
+
+
+class TestColoredFormatter:
+    """Tests for ColoredFormatter class."""
+
+    def test_colors_class_has_required_attributes(self):
+        """Colors class has all required ANSI codes."""
+        assert hasattr(Colors, "RESET")
+        assert hasattr(Colors, "BOLD")
+        assert hasattr(Colors, "RED")
+        assert hasattr(Colors, "GREEN")
+        assert hasattr(Colors, "YELLOW")
+        assert hasattr(Colors, "BLUE")
+        assert hasattr(Colors, "CYAN")
+        
+        # Verify they are ANSI escape codes
+        assert Colors.RESET == "\033[0m"
+        assert "\033[" in Colors.RED
+
+    def test_formatter_with_colors_enabled(self):
+        """Formatter adds colors when enabled."""
+        formatter = ColoredFormatter(use_colors=True)
+        # Force colors even in non-TTY environment
+        formatter.use_colors = True
+        
+        record = logging.LogRecord(
+            name="test.module",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+        )
+        
+        formatted = formatter.format(record)
+        
+        # Should contain ANSI codes
+        assert "\033[" in formatted
+        assert Colors.RESET in formatted
+        assert "Test message" in formatted
+
+    def test_formatter_with_colors_disabled(self):
+        """Formatter does not add colors when disabled."""
+        formatter = ColoredFormatter(use_colors=False)
+        
+        record = logging.LogRecord(
+            name="test.module",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=10,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+        )
+        
+        formatted = formatter.format(record)
+        
+        # Should not contain ANSI codes
+        assert "\033[" not in formatted
+        assert "Test message" in formatted
+
+    def test_formatter_different_levels_have_different_colors(self):
+        """Different log levels produce different colored output."""
+        formatter = ColoredFormatter(use_colors=True)
+        formatter.use_colors = True
+        
+        levels = [logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR]
+        formatted_outputs = []
+        
+        for level in levels:
+            record = logging.LogRecord(
+                name="test",
+                level=level,
+                pathname="test.py",
+                lineno=10,
+                msg="Test",
+                args=(),
+                exc_info=None,
+            )
+            formatted_outputs.append(formatter.format(record))
+        
+        # Each level should produce different output (different colors)
+        # Check that at least some outputs differ
+        unique_outputs = set(formatted_outputs)
+        assert len(unique_outputs) > 1
+
+    @patch.dict(os.environ, {"NO_COLOR": "1"})
+    def test_no_color_env_disables_colors(self):
+        """NO_COLOR environment variable disables colors."""
+        formatter = ColoredFormatter()
+        assert formatter.use_colors is False
+
+    @patch.dict(os.environ, {"FORCE_COLOR": "1"}, clear=False)
+    def test_force_color_env_enables_colors(self):
+        """FORCE_COLOR environment variable enables colors."""
+        # Clear NO_COLOR if set and mock TTY
+        with patch.dict(os.environ, {"NO_COLOR": ""}, clear=False):
+            with patch.object(sys.stderr, "isatty", return_value=True):
+                formatter = ColoredFormatter()
+                # FORCE_COLOR should enable colors
+                assert formatter._supports_color() is True
+
+    def test_supports_color_returns_false_for_non_tty(self):
+        """_supports_color returns False when stderr is not a TTY."""
+        with patch.object(sys.stderr, "isatty", return_value=False):
+            with patch.dict(os.environ, {"FORCE_COLOR": ""}, clear=False):
+                result = ColoredFormatter._supports_color()
+                assert result is False

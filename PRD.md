@@ -131,6 +131,15 @@ The primary objective of this project is to implement a software program that **
 *   **System Log Destination:** Internal system logs (retry attempts, skipped files, warnings, debug info) are written to **both**:
     *   **Console** (stdout/stderr) for real-time monitoring.
     *   **Separate log file** named `code_scanner.log` in the target directory.
+*   **Colored Console Output:** Console log messages use **ANSI color codes** for improved readability:
+    *   **DEBUG:** Gray/dim text for low-priority diagnostic information.
+    *   **INFO:** Cyan message with green level label for normal operation messages.
+    *   **WARNING:** Yellow highlighting for potential issues that don't stop execution.
+    *   **ERROR:** Red highlighting for errors that may affect functionality.
+    *   **CRITICAL:** Bold red for severe errors requiring immediate attention.
+    *   **Automatic Detection:** Colors are automatically disabled when output is not a TTY (e.g., piped to file).
+    *   **Environment Variables:** Respects `NO_COLOR` (disables colors) and `FORCE_COLOR` (enables colors) standards.
+    *   **File Logs:** The separate log file (`code_scanner.log`) does **not** contain color codes for clean text storage.
 *   **Graceful Shutdown:** On `Ctrl+C` (SIGINT), SIGTERM, or any termination (killing the app):
     *   **Immediate exit** without waiting for the current query to complete.
     *   **Lock file cleanup** is guaranteed via `atexit` handler and signal handlers.
