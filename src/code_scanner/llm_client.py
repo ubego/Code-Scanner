@@ -19,6 +19,16 @@ class LLMClientError(Exception):
     pass
 
 
+class ContextOverflowError(LLMClientError):
+    """Fatal error when model context length is exceeded.
+    
+    This error should not be caught by retry logic - it requires
+    user intervention to fix (change model settings or config).
+    """
+
+    pass
+
+
 class LLMClient:
     """Client for communicating with LM Studio via OpenAI-compatible API."""
 
@@ -253,6 +263,35 @@ class LLMClient:
                 raise LLMClientError(f"Lost connection to LM Studio: {e}")
             except APIError as e:
                 error_msg = str(e)
+                # Check if this is a context length overflow error
+                if "context" in error_msg.lower() and ("overflow" in error_msg.lower() or "context length" in error_msg.lower()):
+                    # Extract the model's actual context length from the error message
+                    # Example: "model is loaded with context length of only 4096 tokens"
+                    import re
+                    actual_ctx_match = re.search(r'context length of (?:only )?(\d+)', error_msg)
+                    actual_ctx = actual_ctx_match.group(1) if actual_ctx_match else "unknown"
+                    
+                    # Raise ContextOverflowError which is FATAL - should not be caught
+                    raise ContextOverflowError(
+                        f"\n{'='*70}\n"
+                        f"CONTEXT LENGTH MISMATCH ERROR\n"
+                        f"{'='*70}\n\n"
+                        f"The model in LM Studio is loaded with a context length of {actual_ctx} tokens,\n"
+                        f"but Code Scanner is configured to use {self._context_limit} tokens.\n\n"
+                        f"To fix this, do ONE of the following:\n\n"
+                        f"1. INCREASE MODEL CONTEXT IN LM STUDIO (Recommended):\n"
+                        f"   - Open LM Studio\n"
+                        f"   - Go to the model settings\n"
+                        f"   - Increase 'Context Length' to at least {self._context_limit} tokens\n"
+                        f"   - Reload the model\n\n"
+                        f"2. LOAD A DIFFERENT MODEL:\n"
+                        f"   - Choose a model that supports larger context windows\n"
+                        f"   - Models like Llama 3, Mistral, or Qwen often support 8K-128K context\n\n"
+                        f"3. REDUCE CONTEXT LIMIT IN CONFIG:\n"
+                        f"   - Edit config.toml and set: context_limit = {actual_ctx}\n"
+                        f"   - Note: This will process fewer files per batch\n\n"
+                        f"{'='*70}"
+                    )
                 # Check if this is a response_format not supported error
                 if "response_format" in error_msg.lower() or "json_object" in error_msg.lower():
                     logger.info(

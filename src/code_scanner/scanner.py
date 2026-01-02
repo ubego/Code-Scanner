@@ -10,7 +10,7 @@ from typing import Optional
 from .config import Config
 from .git_watcher import GitWatcher
 from .issue_tracker import IssueTracker
-from .llm_client import LLMClient, LLMClientError, SYSTEM_PROMPT_TEMPLATE, build_user_prompt
+from .llm_client import LLMClient, LLMClientError, ContextOverflowError, SYSTEM_PROMPT_TEMPLATE, build_user_prompt
 from .models import Issue, GitState, ChangedFile, CheckGroup
 from .output import OutputGenerator
 from .utils import (
@@ -183,6 +183,10 @@ class Scanner:
                     self.output_generator.write(self.issue_tracker, self._scan_info)
                     logger.debug(f"Output file updated after check {self._scan_info['checks_run']}")
 
+                except ContextOverflowError:
+                    # Context overflow is FATAL - requires user intervention
+                    # Re-raise to exit the application
+                    raise
                 except LLMClientError as e:
                     if "Lost connection" in str(e):
                         # Mid-session failure - wait for reconnection

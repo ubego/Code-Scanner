@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from code_scanner.llm_client import LLMClient, LLMClientError
+from code_scanner.llm_client import LLMClient, LLMClientError, ContextOverflowError
 from code_scanner.models import LLMConfig
 
 
@@ -186,6 +186,45 @@ class TestLLMClient:
         
         with pytest.raises(ValueError):
             client.set_context_limit(-100)
+
+    @patch('code_scanner.llm_client.OpenAI')
+    def test_context_overflow_error_shows_helpful_message(self, mock_openai, llm_config: LLMConfig):
+        """Test that context overflow errors provide helpful guidance."""
+        from openai import APIError
+        import httpx
+        
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        mock_client.models.list.return_value = MagicMock(data=[MagicMock(id="qwen-coder")])
+        
+        # Mock APIError for context overflow
+        mock_request = httpx.Request("POST", "http://localhost:1234/v1/chat/completions")
+        error_body = {
+            'error': 'Trying to keep the first 5650 tokens when context the overflows. '
+                     'However, the model is loaded with context length of only 4096 tokens, '
+                     'which is not enough. Try to load the model with a larger context length'
+        }
+        mock_client.chat.completions.create.side_effect = APIError(
+            message=str(error_body),
+            request=mock_request,
+            body=error_body
+        )
+        
+        llm_config.context_limit = 36000  # Config says 36000
+        client = LLMClient(llm_config)
+        client.connect()
+        client.set_context_limit(36000)
+        
+        # ContextOverflowError is a subclass of LLMClientError but is FATAL
+        with pytest.raises(ContextOverflowError) as exc_info:
+            client.query("system prompt", "user prompt")
+        
+        error_msg = str(exc_info.value)
+        # Should include helpful guidance
+        assert "CONTEXT LENGTH MISMATCH" in error_msg
+        assert "4096" in error_msg  # Model's actual context
+        assert "LM Studio" in error_msg
+        assert "context_limit" in error_msg.lower()
 
 
 class TestTokenEstimation:
