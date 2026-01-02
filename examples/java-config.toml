@@ -1,121 +1,73 @@
 # Code Scanner Configuration for Java Projects
-# This example shows common checks for Java codebases
+# Human-focused checks - linters (Checkstyle, SpotBugs) handle syntax/style.
 #
-# Copy this file to your project root as `config.toml` and customize as needed.
+# Copy this file to your project root as `config.toml`.
 
 # ==============================================================================
 # LLM Backend Configuration
 # ==============================================================================
-# Choose ONE of the backend configurations below (LM Studio or Ollama)
 
 [llm]
-# -----------------------------------------------------------------------------
-# Option 1: LM Studio
-# -----------------------------------------------------------------------------
-# Download: https://lmstudio.ai
-# Load a model in LM Studio and start the local server
+backend = "lm-studio"   # Backend type: "lm-studio" or "ollama"
+host = "localhost"       # Server hostname (usually localhost)
+port = 1234              # Server port (LM Studio default: 1234, Ollama: 11434)
+model = "qwen2.5-coder-7b-instruct"  # Model identifier
+timeout = 600            # Request timeout in seconds
+context_limit = 16384    # Context window size in tokens (minimum 16384 recommended)
 
-backend = "lm-studio"
-host = "localhost"
-port = 1234
-model = "qwen/qwen3-4b-thinking-2507"
-timeout = 120
-# context_limit = 32768  # Context window size in tokens
-
-# -----------------------------------------------------------------------------
-# Option 2: Ollama (comment out LM Studio section above, uncomment below)
-# -----------------------------------------------------------------------------
-# Install: https://ollama.ai/download
-# Pull a model: ollama pull qwen3:4b
-# Start server: ollama serve (runs automatically on macOS/Linux)
-
-# backend = "ollama"
+# Ollama alternative:
+# backend = "ollama"     # Use Ollama backend
 # host = "localhost"
-# port = 11434
-# model = "qwen3:4b"  # Required for Ollama
-# timeout = 120
-# context_limit = 8192
+# port = 11434           # Ollama default port
+# model = "qwen3:4b"     # Model name (REQUIRED for Ollama)
 
 
 # ==============================================================================
-# Code Quality Checks
+# Human-Focused Code Checks
 # ==============================================================================
 
-# Java-specific checks
 [[checks]]
 pattern = "*.java"
-rules = [
-    """
-    Check for potential NullPointerException risks.
-    Flag:
-    - Method calls on potentially null objects without null checks
-    - Missing @Nullable/@NonNull annotations on parameters and return types
-    - Optional.get() without isPresent() check
-    - Collections that could be null being iterated
-    Do NOT flag:
-    - Objects guaranteed non-null by constructor or builder
-    - Primitive types
-    """,
-    """
-    Check for resource leak issues.
-    Flag:
-    - Streams, connections, readers/writers not in try-with-resources
-    - Manual close() calls instead of try-with-resources
-    - Resources opened but not closed in finally block
-    - JDBC connections, statements, result sets not properly closed
-    """,
-    """
-    Check for thread safety issues.
-    Flag:
-    - Shared mutable state without synchronization
-    - Non-thread-safe collections used in concurrent context
-    - Double-checked locking without volatile
-    - Race conditions in lazy initialization
-    - Unsynchronized access to non-atomic fields
-    """,
-    """
-    Check for exception handling issues.
-    Flag:
-    - Catching Exception or Throwable too broadly
-    - Empty catch blocks that swallow exceptions
-    - Catching and ignoring InterruptedException
-    - Not preserving exception chain when rethrowing
-    - Using exceptions for flow control
-    """,
-    """
-    Check for Java best practices.
-    Flag:
-    - Using == instead of .equals() for object comparison
-    - String concatenation in loops instead of StringBuilder
-    - Raw types instead of parameterized generics
-    - Public fields instead of getters/setters
-    - Missing @Override annotation on overridden methods
-    - Mutable objects as Map keys
-    """,
+checks = [
+    # Architectural checks
+    "Check that classes have a single responsibility.",
+    "Check for circular dependencies between packages.",
+    "Check that service layer does not call presentation layer directly.",
+    "Check for god classes with too many methods or fields.",
+    "Check for anemic domain models with only getters and setters.",
+    # Concurrency checks
+    "Check for shared mutable state without proper synchronization.",
+    "Check for double-checked locking anti-pattern.",
+    "Check for incorrect use of volatile keyword.",
+    "Check for thread-unsafe singletons.",
+    "Check for resource contention in critical sections.",
+    "Check for missing timeout handling for locks.",
+    # Resource management checks
+    "Check that resources are closed in finally block or try-with-resources.",
+    "Check for connection pool exhaustion patterns.",
+    "Check for memory leaks from static collections.",
+    "Check for incorrect transaction boundaries that are too broad or too narrow.",
+    "Check for missing rollback handling for failed transactions.",
+    # Security checks
+    "Check for SQL injection via string concatenation including StringBuilder.",
+    "Check that sensitive data like passwords, tokens, or PII is not logged.",
+    "Check for deserialization of untrusted data.",
+    "Check for insecure random number generation in security contexts.",
+    "Check for hardcoded credentials or API keys.",
+    "Check that user-supplied data is validated before use.",
+    # API contract checks
+    "Check that methods return Optional instead of null where appropriate.",
+    "Check for breaking changes to public API without @Deprecated annotation.",
+    "Check for inconsistent exception handling mixing checked and unchecked exceptions.",
+    "Check for missing null checks for method parameters.",
+    "Check for incorrect equals and hashCode implementations.",
 ]
 
-# General checks for all files
 [[checks]]
 pattern = "*"
-rules = [
-    """
-    Check for code quality issues.
-    Flag:
-    - Unused imports
-    - Unused private methods or fields
-    - Methods that are too long (>50 lines)
-    - Classes with too many responsibilities (>500 lines)
-    - Magic numbers without constants
-    - Duplicate code blocks
-    """,
-    """
-    Check for security vulnerabilities.
-    Flag:
-    - SQL injection risks (string concatenation in queries)
-    - Hardcoded credentials or API keys
-    - Insecure random number generation (java.util.Random for security)
-    - Path traversal vulnerabilities
-    - XML external entity (XXE) vulnerabilities
-    - Deserialization of untrusted data
-    """,
+checks = [
+    "Check for dead code or unused dependencies.",
+    "Check for outdated TODO or FIXME comments.",
+    "Check for copy-paste code that should be refactored.",
+    "Check that test code tests behavior instead of implementation details.",
 ]

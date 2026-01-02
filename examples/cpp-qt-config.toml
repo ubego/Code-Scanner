@@ -1,146 +1,83 @@
 # Code Scanner Configuration for C++ Qt Projects
-# This example shows common checks for Qt/C++ codebases
+# Human-focused checks for Qt/QML applications.
 #
-# Copy this file to your project root as `config.toml` and customize as needed.
+# Copy this file to your project root as `config.toml`.
 
 # ==============================================================================
 # LLM Backend Configuration
 # ==============================================================================
-# Choose ONE of the backend configurations below (LM Studio or Ollama)
 
 [llm]
-# -----------------------------------------------------------------------------
-# Option 1: LM Studio
-# -----------------------------------------------------------------------------
-# Download: https://lmstudio.ai
-# Load a model in LM Studio and start the local server
-
-backend = "lm-studio"
-host = "localhost"
-port = 1234
-model = "qwen/qwen3-4b-thinking-2507"
-timeout = 120
-# context_limit = 32768  # Context window size in tokens
-
-# -----------------------------------------------------------------------------
-# Option 2: Ollama (comment out LM Studio section above, uncomment below)
-# -----------------------------------------------------------------------------
-# Install: https://ollama.ai/download
-# Pull a model: ollama pull qwen3:4b
-# Start server: ollama serve (runs automatically on macOS/Linux)
-
-# backend = "ollama"
-# host = "localhost"
-# port = 11434
-# model = "qwen3:4b"  # Required for Ollama
-# timeout = 120
-# context_limit = 8192
+backend = "lm-studio"   # Backend type: "lm-studio" or "ollama"
+host = "localhost"       # Server hostname (usually localhost)
+port = 1234              # Server port (LM Studio default: 1234, Ollama: 11434)
+model = "qwen2.5-coder-7b-instruct"  # Model identifier
+timeout = 600            # Request timeout in seconds
+context_limit = 16384    # Context window size in tokens (minimum 16384 recommended)
 
 
 # ==============================================================================
-# Code Quality Checks
+# Human-Focused Code Checks
 # ==============================================================================
 
-# Qt/C++ source file checks
 [[checks]]
-pattern = "*.cpp, *.cxx, *.cc"
-rules = [
-    """
-    Check for Qt memory management issues.
-    Flag:
-    - QObject-derived classes deleted manually (should use deleteLater() or parent ownership)
-    - Missing parent parameter in QObject constructor
-    - Raw new without parent for QObject-derived classes
-    - QPointer not used for tracking QObject lifetime
-    - Widgets created on stack (should be heap with parent)
-    Do NOT flag:
-    - QObjects properly parented in constructor
-    - Local QObjects in functions that don't escape scope
-    """,
-    """
-    Check for Qt signal/slot issues.
-    Flag:
-    - Old-style SIGNAL()/SLOT() macros instead of function pointers
-    - Missing Q_OBJECT macro in QObject-derived classes with signals/slots
-    - Connecting to non-existent signals or slots
-    - Missing disconnect() before object deletion
-    - Slots not marked as public/protected/private slots
-    - Direct slot calls across threads without Qt::QueuedConnection
-    """,
-    """
-    Check for Qt string handling.
-    Flag:
-    - String literals not using QStringLiteral() or u""_s
-    - Repeated string literals (should be QStringView constants)
-    - QString::arg() chain inefficiency (use multi-arg overload)
-    - QString concatenation in loops (use QStringBuilder)
-    - Implicit QString conversions from char*
-    """,
-    """
-    Check for Qt thread safety issues.
-    Flag:
-    - GUI operations from non-main thread
-    - QObject created in one thread, used in another without moveToThread()
-    - Missing Qt::QueuedConnection for cross-thread signals
-    - Accessing QWidget from worker thread
-    - Shared data modified without mutex in threaded code
-    """,
-    """
-    Check for Qt best practices.
-    Flag:
-    - Using Qt containers where STL containers are more appropriate
-    - QList for large objects (should use QVector/std::vector)
-    - Missing override keyword on virtual method reimplementations
-    - Q_PROPERTY without NOTIFY signal for QML bindings
-    - Using QSharedPointer for QObject-derived (use QPointer or parent)
-    - Blocking GUI thread with long operations
-    """,
+pattern = "*.cpp, *.h, *.hpp"
+checks = [
+    # Qt-specific checks
+    "Check that QObject-derived classes have the Q_OBJECT macro.",
+    "Check that signals and slots are connected with matching signatures.",
+    "Check for parent-child ownership confusion that could cause double deletion.",
+    "Check that blocking operations are not performed on the main GUI thread.",
+    "Check that worker threads have an event loop when needed.",
+    # Memory and resource checks
+    "Check that stack allocation is preferred over heap allocation for small, short-lived objects.",
+    "Check that QObjects have a parent in non-obvious ownership scenarios.",
+    "Check that Qt's parent-child memory management is used instead of manual management.",
+    "Check that QSharedPointer or QScopedPointer is used for non-QObject resources.",
+    "Check that QPointer is used to track connections to objects that may be deleted.",
+    "Check that Qt's implicit sharing types are used for large allocations.",
+    # Thread safety checks
+    "Check that GUI operations are performed only on the main thread.",
+    "Check that QObjects are used with proper thread affinity.",
+    "Check that Qt::QueuedConnection is used for cross-thread signals.",
+    "Check that shared data is synchronized when modified from multiple threads.",
+    "Check that moveToThread() is called correctly.",
+    # Architectural checks
+    "Check that Model-View separation is maintained.",
+    "Check that business logic is not placed in UI classes.",
+    "Check for circular dependencies between modules.",
+    "Check for god classes with too many responsibilities.",
+    "Check for improper use of singletons.",
+    # Performance checks
+    "Check that QStringView is used for QString operations in tight loops.",
+    "Check for unnecessary deep copies of implicitly shared types.",
+    "Check that const references are used for container parameters.",
+    "Check that expensive operations are not performed in paint events.",
+    "Check that model updates do not trigger full view refreshes unnecessarily.",
 ]
 
-# Header file checks
-[[checks]]
-pattern = "*.h, *.hpp"
-rules = [
-    """
-    Check for Qt header issues.
-    Flag:
-    - Including QtWidgets when only QtCore is needed
-    - Missing Q_OBJECT macro in QObject-derived class declarations
-    - Missing Q_DECLARE_METATYPE for custom types used in signals
-    - Public member variables in QObject classes
-    - Missing virtual destructor in QObject-derived base classes
-    - Forward declarations missing for Qt pointer types
-    """,
-]
-
-# QML file checks
 [[checks]]
 pattern = "*.qml"
-rules = [
-    """
-    Check for QML issues.
-    Flag:
-    - Undefined properties or IDs
-    - JavaScript in property bindings (should be pure expressions)
-    - Missing anchors causing layout issues
-    - Hardcoded sizes instead of relative layouts
-    - Deprecated Qt Quick components
-    - Binding loops
-    - Accessing C++ properties without proper bindings
-    """,
+checks = [
+    # QML-specific checks
+    "Check for property bindings that could cause binding loops.",
+    "Check that JavaScript in QML is moved to C++ where appropriate.",
+    "Check that items have an id when they need to be referenced.",
+    "Check that declarative bindings are used instead of imperative JavaScript.",
+    "Check that anchors and absolute positioning are not mixed incorrectly.",
+    # QML performance checks
+    "Check for complex JavaScript in binding expressions.",
+    "Check that Loader is used for conditionally loaded content.",
+    "Check that ListView and GridView use smart caching.",
+    "Check that delegates do not create too many objects.",
+    "Check that animations have proper GPU compositing hints.",
 ]
 
-# General checks
 [[checks]]
 pattern = "*"
-rules = [
-    """
-    Check for C++ code quality.
-    Flag:
-    - Memory leaks (non-Qt allocations)
-    - Unused includes
-    - Magic numbers without constants
-    - Functions longer than 50 lines
-    - Deeply nested code (>4 levels)
-    """,
+checks = [
+    "Check that implementation is in .cpp files rather than .h files except for templates.",
+    "Check that forward declarations are used to reduce compilation coupling.",
+    "Check for circular include dependencies.",
+    "Check that private implementation details are not exposed in public headers.",
 ]

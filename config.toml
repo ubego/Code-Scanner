@@ -6,7 +6,7 @@
 # C++/Qt specific checks
 [[checks]]
 pattern = "*.cpp, *.h, *.cxx, *.hpp"
-rules = [
+checks = [
     "Check for any detectable errors and suggest code simplifications where possible.",
     "Check that iteration continues automatically until the final result, without requiring user prompts to proceed.",
     "Check that constexpr and compile-time programming techniques are applied where appropriate.",
@@ -20,7 +20,7 @@ rules = [
 # General checks for all files
 [[checks]]
 pattern = "*"
-rules = [
+checks = [
     "Check for unused files or dead code.",
 ]
 

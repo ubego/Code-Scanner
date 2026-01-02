@@ -77,8 +77,11 @@ After copying, open `config.toml` and ensure the `[llm]` section matches your ba
 
    For LM Studio:
    - Open LM Studio
-   - Download and load a model
-   - Start the local server (default port: 1234)
+   - Search for "qwen2.5-coder-7b-instruct"
+   - Select the model from the search results and click "Download"
+   - Once downloaded, click the "<->" icon in the left sidebar to open the Local Server tab
+   - Click "Start Server" (default port: 1234)
+   - The model will be loaded and ready to use
 
 2. **Run the scanner**
 
@@ -89,7 +92,7 @@ After copying, open `config.toml` and ensure the `[llm]` section matches your ba
 
 3. **View results**
 
-   Results are displayed in the terminal and saved to `code-scanner-results.json` (configurable).
+   Results are displayed in the terminal and saved to `code_scanner_results.md` (Markdown format).
 
 ## Continuous Scanning
 

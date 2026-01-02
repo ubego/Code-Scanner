@@ -1,152 +1,95 @@
 # Code Scanner Configuration for JavaScript/TypeScript Projects
-# This example shows common checks for frontend web applications
+# This example shows checks that require human judgment - not things ESLint catches.
 #
 # Copy this file to your project root as `config.toml` and customize as needed.
 
 # ==============================================================================
 # LLM Backend Configuration
 # ==============================================================================
-# Choose ONE of the backend configurations below (LM Studio or Ollama)
 
 [llm]
-# -----------------------------------------------------------------------------
-# Option 1: LM Studio (recommended for large context windows)
-# -----------------------------------------------------------------------------
-# Download: https://lmstudio.ai
-# Load a model in LM Studio and start the local server
+backend = "lm-studio"   # Backend type: "lm-studio" or "ollama"
+host = "localhost"       # Server hostname (usually localhost)
+port = 1234              # Server port (LM Studio default: 1234, Ollama: 11434)
+model = "qwen2.5-coder-7b-instruct"  # Model identifier
+timeout = 300            # Request timeout in seconds (higher for complex code)
+context_limit = 16384    # Context window size in tokens (minimum 16384 recommended)
 
-backend = "lm-studio"
-host = "localhost"
-port = 1234
-model = "qwen/qwen3-4b-thinking-2507"
-timeout = 300
-# context_limit = 32768  # Context window size in tokens
-
-# -----------------------------------------------------------------------------
-# Option 2: Ollama (comment out LM Studio section above, uncomment below)
-# -----------------------------------------------------------------------------
-# Install: https://ollama.ai/download
-# Pull a model: ollama pull qwen3:4b
-# Start server: ollama serve (runs automatically on macOS/Linux)
-
-# backend = "ollama"
+# Ollama alternative:
+# backend = "ollama"     # Use Ollama backend
 # host = "localhost"
-# port = 11434
-# model = "qwen3:4b"  # Required for Ollama
-# timeout = 120
-# context_limit = 8192
+# port = 11434           # Ollama default port
+# model = "qwen3:4b"     # Model name (REQUIRED for Ollama)
+# timeout = 600
+# context_limit = 16384
 
 
 # ==============================================================================
-# Code Quality Checks
+# Human-Focused Code Checks
 # ==============================================================================
-# Each [[checks]] group has:
-#   - pattern: Glob pattern to match files (e.g., "*.js", "*.tsx", "*" for all)
-#   - rules: List of natural language descriptions of what to check for
 
-# React/TypeScript specific checks
+# React component checks
 [[checks]]
 pattern = "*.tsx, *.jsx"
-rules = [
-    """
-    Check for React hooks usage violations.
-    Flag:
-    - Hooks called conditionally (inside if statements, loops)
-    - Hooks called inside nested functions
-    - Custom hooks not starting with 'use' prefix
-    - useEffect with missing dependencies
-    - useEffect with functions as dependencies (should use useCallback)
-    - useState with object spread anti-pattern for updates
-    - useMemo/useCallback with empty dependency array when deps needed
-    """,
-    """
-    Check for potential memory leaks in React components.
-    Flag:
-    - Event listeners added but not removed in cleanup
-    - setInterval/setTimeout without cleanup
-    - Subscriptions (WebSocket, EventSource) not unsubscribed
-    - State updates after component unmount
-    - Missing AbortController for fetch requests in useEffect
-    Do NOT flag:
-    - Global event listeners that are intentional
-    - Singletons/services that persist
-    """,
-    """
-    Check for React performance issues.
-    Flag:
-    - Large components that should be split
-    - Missing React.memo for expensive child components
-    - Inline function definitions in JSX props
-    - Object literals created in render
-    - Array.map without key prop
-    - Expensive calculations in render without useMemo
-    - State updates that could be batched
-    """,
-    """
-    Check for accessibility (a11y) issues.
-    Flag:
-    - Images without alt attribute
-    - Interactive elements without aria-label
-    - onClick on non-interactive elements without role
-    - Missing form labels
-    - Color-only indicators without text alternatives
-    - focusable elements with tabIndex > 0
-    - Autofocus that disrupts user experience
-    """,
+checks = [
+    # Component architecture checks
+    "Check that components are not too large and should be split into smaller pieces.",
+    "Check that business logic is separated from presentation using hooks or services.",
+    "Check for props drilling through more than 3 levels that should use context or state management.",
+    "Check that components do not both fetch data and render it (container/presenter pattern violation).",
+    "Check that reusable components use props instead of hardcoded values.",
+    # State management checks
+    "Check that derived state is computed from source of truth instead of stored separately.",
+    "Check for state that should be lifted up to a common ancestor.",
+    "Check that global state is not used where local state would suffice.",
+    "Check that state updates account for async race conditions.",
+    "Check for missing optimistic updates that would improve UX.",
+    # Memory leak and resource checks
+    "Check that event listeners and subscriptions are cleaned up in useEffect.",
+    "Check that timers (setInterval/setTimeout) are cleaned up properly.",
+    "Check that fetch requests use AbortController for cancellation.",
+    "Check that WebSocket connections are properly closed.",
+    "Check that large data is not cached in component state indefinitely.",
+    # User experience checks
+    "Check for missing loading states for async operations.",
+    "Check for missing error boundaries around error-prone components.",
+    "Check that forms have proper validation feedback.",
+    "Check for missing confirmation dialogs for destructive operations.",
+    "Check for missing keyboard navigation for interactive elements.",
 ]
 
 # TypeScript checks
 [[checks]]
 pattern = "*.ts, *.tsx"
-rules = [
-    """
-    Check for TypeScript type safety issues.
-    Flag:
-    - Use of 'any' type (prefer unknown or specific types)
-    - Type assertions with 'as' without validation
-    - Non-null assertions (!) on potentially null values
-    - Missing return types on functions
-    - Object spread on types that might have extra properties
-    - Using 'object' instead of Record<string, unknown>
-    """,
+checks = [
+    "Check that external API responses are validated at runtime.",
+    "Check that type assertions (as) are safe and will not fail at runtime.",
+    "Check that stricter types are used instead of Partial<T> where possible.",
+    "Check that union types cover all possible cases.",
+    "Check that generic types are not too permissive (T extends any).",
 ]
 
-# General JavaScript/TypeScript checks
+# General JS/TS checks
 [[checks]]
 pattern = "*.js, *.ts, *.jsx, *.tsx"
-rules = [
-    """
-    Check for frontend security vulnerabilities.
-    Flag:
-    - dangerouslySetInnerHTML without sanitization
-    - Direct DOM manipulation with innerHTML
-    - eval() or new Function() usage
-    - Storing sensitive data in localStorage/sessionStorage
-    - Hardcoded API keys or secrets
-    - Missing input sanitization before API calls
-    - window.open with user-controlled URLs
-    """,
-    """
-    Check for async/await error handling issues.
-    Flag:
-    - await without try/catch or .catch()
-    - Promise.all without error handling
-    - Async functions that don't handle rejections
-    - Race conditions in state updates from async code
-    - Missing loading/error states for async operations
-    - Sequential awaits that could be parallel (Promise.all)
-    """,
-    """
-    Check for debug code that should be removed.
-    Flag:
-    - console.log statements
-    - console.warn/console.error for non-error cases
-    - debugger statements
-    - TODO/FIXME/HACK comments that need attention
-    - Commented-out code blocks
-    - alert() calls
-    Do NOT flag:
-    - console.error for actual error logging
-    - Intentional logging in development-only code
-    """,
+checks = [
+    # Security checks
+    "Check that dangerouslySetInnerHTML does not use unsanitized content.",
+    "Check that user input in URL construction is properly encoded.",
+    "Check that sensitive data is not stored in localStorage or sessionStorage.",
+    "Check that API keys or secrets are not in client-side code.",
+    "Check that eval() or Function() is not used with dynamic input.",
+    "Check for prototype pollution vulnerabilities.",
+    # API and data handling checks
+    "Check that fetch calls have proper error handling.",
+    "Check that API responses are checked for null or undefined before use.",
+    "Check for incorrect Content-Type headers in requests.",
+    "Check that CORS considerations are handled for cross-origin requests.",
+    "Check for inconsistent date and time handling mixing Date objects and strings.",
+    # Performance checks
+    "Check that large synchronous operations do not block the main thread.",
+    "Check for unnecessary re-renders caused by object or array reference changes.",
+    "Check for missing pagination for large data sets.",
+    "Check for unbounded growth of in-memory caches.",
+    "Check for network waterfalls where sequential requests could be parallel.",
 ]

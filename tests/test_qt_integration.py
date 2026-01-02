@@ -133,7 +133,7 @@ class TestSampleQtProjectScan:
         config.check_groups = [
             CheckGroup(
                 pattern="*.cpp, *.h",
-                rules=["Check for memory leaks and missing deletes"]
+                checks=["Check for memory leaks and missing deletes"]
             ),
         ]
         
@@ -190,7 +190,7 @@ class TestSampleQtProjectScan:
         config.llm_retry_interval = 1.0
         config.max_llm_retries = 2
         config.check_groups = [
-            CheckGroup(pattern="*.cpp, *.h", rules=["Check for issues"]),
+            CheckGroup(pattern="*.cpp, *.h", checks=["Check for issues"]),
         ]
         
         git_watcher = GitWatcher(temp_repo_with_qt)
@@ -227,8 +227,8 @@ class TestSampleQtProjectScan:
         config.llm_retry_interval = 1.0
         config.max_llm_retries = 2
         config.check_groups = [
-            CheckGroup(pattern="*.cpp", rules=["Check C++ files"]),
-            CheckGroup(pattern="*.h", rules=["Check header files"]),
+            CheckGroup(pattern="*.cpp", checks=["Check C++ files"]),
+            CheckGroup(pattern="*.h", checks=["Check header files"]),
         ]
         
         git_watcher = GitWatcher(temp_repo_with_qt)
@@ -266,7 +266,7 @@ class TestIssueTracking:
         config.llm_retry_interval = 1.0
         config.max_llm_retries = 2
         config.check_groups = [
-            CheckGroup(pattern="*.cpp", rules=["Check"]),
+            CheckGroup(pattern="*.cpp", checks=["Check"]),
         ]
         
         git_watcher = GitWatcher(temp_repo_with_qt)
@@ -305,7 +305,7 @@ class TestIssueTracking:
         config.llm_retry_interval = 1.0
         config.max_llm_retries = 2
         config.check_groups = [
-            CheckGroup(pattern="*.cpp", rules=["Check"]),
+            CheckGroup(pattern="*.cpp", checks=["Check"]),
         ]
         
         git_watcher = GitWatcher(temp_repo_with_qt)
@@ -412,7 +412,7 @@ class TestBatchProcessing:
         ]
         
         # Filter for C++ files only
-        cpp_group = CheckGroup(pattern="*.cpp", rules=["check"])
+        cpp_group = CheckGroup(pattern="*.cpp", checks=["check"])
         cpp_filtered = scanner._filter_batches_by_pattern(batches, cpp_group)
         
         assert len(cpp_filtered) == 1
@@ -420,7 +420,7 @@ class TestBatchProcessing:
         assert "src/utils.h" not in cpp_filtered[0]
         
         # Filter for headers only
-        header_group = CheckGroup(pattern="*.h", rules=["check"])
+        header_group = CheckGroup(pattern="*.h", checks=["check"])
         header_filtered = scanner._filter_batches_by_pattern(batches, header_group)
         
         assert len(header_filtered) == 1
@@ -462,14 +462,14 @@ class TestConfigIntegration:
         config_path.write_text('''
 [[checks]]
 pattern = "*.cpp, *.h, *.hpp"
-rules = [
+checks = [
     "Check for memory leaks in heap allocations",
     "Check for RAII violations",
 ]
 
 [[checks]]
 pattern = "*.h, *.hpp"
-rules = [
+checks = [
     "Check for function implementations that should be in .cpp files",
 ]
 
@@ -509,7 +509,7 @@ class TestErrorHandling:
         config.llm_retry_interval = 0.1
         config.max_llm_retries = 1
         config.check_groups = [
-            CheckGroup(pattern="*.cpp", rules=["Check"]),
+            CheckGroup(pattern="*.cpp", checks=["Check"]),
         ]
         
         git_watcher = GitWatcher(temp_repo_with_qt)
@@ -556,7 +556,7 @@ class TestErrorHandling:
         config.llm_retry_interval = 1.0
         config.max_llm_retries = 2
         config.check_groups = [
-            CheckGroup(pattern="*.cpp", rules=["Check"]),
+            CheckGroup(pattern="*.cpp", checks=["Check"]),
         ]
         
         git_watcher = GitWatcher(temp_repo_with_qt)

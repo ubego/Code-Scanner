@@ -81,7 +81,7 @@ curl http://localhost:11434/api/tags
 
 **Configuration for Ollama:**
 
-Copy the [general example](../examples/config.toml) and update the `[llm]` section:
+Copy a language-specific example (e.g., `examples/python-config.toml`) and update the `[llm]` section:
 
 ```toml
 [llm]
@@ -90,7 +90,7 @@ host = "localhost"
 port = 11434
 model = "qwen3:4b"
 timeout = 120
-context_limit = 8192
+context_limit = 16384
 ```
 
 ### Option 2: LM Studio
@@ -103,15 +103,15 @@ LM Studio provides a native macOS app with a great GUI.
 4. Launch LM Studio
 
 **In LM Studio:**
-1. Go to the "Models" tab
-2. Download a model (e.g., TheBloke/Mistral-7B-Instruct-v0.2-GGUF)
+1. Search for "qwen2.5-coder-7b-instruct"
+2. Download the model
 3. Load the model
-4. Go to "Local Server" tab
+4. Go to "Local Server" tab (click the "<->" icon)
 5. Click "Start Server" (default port: 1234)
 
 **Configuration for LM Studio:**
 
-Copy the [general example](../examples/config.toml) and update the `[llm]` section:
+Copy a language-specific example (e.g., `examples/python-config.toml`) and update the `[llm]` section:
 
 ```toml
 [llm]

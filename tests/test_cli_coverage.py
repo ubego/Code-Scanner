@@ -48,7 +48,7 @@ def mock_config(temp_git_repo):
     config.git_poll_interval = 0.1
     config.llm_retry_interval = 0.1
     config.max_llm_retries = 2
-    config.check_groups = [CheckGroup(pattern="*", rules=["Check"])]
+    config.check_groups = [CheckGroup(pattern="*", checks=["Check"])]
     config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
     config.commit_hash = None
     return config
@@ -264,7 +264,7 @@ class TestApplicationGitWatchLoop:
         
         app._git_watch_loop()
         
-        app.scanner.signal_restart.assert_called_once()
+        app.scanner.signal_refresh.assert_called_once()
 
     def test_git_watch_loop_handles_exceptions(self, mock_config):
         """Git watch loop handles exceptions and continues."""
@@ -647,7 +647,7 @@ class TestMainFunction:
         config_path = temp_git_repo / "config.toml"
         config_path.write_text('''[[checks]]
 pattern = "*"
-rules = ["Check"]
+checks = ["Check"]
 
 [llm]
 backend = "lm-studio"

@@ -1,179 +1,79 @@
 # Code Scanner Configuration for iOS/macOS Projects (Swift + Objective-C)
-# This example shows common checks for Apple platform development
+# Human-focused checks - Xcode analyzer handles syntax/warnings.
 #
-# Copy this file to your project root as `config.toml` and customize as needed.
+# Copy this file to your project root as `config.toml`.
 
 # ==============================================================================
 # LLM Backend Configuration
 # ==============================================================================
-# Choose ONE of the backend configurations below (LM Studio or Ollama)
 
 [llm]
-# -----------------------------------------------------------------------------
-# Option 1: LM Studio
-# -----------------------------------------------------------------------------
-# Download: https://lmstudio.ai
-# Load a model in LM Studio and start the local server
-
-backend = "lm-studio"
-host = "localhost"
-port = 1234
-model = "qwen/qwen3-4b-thinking-2507"
-timeout = 120
-# context_limit = 32768  # Context window size in tokens
-
-# -----------------------------------------------------------------------------
-# Option 2: Ollama (comment out LM Studio section above, uncomment below)
-# -----------------------------------------------------------------------------
-# Install: https://ollama.ai/download
-# Pull a model: ollama pull qwen3:4b
-# Start server: ollama serve (runs automatically on macOS/Linux)
-
-# backend = "ollama"
-# host = "localhost"
-# port = 11434
-# model = "qwen3:4b"  # Required for Ollama
-# timeout = 120
-# context_limit = 8192
+backend = "lm-studio"   # Backend type: "lm-studio" or "ollama"
+host = "localhost"       # Server hostname (usually localhost)
+port = 1234              # Server port (LM Studio default: 1234, Ollama: 11434)
+model = "qwen2.5-coder-7b-instruct"  # Model identifier
+timeout = 600            # Request timeout in seconds
+context_limit = 16384    # Context window size in tokens (minimum 16384 recommended)
 
 
 # ==============================================================================
-# Code Quality Checks
+# Human-Focused Code Checks
 # ==============================================================================
 
-# Swift-specific checks
 [[checks]]
 pattern = "*.swift"
-rules = [
-    """
-    Check for Swift memory management issues.
-    Flag:
-    - Strong reference cycles in closures (missing [weak self] or [unowned self])
-    - Retain cycles between delegates and their owners
-    - Missing weak/unowned on delegate properties
-    - Strong references in NotificationCenter observers
-    - Closures capturing self strongly in long-lived objects
-    Do NOT flag:
-    - Value types (structs, enums)
-    - Short-lived closures that complete before deallocation
-    """,
-    """
-    Check for Swift concurrency issues.
-    Flag:
-    - UI updates not on main thread (@MainActor missing)
-    - Data races in concurrent code (missing actor isolation)
-    - Blocking main thread with sync operations
-    - Missing Task cancellation handling
-    - Unsafe continuation usage
-    - Force unwrapping in async contexts
-    """,
-    """
-    Check for Swift optionals handling.
-    Flag:
-    - Force unwrapping (!) without prior nil check
-    - Implicitly unwrapped optionals (!) where regular optionals suffice
-    - Pyramid of doom (nested if-let statements)
-    - Optional chaining where nil would cause silent failures
-    - Missing guard statements for early returns
-    """,
-    """
-    Check for Swift best practices.
-    Flag:
-    - Classes where structs would be more appropriate
-    - Missing final keyword on non-inheritable classes
-    - Using NSArray/NSDictionary instead of Swift collections
-    - Not using Swift's native error handling (try/catch)
-    - String interpolation for localized strings
-    - Using Any or AnyObject where protocol would be better
-    - Large view controllers (should extract into smaller components)
-    """,
-    """
-    Check for SwiftUI issues.
-    Flag:
-    - Heavy computation in body property
-    - Missing @StateObject for owned ObservableObjects (using @ObservedObject)
-    - State mutations in body
-    - Not using @Published on observable properties
-    - Missing Identifiable conformance for ForEach
-    - Using index-based ForEach without stable IDs
-    - Environment objects not injected at proper level
-    """,
+checks = [
+    # Memory management checks
+    "Check for strong reference cycles where weak or unowned is missing in closures.",
+    "Check that delegates are declared as weak instead of strong.",
+    "Check that timer and observer references are invalidated.",
+    "Check that closures capturing self use [weak self] when needed.",
+    "Check that large objects are not retained longer than necessary.",
+    # Concurrency checks
+    "Check that UI updates are performed on main thread using MainActor.",
+    "Check for data races in async code.",
+    "Check that actors are accessed with proper isolation.",
+    "Check that continuation is resumed in async/await conversions.",
+    "Check that Task cancellation is handled.",
+    # Architectural checks
+    "Check that view controllers do not make network calls directly.",
+    "Check that business logic is not in views (SwiftUI) or view controllers.",
+    "Check for god view controllers with too many responsibilities.",
+    "Check for tight coupling between components.",
+    "Check that dependency injection is used instead of hardcoded instantiation.",
+    # Security checks
+    "Check that sensitive data uses Keychain instead of UserDefaults.",
+    "Check that API keys and secrets are not in code.",
+    "Check that SSL certificate validation is not disabled.",
+    "Check that sensitive information is not logged.",
+    "Check that WebView does not allow arbitrary content.",
+    # SwiftUI-specific checks
+    "Check that state is not mutated in body property.",
+    "Check that @StateObject vs @ObservedObject is used correctly.",
+    "Check that Published properties are on main actor.",
+    "Check that views are properly identifiable for animations.",
+    "Check that environment objects are present in previews.",
 ]
 
-# Objective-C implementation checks
 [[checks]]
 pattern = "*.m, *.mm"
-rules = [
-    """
-    Check for Objective-C memory management issues.
-    Flag:
-    - Missing weak references for delegates
-    - Retain cycles in blocks (missing __weak or __block)
-    - Not using ARC patterns correctly
-    - Manual retain/release calls under ARC
-    - Strong references to self in blocks stored as properties
-    - Observers not removed in dealloc
-    """,
-    """
-    Check for Objective-C best practices.
-    Flag:
-    - Using instancetype instead of id for init methods
-    - Missing nullability annotations (nonnull, nullable)
-    - Properties without proper memory semantics (strong, weak, copy)
-    - Not using modern Objective-C literals (@[], @{}, @())
-    - Using @synthesize when not needed
-    - Missing designated initializer pattern
-    - Using performSelector with unknown selectors
-    """,
-    """
-    Check for Objective-C thread safety.
-    Flag:
-    - UI updates from background threads
-    - Non-atomic properties accessed from multiple threads
-    - Mutable collections accessed without synchronization
-    - KVO observations without proper thread handling
-    - Delegate callbacks on unexpected threads
-    """,
+checks = [
+    # Objective-C memory checks
+    "Check for retain cycles in blocks where __weak is missing.",
+    "Check that properties are nil'd in dealloc when needed.",
+    "Check that KVO observers are removed.",
+    "Check that NSNotificationCenter observers are removed.",
+    # Concurrency checks
+    "Check for dispatch queue usage without proper synchronization.",
+    "Check that main thread assertions are present for UI code.",
+    "Check that @synchronized on self is not used as it can cause deadlocks.",
 ]
 
-# Objective-C header checks
-[[checks]]
-pattern = "*.h"
-rules = [
-    """
-    Check for Objective-C header issues.
-    Flag:
-    - Missing nullability annotations (NS_ASSUME_NONNULL_BEGIN/END)
-    - Exposing implementation details in public headers
-    - #import instead of @class for forward declarations
-    - Missing documentation comments on public APIs
-    - Private methods declared in public headers
-    """,
-]
-
-# General checks for both languages
 [[checks]]
 pattern = "*"
-rules = [
-    """
-    Check for Apple platform security issues.
-    Flag:
-    - Hardcoded API keys or secrets
-    - Insecure data storage (UserDefaults for sensitive data)
-    - Missing App Transport Security exceptions
-    - Logging sensitive information
-    - Disabled SSL certificate validation
-    - Using deprecated cryptographic APIs
-    - Storing passwords in keychain without proper access control
-    """,
-    """
-    Check for iOS/macOS specific issues.
-    Flag:
-    - Missing required Info.plist keys for permissions
-    - Not handling all UIApplication lifecycle states
-    - Ignoring low memory warnings
-    - Not supporting Dynamic Type for accessibility
-    - Hardcoded frame sizes instead of Auto Layout
-    - Missing dark mode support
-    """,
+checks = [
+    "Check for dead code or unused files.",
+    "Check for feature flags for features that have shipped.",
+    "Check for duplicate implementations.",
+    "Check that user-facing strings are localized.",
 ]

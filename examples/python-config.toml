@@ -1,126 +1,78 @@
 # Code Scanner Configuration for Python Projects
-# This example shows common checks for Python codebases
+# This example shows checks that require human judgment - not things linters catch.
 #
 # Copy this file to your project root as `config.toml` and customize as needed.
 
 # ==============================================================================
 # LLM Backend Configuration
 # ==============================================================================
-# Choose ONE of the backend configurations below (LM Studio or Ollama)
 
 [llm]
-# -----------------------------------------------------------------------------
-# Option 1: Ollama (recommended for simplicity)
-# -----------------------------------------------------------------------------
-# Install: https://ollama.ai/download
-# Pull a model: ollama pull qwen3:4b
-# Start server: ollama serve (runs automatically on macOS/Linux)
+# LM Studio (default)
+backend = "lm-studio"   # Backend type: "lm-studio" or "ollama"
+host = "localhost"       # Server hostname (usually localhost)
+port = 1234              # Server port (LM Studio default: 1234, Ollama: 11434)
+model = "qwen2.5-coder-7b-instruct"  # Model identifier (required for Ollama, optional for LM Studio)
+timeout = 600            # Request timeout in seconds
+context_limit = 16384    # Context window size in tokens (minimum 16384 recommended)
 
-# backend = "ollama"
+# Ollama alternative (uncomment and comment out LM Studio above):
+# backend = "ollama"     # Use Ollama backend
 # host = "localhost"
-# port = 11434
-# model = "qwen3:4b"  # Required for Ollama
-# timeout = 120
-# context_limit = 8192
-
-# -----------------------------------------------------------------------------
-# Option 2: LM Studio (comment out Ollama section above, uncomment below)
-# -----------------------------------------------------------------------------
-# Download: https://lmstudio.ai
-# Load a model in LM Studio and start the local server
-
-backend = "lm-studio"
-host = "localhost"
-port = 1234
-model = "qwen/qwen3-4b-thinking-2507"
-timeout = 120
-context_limit = 8192  # Context window size in tokens
+# port = 11434           # Ollama default port
+# model = "qwen3:4b"     # Model name (REQUIRED for Ollama)
+# timeout = 600
+# context_limit = 16384
 
 
 # ==============================================================================
-# Code Quality Checks
+# Human-Focused Code Checks
 # ==============================================================================
-# Each [[checks]] group has:
-#   - pattern: Glob pattern to match files (e.g., "*.py", "src/*.py", "*" for all)
-#   - rules: List of natural language descriptions of what to check for
+# These checks focus on issues that require semantic understanding.
+# Linters (pylint, flake8, mypy) already handle syntax and style issues.
 
-# Python-specific checks
 [[checks]]
 pattern = "*.py"
-rules = [
-    """
-    Check for functions and methods missing type hints.
-    Flag:
-    - Functions without return type annotation
-    - Parameters without type annotations
-    - Use of 'Any' type where a more specific type would be better
-    - Missing Optional[] for parameters with None defaults
-    Do NOT flag:
-    - Test functions (def test_*)
-    - __init__ methods that only assign to self
-    """,
-    """
-    Check for missing or incomplete docstrings.
-    Flag:
-    - Public modules without module docstring
-    - Public classes without class docstring
-    - Public functions/methods without docstring
-    - Docstrings missing parameter descriptions
-    - Docstrings missing return value description
-    Do NOT flag:
-    - Private methods (starting with _)
-    - Simple __init__ methods
-    - Property getters
-    - Test functions
-    """,
-    """
-    Check for problematic exception handling patterns.
-    Flag:
-    - Bare 'except:' clauses (should specify exception type)
-    - 'except Exception:' that catches too broadly
-    - Empty except blocks that silently swallow errors
-    - Catching and re-raising without adding context
-    - Missing exception handling for I/O operations
-    Do NOT flag:
-    - Broad catches with proper logging
-    - Intentional catch-all in main entry points
-    """,
-    """
-    Check for potential security vulnerabilities.
-    Flag:
-    - Hardcoded passwords, API keys, or secrets
-    - SQL queries built with string formatting (SQL injection risk)
-    - Use of eval() or exec() with user input
-    - Pickle loading of untrusted data
-    - Subprocess calls with shell=True
-    - Use of assert for validation (disabled in production)
-    - Insecure random number generation (random module for crypto)
-    """,
+checks = [
+    # Architectural checks
+    "Check that classes and functions have a single responsibility.",
+    "Check for circular imports or circular dependencies between modules.",
+    "Check that business logic is not placed in wrong layers (e.g., data validation in presentation layer).",
+    "Check for god classes with too many public methods.",
+    "Check for tight coupling between components that should be independent.",
+    # Logic and semantic checks
+    "Check for off-by-one errors in loops, slices, or range() calls.",
+    "Check for incorrect boundary conditions (< vs <=, > vs >=).",
+    "Check for resource leaks where files, connections, or locks are not properly closed or released.",
+    "Check for race conditions in multi-threaded code with shared state mutations.",
+    "Check for incorrect assumptions about data ordering or uniqueness.",
+    # Security checks
+    "Check for SQL queries with any form of string interpolation including f-strings.",
+    "Check that user input passed to os.system(), subprocess, or exec() is properly sanitized.",
+    "Check that secrets or tokens are not logged in error messages or debug output.",
+    "Check that authentication and authorization checks are present in critical paths.",
+    "Check for insecure deserialization using pickle or yaml.load without Loader.",
+    "Check for path traversal vulnerabilities where user input is used in file paths.",
+    # API contract checks
+    "Check that functions return consistent types and do not vary by code path.",
+    "Check for breaking changes to public function signatures without versioning.",
+    "Check for inconsistent error handling where functions sometimes raise and sometimes return None.",
+    "Check that external API responses are validated before use.",
+    "Check for incorrect HTTP status codes in REST endpoints.",
+    # Domain-specific checks
+    "Check for hardcoded business rules that should be configurable.",
+    "Check for date and time handling without proper timezone awareness.",
+    "Check for currency or money calculations using float instead of Decimal.",
+    "Check for incorrect handling of Unicode strings or encodings.",
+    "Check for missing retry logic for network operations.",
 ]
 
-# General code quality checks for all files
 [[checks]]
 pattern = "*"
-rules = [
-    """
-    Check for general code quality issues.
-    Flag:
-    - Unused variables or imports
-    - Functions that are too long (>50 lines)
-    - Deeply nested code (>4 levels)
-    - Magic numbers without explanation
-    - Duplicate code blocks
-    - Mutable default arguments in function definitions
-    - Global variable mutations
-    """,
-    """
-    Check for Python-specific best practices.
-    Flag:
-    - Using 'type()' instead of 'isinstance()' for type checking
-    - Using 'len(x) == 0' instead of 'not x' for empty checks
-    - Manual iteration with indices instead of enumerate()
-    - Manual dictionary iteration instead of .items()
-    - String concatenation in loops instead of join()
-    - Opening files without context manager (with statement)
-    """,
+checks = [
+    "Check for entire files that are never imported or used.",
+    "Check for feature flags or conditional code for features that shipped long ago.",
+    "Check for commented-out code blocks larger than 3 lines.",
+    "Check for TODO or FIXME comments that appear outdated.",
+    "Check for duplicate implementations of similar logic across files.",
 ]

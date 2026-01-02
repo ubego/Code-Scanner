@@ -1,80 +1,66 @@
-# Code Scanner Configuration
+# Code Scanner Configuration - General Template
+# Human-focused checks that work for any project.
 #
-# This file configures the AI-powered code scanner.
-# Copy this file to your project root as `config.toml` and customize as needed.
-#
-# For language-specific examples, see the examples/ directory:
-#   - examples/python-config.toml    - Python project configuration
-#   - examples/javascript-config.toml - JavaScript/TypeScript configuration
+# Copy this file to your project root as `config.toml`.
+# For language-specific checks, see other examples in this directory.
 
 # ==============================================================================
-# LLM Backend Configuration (REQUIRED)
+# LLM Backend Configuration
 # ==============================================================================
-# You must specify which LLM backend to use.
 
 [llm]
-# Choose your backend: "lm-studio" or "ollama"
-# Both require the host and port to be specified (no defaults).
+# LM Studio (default)
+backend = "lm-studio"   # Backend type: "lm-studio" or "ollama"
+host = "localhost"       # Server hostname (usually localhost)
+port = 1234              # Server port (LM Studio default: 1234, Ollama: 11434)
+model = "qwen2.5-coder-7b-instruct"  # Model identifier (required for Ollama, optional for LM Studio)
+timeout = 600            # Request timeout in seconds
+context_limit = 16384    # Context window size in tokens (minimum 16384 recommended)
 
-# -----------------------------------------------------------------------------
-# Option 1: LM Studio
-# -----------------------------------------------------------------------------
-# Download LM Studio: https://lmstudio.ai
-# Load a model and start the local server from the GUI.
-
-backend = "lm-studio"
-host = "localhost"
-port = 1234
-timeout = 120
-
-# model = "qwen3:4b"
-# context_limit = 8192
-
-# -----------------------------------------------------------------------------
-# Option 2: Ollama (uncomment below and comment out LM Studio above)
-# -----------------------------------------------------------------------------
-# Install Ollama: https://ollama.ai/download
-# Pull a model: ollama pull qwen3:4b
-# Start server: ollama serve (runs automatically on macOS/Linux)
-
-# backend = "ollama"
+# Ollama alternative (uncomment and comment out LM Studio above):
+# backend = "ollama"     # Use Ollama backend
 # host = "localhost"
-# port = 11434
-# model = "qwen3:4b"  # Required for Ollama
-# timeout = 120
-# context_limit = 8192
-
-# -----------------------------------------------------------------------------
-# Context Limit (optional)
-# -----------------------------------------------------------------------------
-# Override the model's default context window size (in tokens).
-# Only set this if you know your model supports it.
-# context_limit = 32768
+# port = 11434           # Ollama default port
+# model = "qwen3:4b"     # Model name (REQUIRED for Ollama)
+# timeout = 600
+# context_limit = 16384
 
 
 # ==============================================================================
-# Code Checks Configuration
+# Human-Focused Code Checks
 # ==============================================================================
-# Checks are organized into groups, each with a file pattern and list of rules.
-# Pattern uses glob syntax: "*.cpp, *.h" matches C++ files, "*" matches all files.
+# These checks focus on issues that require semantic understanding.
+# Leave linting to your language's static analysis tools.
 
-# C++/Qt specific checks
-[[checks]]
-pattern = "*.cpp, *.h, *.cxx, *.hpp"
-rules = [
-    "Check for any detectable errors and suggest code simplifications where possible.",
-    "Check that iteration continues automatically until the final result, without requiring user prompts to proceed.",
-    "Check that constexpr and compile-time programming techniques are applied where appropriate.",
-    "Check that stack allocation is preferred over heap allocation whenever possible.",
-    "Check that string literals are handled through QStringView variables.",
-    "Check that string literals used multiple times are stored in named QStringView constants instead of being repeated.",
-    "Check that comments provide meaningful context or rationale and avoid restating obvious code behavior.",
-    "Check that functions are implemented in .cpp files rather than .h files.",
-]
-
-# General checks for all files
 [[checks]]
 pattern = "*"
-rules = [
-    "Check for unused files or dead code.",
+checks = [
+    # Architectural checks
+    "Check that classes and modules have a single responsibility and are not doing too many things.",
+    "Check for circular dependencies between components or modules.",
+    "Check that business logic is not placed in wrong layers (e.g., data access in UI layer).",
+    "Check for tight coupling between components that should be independent.",
+    "Check for god classes or files that have too many responsibilities.",
+    # Security checks
+    "Check for hardcoded secrets, API keys, or credentials in the code.",
+    "Check that user input is properly validated and sanitized before use.",
+    "Check for SQL injection or command injection vulnerabilities.",
+    "Check that sensitive data is not logged or exposed in error messages.",
+    "Check that authentication and authorization checks are present in critical paths.",
+    # Logic and semantic checks
+    "Check for off-by-one errors in boundary conditions.",
+    "Check for race conditions in concurrent or multi-threaded code.",
+    "Check for resource leaks where files, connections, or locks are not properly released.",
+    "Check for incorrect assumptions about data ordering or uniqueness.",
+    "Check that error handling does not silently swallow failures.",
+    # API contract checks
+    "Check for breaking changes to public interfaces.",
+    "Check for inconsistent error handling patterns across the codebase.",
+    "Check that functions return consistent types and do not vary by code path.",
+    "Check that external input and API responses are validated before use.",
+    # Technical debt checks
+    "Check for dead code or unused files that should be removed.",
+    "Check for commented-out code blocks that should be removed.",
+    "Check for TODO or FIXME comments that have lingered too long.",
+    "Check for duplicate implementations that should be consolidated.",
 ]

@@ -132,7 +132,7 @@ def load_config(
             "Add checks to your config.toml:\n"
             '[[checks]]\n'
             'pattern = "*"\n'
-            'rules = ["Check for errors", "Check for style issues"]'
+            'checks = ["Check for errors", "Check for style issues"]'
         )
 
     check_groups: list[CheckGroup] = []
@@ -147,11 +147,11 @@ def load_config(
                     raise ConfigError(f"Check at index {i} must be a non-empty string")
             check_groups.append(CheckGroup(
                 pattern="*",
-                rules=[c.strip() for c in checks_data]
+                checks=[c.strip() for c in checks_data]
             ))
         elif isinstance(checks_data[0], dict):
             # New format: array of tables
-            SUPPORTED_CHECK_PARAMS = {"pattern", "rules"}
+            SUPPORTED_CHECK_PARAMS = {"pattern", "checks"}
             for i, group_data in enumerate(checks_data):
                 if not isinstance(group_data, dict):
                     raise ConfigError(f"Check group at index {i} must be a table")
@@ -166,21 +166,21 @@ def load_config(
                     )
 
                 pattern = group_data.get("pattern", "*")
-                rules = group_data.get("rules", [])
+                checks = group_data.get("checks", [])
 
                 if not isinstance(pattern, str) or not pattern.strip():
                     raise ConfigError(f"Check group at index {i}: 'pattern' must be a non-empty string")
 
-                if not isinstance(rules, list) or not rules:
-                    raise ConfigError(f"Check group at index {i}: 'rules' must be a non-empty list")
+                if not isinstance(checks, list) or not checks:
+                    raise ConfigError(f"Check group at index {i}: 'checks' must be a non-empty list")
 
-                for j, rule in enumerate(rules):
-                    if not isinstance(rule, str) or not rule.strip():
-                        raise ConfigError(f"Check group {i}, rule {j}: must be a non-empty string")
+                for j, check in enumerate(checks):
+                    if not isinstance(check, str) or not check.strip():
+                        raise ConfigError(f"Check group {i}, check {j}: must be a non-empty string")
 
                 check_groups.append(CheckGroup(
                     pattern=pattern.strip(),
-                    rules=[r.strip() for r in rules]
+                    checks=[r.strip() for r in checks]
                 ))
         else:
             raise ConfigError("'checks' must be a list of strings or array of tables")
@@ -221,7 +221,7 @@ def load_config(
             "  host = \"localhost\"\n"
             "  port = 11434\n"
             "  model = \"qwen3:4b\"  # Required for Ollama\n"
-            "  context_limit = 8192\n\n"
+            "  context_limit = 16384  # Minimum 16384 recommended\n\n"
             "=" * 70
         )
     
@@ -259,8 +259,8 @@ def load_config(
         llm=llm_config,
     )
 
-    total_rules = sum(len(g.rules) for g in config.check_groups)
-    logger.info(f"Loaded {len(config.check_groups)} check group(s) with {total_rules} total rules")
+    total_checks = sum(len(g.checks) for g in config.check_groups)
+    logger.info(f"Loaded {len(config.check_groups)} check group(s) with {total_checks} total checks")
     logger.debug(f"LLM backend: {config.llm.backend} at {config.llm.base_url}")
 
     return config

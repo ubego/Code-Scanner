@@ -226,7 +226,7 @@ def hello():
         config.llm_retry_interval = 1.0
         config.max_llm_retries = 3
         config.check_groups = [
-            CheckGroup(pattern="*.py", rules=["Check for unused imports"]),
+            CheckGroup(pattern="*.py", checks=["Check for unused imports"]),
         ]
         config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
         
@@ -273,7 +273,7 @@ def hello():
         config.check_groups = [
             CheckGroup(
                 pattern="*.cpp, *.h",
-                rules=["Check for memory leaks and heap allocations that could use stack"]
+                checks=["Check for memory leaks and heap allocations that could use stack"]
             ),
         ]
         config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
@@ -332,7 +332,7 @@ class TestEndToEndIntegration:
         config_path.write_text('''
 [[checks]]
 pattern = "*.cpp, *.h"
-rules = [
+checks = [
     "Check for memory leaks",
 ]
 
@@ -546,20 +546,20 @@ class TestConfigIntegration:
         config_path.write_text('''
 [[checks]]
 pattern = "*.cpp, *.h, *.hpp"
-rules = [
+checks = [
     "Check for memory leaks",
     "Check for RAII violations",
 ]
 
 [[checks]]
 pattern = "*.py"
-rules = [
+checks = [
     "Check for unused imports",
 ]
 
 [[checks]]
 pattern = "*"
-rules = [
+checks = [
     "General code review",
 ]
 
@@ -580,7 +580,7 @@ timeout = 120
         # Check C++ group
         cpp_group = config.check_groups[0]
         assert "*.cpp" in cpp_group.pattern
-        assert len(cpp_group.rules) == 2
+        assert len(cpp_group.checks) == 2
         assert cpp_group.matches_file("src/main.cpp")
         assert not cpp_group.matches_file("test.py")
         

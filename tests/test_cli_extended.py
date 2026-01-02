@@ -45,7 +45,7 @@ def mock_config(temp_git_repo):
     config.git_poll_interval = 1.0
     config.llm_retry_interval = 1.0
     config.max_llm_retries = 3
-    config.check_groups = [CheckGroup(pattern="*", rules=["Check"])]
+    config.check_groups = [CheckGroup(pattern="*", checks=["Check"])]
     config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
     return config
 
@@ -256,7 +256,7 @@ class TestMainFunction:
         config_path.write_text('''
 [[checks]]
 pattern = "*"
-rules = ["Check"]
+checks = ["Check"]
 
 [llm]
 backend = "lm-studio"

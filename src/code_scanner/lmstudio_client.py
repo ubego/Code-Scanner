@@ -317,12 +317,12 @@ class LMStudioClient(BaseLLMClient):
             f"Failed to get valid JSON response after {max_retries} attempts"
         )
 
-    def _try_fix_json_response(self, malformed_content: str, original_params: dict) -> Optional[dict]:
+    def _try_fix_json_response(self, malformed_content: str, _original_params: dict) -> Optional[dict]:
         """Try to get LLM to fix its own malformed JSON response.
 
         Args:
             malformed_content: The malformed response from LLM.
-            original_params: The original request parameters.
+            _original_params: The original request parameters (reserved for future use).
 
         Returns:
             Parsed JSON dict if successful, None if fix attempt failed.

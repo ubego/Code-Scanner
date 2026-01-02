@@ -110,7 +110,7 @@ port = 1234
         
         assert len(config.check_groups) == 1
         assert config.check_groups[0].pattern == "*"
-        assert len(config.check_groups[0].rules) == 2
+        assert len(config.check_groups[0].checks) == 2
 
     def test_legacy_empty_string_check_raises(self, tmp_path):
         """Test that empty string in legacy checks raises error."""
@@ -168,7 +168,7 @@ class TestNewConfigFormat:
         config_file.write_text('''
 [[checks]]
 pattern = "*.py"
-rules = ["Check Python files"]
+checks = ["Check Python files"]
 
 [llm]
 backend = "lm-studio"
@@ -183,7 +183,7 @@ port = 1234
         
         assert len(config.check_groups) == 1
         assert config.check_groups[0].pattern == "*.py"
-        assert config.check_groups[0].rules == ["Check Python files"]
+        assert config.check_groups[0].checks == ["Check Python files"]
 
     def test_new_format_multiple_groups(self, tmp_path):
         """Test loading new format with multiple check groups."""
@@ -191,11 +191,11 @@ port = 1234
         config_file.write_text('''
 [[checks]]
 pattern = "*.py"
-rules = ["Check Python"]
+checks = ["Check Python"]
 
 [[checks]]
 pattern = "*.cpp, *.h"
-rules = ["Check C++", "Check headers"]
+checks = ["Check C++", "Check headers"]
 
 [llm]
 backend = "lm-studio"
@@ -218,7 +218,7 @@ port = 1234
         config_file.write_text('''
 [[checks]]
 pattern = ""
-rules = ["Check"]
+checks = ["Check"]
 
 [llm]
 backend = "lm-studio"
@@ -235,12 +235,12 @@ port = 1234
         assert "'pattern' must be a non-empty string" in str(exc_info.value)
 
     def test_new_format_empty_rules_raises(self, tmp_path):
-        """Test that empty rules list raises error."""
+        """Test that empty checks list raises error."""
         config_file = tmp_path / "config.toml"
         config_file.write_text('''
 [[checks]]
 pattern = "*.py"
-rules = []
+checks = []
 
 [llm]
 backend = "lm-studio"
@@ -254,7 +254,7 @@ port = 1234
                 config_file=config_file,
             )
         
-        assert "'rules' must be a non-empty list" in str(exc_info.value)
+        assert "'checks' must be a non-empty list" in str(exc_info.value)
 
     def test_new_format_empty_rule_string_raises(self, tmp_path):
         """Test that empty string rule raises error."""
@@ -262,7 +262,7 @@ port = 1234
         config_file.write_text('''
 [[checks]]
 pattern = "*.py"
-rules = ["Valid rule", ""]
+checks = ["Valid rule", ""]
 
 [llm]
 backend = "lm-studio"
@@ -283,7 +283,7 @@ port = 1234
         config_file = tmp_path / "config.toml"
         config_file.write_text('''
 [[checks]]
-rules = ["Check all files"]
+checks = ["Check all files"]
 
 [llm]
 backend = "lm-studio"
@@ -308,7 +308,7 @@ class TestLLMConfig:
         config_file.write_text('''
 [[checks]]
 pattern = "*"
-rules = ["Check"]
+checks = ["Check"]
 
 [llm]
 backend = "lm-studio"
@@ -332,7 +332,7 @@ port = 1234
         config_file.write_text('''
 [[checks]]
 pattern = "*"
-rules = ["Check"]
+checks = ["Check"]
 
 [llm]
 backend = "lm-studio"
@@ -428,7 +428,7 @@ class TestCommitHash:
         config_file = tmp_path / "config.toml"
         config_file.write_text('''[[checks]]
 pattern = "*"
-rules = ["Check"]
+checks = ["Check"]
 
 [llm]
 backend = "lm-studio"
@@ -449,7 +449,7 @@ port = 1234
         config_file = tmp_path / "config.toml"
         config_file.write_text('''[[checks]]
 pattern = "*"
-rules = ["Check"]
+checks = ["Check"]
 
 [llm]
 backend = "lm-studio"

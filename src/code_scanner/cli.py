@@ -116,8 +116,8 @@ class Application:
         logger.info(f"Target directory: {self.config.target_directory}")
         logger.info(f"Config file: {self.config.config_file}")
         logger.info(f"Output file: {self.config.output_path}")
-        total_rules = sum(len(g.rules) for g in self.config.check_groups)
-        logger.info(f"Check groups: {len(self.config.check_groups)}, Total rules: {total_rules}")
+        total_checks = sum(len(g.checks) for g in self.config.check_groups)
+        logger.info(f"Check groups: {len(self.config.check_groups)}, Total checks: {total_checks}")
         logger.info("=" * 60)
 
         # Initialize components
@@ -291,8 +291,8 @@ class Application:
             try:
                 # Check for changes
                 if self.git_watcher.has_changes_since(last_state):
-                    logger.info("Git changes detected, signaling scanner")
-                    self.scanner.signal_restart()
+                    logger.info("Git changes detected, signaling scanner to refresh")
+                    self.scanner.signal_refresh()
                     last_state = self.git_watcher.get_state()
 
                 # Wait before next poll
@@ -304,7 +304,7 @@ class Application:
 
         logger.info("Git watcher stopped")
 
-    def _signal_handler(self, signum: int, frame) -> None:
+    def _signal_handler(self, signum: int, _frame: object) -> None:
         """Handle termination signals."""
         logger.info(f"Received signal {signum}, stopping...")
         self._stop_event.set()

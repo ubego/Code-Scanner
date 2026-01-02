@@ -24,8 +24,8 @@ def mock_config():
     config.llm_retry_interval = 0.1
     config.max_llm_retries = 2
     config.check_groups = [
-        CheckGroup(pattern="*.py", rules=["Check for bugs", "Check for style"]),
-        CheckGroup(pattern="*.cpp, *.h", rules=["Check memory leaks"]),
+        CheckGroup(pattern="*.py", checks=["Check for bugs", "Check for style"]),
+        CheckGroup(pattern="*.cpp, *.h", checks=["Check memory leaks"]),
     ]
     return config
 
@@ -181,7 +181,7 @@ class TestScannerRunScan:
         with patch.object(scanner, "_get_files_content", return_value=files_content):
             scanner._run_scan(state)
         
-        # Should query LLM for each rule (2 py rules + 1 cpp rule = 3)
+        # Should query LLM for each check (2 py rules + 1 cpp rule = 3)
         assert mock_dependencies["llm_client"].query.call_count >= 1
 
     def test_run_scan_handles_deleted_files(self, mock_dependencies):
@@ -274,8 +274,8 @@ class TestScannerRunScan:
         
         mock_dependencies["llm_client"].wait_for_connection.assert_called()
 
-    def test_run_scan_handles_restart_signal(self, mock_dependencies):
-        """Run scan handles restart signal during processing."""
+    def test_run_scan_handles_refresh_signal(self, mock_dependencies):
+        """Run scan handles refresh signal during processing and continues."""
         scanner = Scanner(**mock_dependencies)
         
         state = GitState(
@@ -288,7 +288,7 @@ class TestScannerRunScan:
         def query_side_effect(*args, **kwargs):
             query_count[0] += 1
             if query_count[0] == 1:
-                scanner._restart_event.set()
+                scanner._refresh_event.set()
             return {"issues": []}
         
         mock_dependencies["llm_client"].query.side_effect = query_side_effect
@@ -297,7 +297,7 @@ class TestScannerRunScan:
         with patch.object(scanner, "_get_files_content", return_value=files_content):
             scanner._run_scan(state)
         
-        # Restart should be handled
+        # Refresh signal should be handled (cleared) and scan continues
 
     def test_run_scan_stops_on_stop_event(self, mock_dependencies):
         """Run scan stops processing when stop event is set."""
@@ -360,7 +360,7 @@ class TestScannerBatching:
         """Filter batches removes non-matching files."""
         scanner = Scanner(**mock_dependencies)
         
-        check_group = CheckGroup(pattern="*.py", rules=["check"])
+        check_group = CheckGroup(pattern="*.py", checks=["check"])
         batches = [
             {"test.py": "code", "test.cpp": "code", "other.py": "code"},
         ]
@@ -376,7 +376,7 @@ class TestScannerBatching:
         """Filter batches removes batches with no matching files."""
         scanner = Scanner(**mock_dependencies)
         
-        check_group = CheckGroup(pattern="*.py", rules=["check"])
+        check_group = CheckGroup(pattern="*.py", checks=["check"])
         batches = [
             {"test.cpp": "code"},  # No py files
             {"test.py": "code"},
@@ -566,21 +566,21 @@ class TestScannerThreading:
         assert scanner._thread is original_thread
 
     def test_stop_sets_events(self, mock_dependencies):
-        """Stop sets both stop and restart events."""
+        """Stop sets both stop and refresh events."""
         scanner = Scanner(**mock_dependencies)
         
         scanner.stop()
         
         assert scanner._stop_event.is_set()
-        assert scanner._restart_event.is_set()
+        assert scanner._refresh_event.is_set()
 
-    def test_signal_restart_sets_event(self, mock_dependencies):
-        """Signal restart sets the restart event."""
+    def test_signal_refresh_sets_event(self, mock_dependencies):
+        """Signal refresh sets the refresh event."""
         scanner = Scanner(**mock_dependencies)
         
-        assert not scanner._restart_event.is_set()
-        scanner.signal_restart()
-        assert scanner._restart_event.is_set()
+        assert not scanner._refresh_event.is_set()
+        scanner.signal_refresh()
+        assert scanner._refresh_event.is_set()
 
 
 class TestScannerIntegration:
@@ -632,8 +632,8 @@ class TestScannerIntegration:
         """Test scan processes multiple check groups correctly."""
         # Configure multiple check groups
         mock_dependencies["config"].check_groups = [
-            CheckGroup(pattern="*.py", rules=["Python check"]),
-            CheckGroup(pattern="*.cpp", rules=["C++ check"]),
+            CheckGroup(pattern="*.py", checks=["Python check"]),
+            CheckGroup(pattern="*.cpp", checks=["C++ check"]),
         ]
         
         scanner = Scanner(**mock_dependencies)
@@ -679,7 +679,7 @@ class TestScannerIncrementalOutput:
         with patch.object(scanner, "_get_files_content", return_value=files_content):
             scanner._run_scan(state)
         
-        # With 2 rules in *.py group, output should be updated twice (once per check)
+        # With 2 checks in *.py group, output should be updated twice (once per check)
         # Plus one final update at the end of scan
         assert mock_dependencies["output_generator"].write.call_count >= 2
 
@@ -706,8 +706,8 @@ class TestScannerIncrementalOutput:
         with patch.object(scanner, "_get_files_content", return_value=files_content):
             scanner._run_scan(state)
         
-        # Output is now written per batch (inside _run_check) and per rule completion
-        # With 2 rules for *.py pattern, each with 1 batch, we get:
+        # Output is now written per batch (inside _run_check) and per check completion
+        # With 2 checks for *.py pattern, each with 1 batch, we get:
         # - 1 write per batch in _run_check (checks_run=0 for first batch)
         # - 1 write after rule completes in _run_scan (checks_run=1 for first rule)
         # Total writes should be at least 2, with checks_run incrementing
@@ -715,8 +715,8 @@ class TestScannerIncrementalOutput:
         # Last call should have checks_run=2 (both rules completed)
         assert write_calls_scan_info[-1] == 2
 
-    def test_restart_signal_returns_immediately(self, mock_dependencies):
-        """Restart signal causes immediate return, not inline restart."""
+    def test_refresh_signal_continues_processing(self, mock_dependencies):
+        """Refresh signal clears and continues processing (preserves progress)."""
         scanner = Scanner(**mock_dependencies)
         
         state = GitState(
@@ -725,12 +725,12 @@ class TestScannerIncrementalOutput:
         
         files_content = {"test.py": "x = 1"}
         
-        # Set restart signal after first query
+        # Set refresh signal after first query
         query_count = [0]
         def query_side_effect(*args, **kwargs):
             query_count[0] += 1
             if query_count[0] == 1:
-                scanner._restart_event.set()
+                scanner._refresh_event.set()
             return {"issues": []}
         
         mock_dependencies["llm_client"].query.side_effect = query_side_effect
@@ -738,7 +738,7 @@ class TestScannerIncrementalOutput:
         with patch.object(scanner, "_get_files_content", return_value=files_content):
             scanner._run_scan(state)
         
-        # Should only call query once since restart causes immediate return
-        assert mock_dependencies["llm_client"].query.call_count == 1
-        # Restart event should be cleared
-        assert not scanner._restart_event.is_set()
+        # Should call query for all checks (2 checks in config) - continues processing
+        assert mock_dependencies["llm_client"].query.call_count == 2
+        # Refresh event should be cleared
+        assert not scanner._refresh_event.is_set()

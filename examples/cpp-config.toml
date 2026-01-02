@@ -1,132 +1,79 @@
 # Code Scanner Configuration for C++ Projects
-# This example shows common checks for modern C++ codebases
+# Human-focused checks - compilers and clang-tidy handle syntax/warnings.
 #
-# Copy this file to your project root as `config.toml` and customize as needed.
+# Copy this file to your project root as `config.toml`.
 
 # ==============================================================================
 # LLM Backend Configuration
 # ==============================================================================
-# Choose ONE of the backend configurations below (LM Studio or Ollama)
 
 [llm]
-# -----------------------------------------------------------------------------
-# Option 1: LM Studio
-# -----------------------------------------------------------------------------
-# Download: https://lmstudio.ai
-# Load a model in LM Studio and start the local server
+backend = "lm-studio"   # Backend type: "lm-studio" or "ollama"
+host = "localhost"       # Server hostname (usually localhost)
+port = 1234              # Server port (LM Studio default: 1234, Ollama: 11434)
+model = "qwen2.5-coder-7b-instruct"  # Model identifier
+timeout = 600            # Request timeout in seconds
+context_limit = 16384    # Context window size in tokens (minimum 16384 recommended)
 
-backend = "lm-studio"
-host = "localhost"
-port = 1234
-model = "qwen/qwen3-4b-thinking-2507"
-timeout = 120
-# context_limit = 32768  # Context window size in tokens
-
-# -----------------------------------------------------------------------------
-# Option 2: Ollama (comment out LM Studio section above, uncomment below)
-# -----------------------------------------------------------------------------
-# Install: https://ollama.ai/download
-# Pull a model: ollama pull qwen3:4b
-# Start server: ollama serve (runs automatically on macOS/Linux)
-
-# backend = "ollama"
+# Ollama alternative:
+# backend = "ollama"     # Use Ollama backend
 # host = "localhost"
-# port = 11434
-# model = "qwen3:4b"  # Required for Ollama
-# timeout = 120
-# context_limit = 8192
+# port = 11434           # Ollama default port
+# model = "qwen3:4b"     # Model name (REQUIRED for Ollama)
 
 
 # ==============================================================================
-# Code Quality Checks
+# Human-Focused Code Checks
 # ==============================================================================
 
-# C++ source file checks
 [[checks]]
-pattern = "*.cpp, *.cxx, *.cc"
-rules = [
-    """
-    Check for memory management issues.
-    Flag:
-    - Raw new/delete instead of smart pointers (unique_ptr, shared_ptr)
-    - Missing delete for new allocations
-    - delete on array allocated with new[] (should use delete[])
-    - Potential memory leaks in exception paths
-    - Manual memory management where RAII could be used
-    Do NOT flag:
-    - Placement new for custom allocators
-    - Low-level system code with documented ownership
-    """,
-    """
-    Check for undefined behavior risks.
-    Flag:
-    - Dereferencing potentially null pointers
-    - Array out-of-bounds access
-    - Use after free
-    - Signed integer overflow
-    - Uninitialized variable usage
-    - Data races on shared variables
-    """,
-    """
-    Check for modern C++ best practices.
-    Flag:
-    - Using NULL instead of nullptr
-    - C-style casts instead of static_cast/dynamic_cast/reinterpret_cast
-    - #define constants instead of constexpr
-    - typedef instead of using
-    - Old-style for loops where range-based for would work
-    - std::bind instead of lambdas
-    - Raw function pointers instead of std::function
-    """,
-    """
-    Check for performance issues.
-    Flag:
-    - Passing large objects by value instead of const reference
-    - Missing move semantics for movable objects
-    - Unnecessary copies in range-based for (should use const auto&)
-    - String concatenation in loops instead of ostringstream
-    - Virtual function calls in tight loops
-    - Missing noexcept on move operations
-    """,
+pattern = "*.cpp, *.cc, *.cxx, *.hpp, *.h"
+checks = [
+    # Memory management checks
+    "Check that stack allocation is preferred over heap allocation for small, short-lived objects.",
+    "Check that smart pointers (unique_ptr, shared_ptr) are used instead of raw pointers where appropriate.",
+    "Check that RAII patterns are used instead of manual new/delete.",
+    "Check that base classes with virtual methods have virtual destructors.",
+    "Check for object slicing when copying derived classes.",
+    "Check for dangling pointers after object destruction.",
+    "Check for double-free vulnerabilities.",
+    # Resource leak checks
+    "Check that file handles are closed on all code paths.",
+    "Check that network connections and sockets are properly released.",
+    "Check that mutexes are unlocked on exception paths using lock_guard.",
+    "Check that memory allocated in constructor is freed on partial construction failure.",
+    # Concurrency checks
+    "Check for data races on shared mutable state.",
+    "Check for deadlock potential from inconsistent lock ordering.",
+    "Check for missing memory barriers or atomic operations.",
+    "Check that condition variables are used with proper predicates.",
+    "Check for thread-unsafe initialization of local statics using pre-C++11 patterns.",
+    # Undefined behavior checks
+    "Check for signed integer overflow.",
+    "Check for dereferencing nullptr or uninitialized pointers.",
+    "Check for use-after-move of moved-from objects.",
+    "Check for out-of-bounds array access.",
+    "Check for modifying const objects through casts.",
+    "Check for strict aliasing rule violations.",
+    # Design checks
+    "Check that classes have a single responsibility.",
+    "Check for circular dependencies between modules.",
+    "Check for god classes with too many methods.",
+    "Check for deeply nested inheritance hierarchies.",
+    "Check for overuse of friend classes breaking encapsulation.",
+    # Modern C++ checks
+    "Check that STL algorithms are used instead of raw loops where appropriate.",
+    "Check that static_cast or dynamic_cast is used instead of C-style casts.",
+    "Check that std::string or string_view is used instead of manual string handling.",
+    "Check that std::function is used instead of function pointers where clearer.",
+    "Check that move operations are marked noexcept.",
 ]
 
-# Header file checks
-[[checks]]
-pattern = "*.h, *.hpp, *.hxx"
-rules = [
-    """
-    Check for header file issues.
-    Flag:
-    - Missing include guards or #pragma once
-    - Function definitions in headers (except inline/template/constexpr)
-    - Using namespace in headers
-    - Unnecessary includes (forward declarations would suffice)
-    - Missing forward declarations causing circular dependencies
-    - Non-inline variable definitions in headers (ODR violations)
-    """,
-    """
-    Check for API design issues in headers.
-    Flag:
-    - Public member variables (should use getters/setters)
-    - Missing virtual destructor in base classes with virtual methods
-    - Missing explicit on single-argument constructors
-    - Missing const on methods that don't modify state
-    - Exposing implementation details in public interface
-    """,
-]
-
-# General checks
 [[checks]]
 pattern = "*"
-rules = [
-    """
-    Check for security vulnerabilities.
-    Flag:
-    - Buffer overflow risks (strcpy, sprintf, gets)
-    - Format string vulnerabilities
-    - Integer overflow in size calculations
-    - Use of deprecated insecure functions
-    - Command injection risks
-    - Hardcoded credentials
-    """,
+checks = [
+    "Check for headers that are included but not used.",
+    "Check for circular header dependencies.",
+    "Check that implementation details are not exposed in headers.",
+    "Check that include guards or #pragma once is present.",
 ]

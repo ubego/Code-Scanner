@@ -169,7 +169,7 @@ class CheckGroup:
     """A group of checks that apply to files matching a pattern."""
 
     pattern: str  # Glob pattern like "*.cpp, *.h" or "*" for all files
-    rules: list[str]  # List of check rules to run
+    checks: list[str]  # List of checks to run
 
     def matches_file(self, file_path: str) -> bool:
         """Check if the file matches this check group's pattern.

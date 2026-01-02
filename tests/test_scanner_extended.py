@@ -21,7 +21,7 @@ def mock_config():
     config.llm_retry_interval = 1.0
     config.max_llm_retries = 3
     config.check_groups = [
-        CheckGroup(pattern="*.py", rules=["Check for bugs"]),
+        CheckGroup(pattern="*.py", checks=["Check for bugs"]),
     ]
     return config
 
@@ -67,11 +67,11 @@ class TestScannerInit:
         assert scanner._stop_event is not None
         assert not scanner._stop_event.is_set()
 
-    def test_init_creates_restart_event(self, mock_dependencies):
-        """Scanner creates restart event."""
+    def test_init_creates_refresh_event(self, mock_dependencies):
+        """Scanner creates refresh event."""
         scanner = Scanner(**mock_dependencies)
-        assert scanner._restart_event is not None
-        assert not scanner._restart_event.is_set()
+        assert scanner._refresh_event is not None
+        assert not scanner._refresh_event.is_set()
 
 
 class TestScannerStart:
@@ -100,21 +100,21 @@ class TestScannerStop:
         scanner.stop()
         assert scanner._stop_event.is_set()
 
-    def test_stop_sets_restart_event(self, mock_dependencies):
-        """Stop sets restart event to wake waiting threads."""
+    def test_stop_sets_refresh_event(self, mock_dependencies):
+        """Stop sets refresh event to wake waiting threads."""
         scanner = Scanner(**mock_dependencies)
         scanner.stop()
-        assert scanner._restart_event.is_set()
+        assert scanner._refresh_event.is_set()
 
 
-class TestScannerSignalRestart:
-    """Tests for Scanner signal_restart method."""
+class TestScannerSignalRefresh:
+    """Tests for Scanner signal_refresh method."""
 
-    def test_signal_restart_sets_event(self, mock_dependencies):
-        """Signal restart sets the restart event."""
+    def test_signal_refresh_sets_event(self, mock_dependencies):
+        """Signal refresh sets the refresh event."""
         scanner = Scanner(**mock_dependencies)
-        scanner.signal_restart()
-        assert scanner._restart_event.is_set()
+        scanner.signal_refresh()
+        assert scanner._refresh_event.is_set()
 
 
 class TestFilterBatchesByPattern:
@@ -124,7 +124,7 @@ class TestFilterBatchesByPattern:
         """Only files matching pattern are included."""
         scanner = Scanner(**mock_dependencies)
         
-        check_group = CheckGroup(pattern="*.py", rules=["check"])
+        check_group = CheckGroup(pattern="*.py", checks=["check"])
         batches = [
             {"test.py": "content", "test.js": "content"},
             {"other.py": "content"},
@@ -141,7 +141,7 @@ class TestFilterBatchesByPattern:
         """Batches with no matching files are removed."""
         scanner = Scanner(**mock_dependencies)
         
-        check_group = CheckGroup(pattern="*.py", rules=["check"])
+        check_group = CheckGroup(pattern="*.py", checks=["check"])
         batches = [
             {"test.js": "content"},  # No py files
         ]

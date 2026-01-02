@@ -11,7 +11,7 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 - **Hardware Efficient**: Designed for small local models. Runs comfortably on consumer GPUs like **NVIDIA RTX 3060**. (e.g., GPT OSS 20b runs smoothly on an **RTX 4070 8GB** via LM Studio).
 - **Cost Effective**: Zero token costs. Use your local resources instead of expensive API subscriptions.
 - **Continuous Monitoring**: Automatically runs in background mode, monitoring Git changes every 30 seconds and scanning indefinitely until stopped
-- **Git integration**: Monitors repository changes and scans modified files
+- **Git integration**: Monitors repository changes and scans modified files; when changes are detected mid-scan, continues from current check with refreshed file contents (preserves progress)
 - **Configurable checks**: Define custom checks via TOML configuration with file pattern support
 - **Issue tracking**: Tracks issue lifecycle (new, existing, resolved)
 - **Real-time updates**: Output file updates immediately when issues are found (not just at end of scan)
@@ -84,11 +84,11 @@ host = "localhost"
 port = 11434
 model = "qwen3:4b"
 timeout = 120
-context_limit = 8192
+context_limit = 16384
 
 [[checks]]
 pattern = "*"
-rules = ["Check for bugs and issues."]
+checks = ["Check for bugs and issues."]
 ```
 
 **For LM Studio:**
@@ -98,11 +98,11 @@ backend = "lm-studio"
 host = "localhost"
 port = 1234
 timeout = 120
-context_limit = 8192
+context_limit = 16384
 
 [[checks]]
 pattern = "*"
-rules = ["Check for bugs and issues."]
+checks = ["Check for bugs and issues."]
 ```
 
 ### Check Groups
@@ -113,7 +113,7 @@ Checks are organized into **groups**, each with a file pattern and list of rules
 # C++/Qt specific checks
 [[checks]]
 pattern = "*.cpp, *.h, *.cxx, *.hpp"
-rules = [
+checks = [
     "Check for any detectable errors and suggest code simplifications where possible.",
     "Check that stack allocation is preferred over heap allocation whenever possible.",
     "Check that string literals are handled through QStringView variables.",
@@ -122,7 +122,7 @@ rules = [
 # General checks for all files
 [[checks]]
 pattern = "*"
-rules = [
+checks = [
     "Check for unused files or dead code.",
 ]
 
@@ -132,7 +132,7 @@ host = "localhost"
 port = 1234
 # model = "specific-model-name"  # Leave commented to use default model
 timeout = 120
-# context_limit = 8192  # See "Context Limit" section below
+# context_limit = 16384  # See "Context Limit" section below
 ```
 
 **Pattern syntax:**
@@ -164,14 +164,19 @@ Enter context limit (tokens):
 **Manual configuration**: For non-interactive use or to skip the prompt, set `context_limit` in your config.toml:
 ```toml
 [llm]
-context_limit = 8192  # Your model's context window size in tokens
+context_limit = 16384  # Your model's context window size in tokens
 ```
 
+> **⚠️ Warning:** Setting `context_limit` below 16384 is not recommended. The scanner needs context space for:
+> - System prompts and check rules (~1000-2000 tokens)
+> - Response buffer (~500-1000 tokens)  
+> - Actual source code (remaining tokens)
+>
+> With 8192 tokens, only ~5000-6000 tokens remain for code, causing excessive batching and slower scans.
+
 Common context limit values:
-- 4096 - Smaller models
-- 8192 - Standard models (Llama 2, etc.)
-- 16384 - Extended context models
-- 32768 - Large context models (Llama 3, etc.)
+- 16384 - **Recommended minimum** for effective scanning
+- 32768 - Large context models (Llama 3, Qwen, etc.)
 - 131072 - Very large context models (GPT-4, Claude, etc.)
 
 ## CLI Options

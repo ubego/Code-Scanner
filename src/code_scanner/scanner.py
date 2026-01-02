@@ -51,7 +51,7 @@ class Scanner:
 
         # Threading controls
         self._stop_event = threading.Event()
-        self._restart_event = threading.Event()
+        self._refresh_event = threading.Event()  # Signals to refresh file contents
         self._thread: Optional[threading.Thread] = None
 
         # State
@@ -66,7 +66,7 @@ class Scanner:
             return
 
         self._stop_event.clear()
-        self._restart_event.clear()
+        self._refresh_event.clear()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
         logger.info("Scanner thread started")
@@ -75,15 +75,19 @@ class Scanner:
         """Stop the scanner thread."""
         logger.info("Stopping scanner thread...")
         self._stop_event.set()
-        self._restart_event.set()  # Wake up if waiting
+        self._refresh_event.set()  # Wake up if waiting
         if self._thread is not None:
             self._thread.join(timeout=5)
         logger.info("Scanner thread stopped")
 
-    def signal_restart(self) -> None:
-        """Signal the scanner to restart from the beginning of checks."""
-        logger.info("Signaling scanner restart")
-        self._restart_event.set()
+    def signal_refresh(self) -> None:
+        """Signal the scanner to refresh file contents for the current check.
+        
+        When files change, the scanner will continue from its current position
+        with refreshed file contents, rather than restarting from the beginning.
+        """
+        logger.info("Signaling scanner to refresh file contents")
+        self._refresh_event.set()
 
     def _run_loop(self) -> None:
         """Main scanner loop."""
@@ -103,9 +107,9 @@ class Scanner:
                 # Wait if no changes
                 if not git_state.has_changes:
                     logger.debug("No changes detected, waiting...")
-                    # Wait for restart signal or timeout
-                    self._restart_event.wait(timeout=self.config.git_poll_interval)
-                    self._restart_event.clear()
+                    # Wait for refresh signal or timeout
+                    self._refresh_event.wait(timeout=self.config.git_poll_interval)
+                    self._refresh_event.clear()
                     continue
 
                 # Run scan
@@ -144,8 +148,8 @@ class Scanner:
 
         # Process all check groups
         all_issues: list[Issue] = []
-        total_rules = sum(len(g.rules) for g in self.config.check_groups)
-        current_rule_index = 0
+        total_checks = sum(len(g.checks) for g in self.config.check_groups)
+        current_check_index = 0
 
         for group_idx, check_group in enumerate(self.config.check_groups):
             if self._stop_event.is_set():
@@ -155,21 +159,21 @@ class Scanner:
             filtered_batches = self._filter_batches_by_pattern(batches, check_group)
             if not filtered_batches:
                 logger.debug(f"No files match pattern '{check_group.pattern}', skipping group")
-                current_rule_index += len(check_group.rules)
+                current_check_index += len(check_group.checks)
                 continue
 
             logger.info(f"Check group {group_idx + 1}/{len(self.config.check_groups)}: pattern '{check_group.pattern}'")
 
-            for rule_idx, rule in enumerate(check_group.rules):
+            for check_idx, check in enumerate(check_group.checks):
                 if self._stop_event.is_set():
                     break
 
-                current_rule_index += 1
-                logger.info(f"Running rule {current_rule_index}/{total_rules}: {rule[:50]}...")
+                current_check_index += 1
+                logger.info(f"Running check {current_check_index}/{total_checks}: {check[:50]}...")
 
                 try:
                     # Run check against filtered batches
-                    check_issues = self._run_check(rule, filtered_batches)
+                    check_issues = self._run_check(check, filtered_batches)
                     all_issues.extend(check_issues)
                     self._scan_info["checks_run"] += 1
 
@@ -192,18 +196,18 @@ class Scanner:
                         # Mid-session failure - wait for reconnection
                         logger.warning("Lost LLM connection, waiting for reconnection...")
                         self.llm_client.wait_for_connection(self.config.llm_retry_interval)
-                        # Retry this rule by decrementing counter
-                        current_rule_index -= 1
+                        # Retry this check by decrementing counter
+                        current_check_index -= 1
                         continue
                     else:
                         logger.error(f"LLM error during check: {e}")
                         # Skip this check after max retries
 
-                # Check for restart signal - return immediately to let main loop restart cleanly
-                if self._restart_event.is_set():
-                    logger.info("Restart signal received, returning to main loop")
-                    self._restart_event.clear()
-                    return
+                # Check for refresh signal - clear it but continue processing
+                # (files will be refreshed on next check iteration)
+                if self._refresh_event.is_set():
+                    logger.info("File changes detected, will use refreshed content for remaining checks")
+                    self._refresh_event.clear()
 
         # Handle deleted files - resolve their issues
         deleted_files = [f.path for f in git_state.changed_files if f.is_deleted]

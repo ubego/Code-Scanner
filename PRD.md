@@ -37,7 +37,7 @@ The primary objective of this project is to implement a software program that **
 *   **Specific Commit Analysis:** Users must have the option to scan changes **relative to a specific commit hash** (similar to `git reset --soft <hash>`). This allows scanning cumulative changes against a parent branch. After the initial scan, the application continues to monitor for new changes relative to that base.
     *   **Untracked Files:** Untracked files are **still included** in commit-relative mode, regardless of the specified commit.
 *   **Rebase/Merge Conflict Handling:** If a rebase or merge with conflict resolution is in progress (detected via `.git/MERGE_HEAD`, `.git/REBASE_HEAD`, or similar), the scanner must **wait for completion** before launching new scans. Poll for resolution status during the wait state.
-*   **Monitoring Loop:** The application will run in a continuous loop. If changes are detected via Git, the scanner must **restart from the beginning** of the check list. If no changes occur, the application will **poll every 30 seconds** for new updates.
+*   **Monitoring Loop:** The application will run in a continuous loop. If changes are detected via Git, the scanner will **continue from the last completed check** rather than restarting from the beginning—this ensures progress is preserved and avoids redundant re-scanning. If no changes occur, the application will **poll every 30 seconds** for new updates.
 *   **Startup Behavior:** If no uncommitted changes exist at startup, the application must **enter the wait state immediately** and poll for changes. It should not exit.
 *   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
 
@@ -155,7 +155,7 @@ The primary objective of this project is to implement a software program that **
 *   **Multi-Threaded Architecture:** The application must use at least **two threads**:
     1.  **Git Watcher Thread:** Monitors the target directory for uncommitted changes via Git, polling every 30 seconds.
     2.  **AI Scanner Thread:** Executes checks sequentially against the LM Studio API.
-*   **Thread Communication:** When the Git watcher detects changes, it must signal the AI scanner thread to **restart from the beginning** of the check list.
+*   **Thread Communication:** When the Git watcher detects changes, it must signal the AI scanner thread to **re-fetch file contents and continue** from the current check position. The scanner preserves its progress through the check list rather than restarting from the beginning.
 *   **Runtime Monitoring:** It is critical to include robust logging to identify all possible issues during the application's runtime.
 *   **Input Handling:** The application must accept:
     *   A **target directory** as a required CLI argument.
@@ -180,7 +180,7 @@ The primary objective of this project is to implement a software program that **
         *   Update the internal model with new findings.
         *   **immediatelyrewrite the output Markdown file** to provide real-time feedback.
 12. Upon completing all checks, **loop back** to the first check and continue.
-13. If the Git watcher detects new changes, **restart the scanner** from the beginning of the check list.
+13. If the Git watcher detects new changes during scanning, the scanner **continues from the current check** with refreshed file contents (preserving progress rather than restarting).
 14. On **SIGINT**, immediately exit and remove lock file.
 
 ### 3.4 Sample Configuration Checks
@@ -210,14 +210,14 @@ context_limit = 32768
 
 [[checks]]
 pattern = "*.cpp, *.h"
-rules = [
+checks = [
     "Check for memory leaks",
     "Check that RAII is used properly"
 ]
 
 [[checks]]
 pattern = "*"
-rules = [
+checks = [
     "Check for unused code"
 ]
 ```
@@ -229,11 +229,11 @@ backend = "ollama"
 host = "localhost"
 port = 11434
 model = "qwen3:4b"  # Required for Ollama
-context_limit = 8192
+context_limit = 16384  # Minimum 16384 recommended
 
 [[checks]]
 pattern = "*.py"
-rules = [
+checks = [
     "Check for type hints",
     "Check for docstrings"
 ]

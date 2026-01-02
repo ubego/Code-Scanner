@@ -1,163 +1,80 @@
 # Code Scanner Configuration for Android Projects (Java + Kotlin)
-# This example shows common checks for Android app development
+# Human-focused checks - Android Lint handles syntax/style.
 #
-# Copy this file to your project root as `config.toml` and customize as needed.
+# Copy this file to your project root as `config.toml`.
 
 # ==============================================================================
 # LLM Backend Configuration
 # ==============================================================================
-# Choose ONE of the backend configurations below (LM Studio or Ollama)
 
 [llm]
-# -----------------------------------------------------------------------------
-# Option 1: LM Studio
-# -----------------------------------------------------------------------------
-# Download: https://lmstudio.ai
-# Load a model in LM Studio and start the local server
-
-backend = "lm-studio"
-host = "localhost"
-port = 1234
-model = "qwen/qwen3-4b-thinking-2507"
-timeout = 120
-# context_limit = 32768  # Context window size in tokens
-
-# -----------------------------------------------------------------------------
-# Option 2: Ollama (comment out LM Studio section above, uncomment below)
-# -----------------------------------------------------------------------------
-# Install: https://ollama.ai/download
-# Pull a model: ollama pull qwen3:4b
-# Start server: ollama serve (runs automatically on macOS/Linux)
-
-# backend = "ollama"
-# host = "localhost"
-# port = 11434
-# model = "qwen3:4b"  # Required for Ollama
-# timeout = 120
-# context_limit = 8192
+backend = "lm-studio"   # Backend type: "lm-studio" or "ollama"
+host = "localhost"       # Server hostname (usually localhost)
+port = 1234              # Server port (LM Studio default: 1234, Ollama: 11434)
+model = "qwen2.5-coder-7b-instruct"  # Model identifier
+timeout = 600            # Request timeout in seconds
+context_limit = 16384    # Context window size in tokens (minimum 16384 recommended)
 
 
 # ==============================================================================
-# Code Quality Checks
+# Human-Focused Code Checks
 # ==============================================================================
 
-# Kotlin-specific checks
 [[checks]]
-pattern = "*.kt"
-rules = [
-    """
-    Check for Kotlin Android lifecycle issues.
-    Flag:
-    - Coroutines launched without lifecycle scope (viewModelScope, lifecycleScope)
-    - Missing lifecycle-aware collection of Flows (collectAsState, repeatOnLifecycle)
-    - Observers not removed in onDestroy/onDestroyView
-    - References to Activity/Fragment context held in long-lived objects
-    - ViewBinding or synthetic references accessed after view destruction
-    """,
-    """
-    Check for Kotlin null safety issues.
-    Flag:
-    - Unnecessary use of !! (not-null assertion)
-    - Platform types from Java not properly null-checked
-    - lateinit var that might not be initialized before use
-    - Unsafe casts without proper null checking
-    - Ignoring nullable return values from Android APIs
-    """,
-    """
-    Check for Kotlin coroutine issues.
-    Flag:
-    - GlobalScope usage (should use structured concurrency)
-    - Missing exception handling in coroutine launches
-    - Blocking calls (Thread.sleep, synchronized) in coroutines
-    - runBlocking on main thread
-    - Missing cancellation handling in long-running coroutines
-    """,
-    """
-    Check for Kotlin best practices.
-    Flag:
-    - Java-style code patterns (explicit getters, StringBuilder)
-    - Not using data classes where appropriate
-    - Mutable collections exposed publicly (should be immutable)
-    - Using companion object for constants (should be top-level)
-    - Not using sealed classes for state representation
-    - Extension functions in wrong scope
-    """,
+pattern = "*.java, *.kt"
+checks = [
+    # Lifecycle checks
+    "Check that operations started in onCreate or onStart are cancelled in onDestroy or onStop.",
+    "Check for context leaks where Activity context is stored in static or long-lived objects.",
+    "Check that observers and listeners are removed when the view is destroyed.",
+    "Check that scheduled work considers app lifecycle.",
+    "Check that coroutines and async tasks are properly scoped to lifecycle.",
+    # Threading checks
+    "Check that UI operations are not performed from background threads.",
+    "Check that blocking operations are not performed on the main thread.",
+    "Check that LiveData and StateFlow are observed on the correct thread.",
+    "Check that shared mutable state is synchronized.",
+    "Check for Handler and Looper misuse.",
+    # Memory checks
+    "Check that inner classes do not hold implicit reference to Activity.",
+    "Check that Bitmaps are recycled and sized correctly.",
+    "Check that large objects are cached with limits.",
+    "Check that RecyclerView ViewHolder does not leak views.",
+    "Check for unbounded growth of collections.",
+    # Security checks
+    "Check that sensitive data in SharedPreferences is encrypted.",
+    "Check that API keys and secrets are not in code or resources.",
+    "Check that WebView with JavaScript validates content properly.",
+    "Check that Intent data is validated before use.",
+    "Check that exported components have proper permissions.",
+    "Check that SQL queries are not built with string concatenation.",
+    # Architecture checks
+    "Check that View layer does not directly access database or network.",
+    "Check that business logic is not in Activities or Fragments.",
+    "Check for god Activities or ViewModels with too many responsibilities.",
+    "Check for circular dependencies between modules.",
+    "Check that repository pattern is used for data access.",
+    # UX and performance checks
+    "Check that network calls are not made in adapter onBindViewHolder.",
+    "Check for missing offline support for features that need it.",
+    "Check that large images are properly downscaled.",
+    "Check that animations do not block user interaction.",
+    "Check for missing empty, error, or loading states for data screens.",
 ]
 
-# Java-specific checks
-[[checks]]
-pattern = "*.java"
-rules = [
-    """
-    Check for Java Android lifecycle issues.
-    Flag:
-    - Static references to Activity, Fragment, or View
-    - Inner classes holding implicit reference to outer Activity
-    - AsyncTask not cancelled in onDestroy
-    - Handlers with implicit Activity reference
-    - Callbacks/listeners not unregistered
-    """,
-    """
-    Check for Java Android memory issues.
-    Flag:
-    - Bitmap not recycled or managed
-    - Large objects held in static fields
-    - Context leaks through singletons
-    - Cursor not closed
-    - TypedArray not recycled
-    - Unregistered BroadcastReceivers
-    """,
-    """
-    Check for Java null safety.
-    Flag:
-    - Missing @Nullable/@NonNull annotations
-    - Potential NullPointerException on View operations
-    - Unchecked getIntent().getExtras() results
-    - findViewById results used without null check
-    - Bundle data accessed without containsKey check
-    """,
-]
-
-# XML layout checks
 [[checks]]
 pattern = "*.xml"
-rules = [
-    """
-    Check for Android XML layout issues.
-    Flag:
-    - Hardcoded strings (should use @string/ resources)
-    - Hardcoded dimensions (should use @dimen/ resources)
-    - Missing contentDescription on ImageView/ImageButton
-    - Nested LinearLayouts (performance issue, use ConstraintLayout)
-    - Missing android:id on interactive elements
-    - Deprecated layout attributes
-    - RelativeLayout with complex rules (should use ConstraintLayout)
-    """,
+checks = [
+    "Check for deeply nested view hierarchies that should use ConstraintLayout.",
+    "Check that dimensions use dp or sp instead of hardcoded values.",
+    "Check that content descriptions are present for accessibility.",
+    "Check for overdraw from overlapping opaque backgrounds.",
 ]
 
-# General checks
 [[checks]]
 pattern = "*"
-rules = [
-    """
-    Check for Android security issues.
-    Flag:
-    - Hardcoded API keys or secrets
-    - Insecure SharedPreferences for sensitive data
-    - WebView with JavaScript enabled without validation
-    - Exported components without proper permissions
-    - Logging sensitive information in production code
-    - Using MODE_WORLD_READABLE/WRITABLE
-    - SQL injection in raw queries
-    """,
-    """
-    Check for Android performance issues.
-    Flag:
-    - Network operations on main thread
-    - Database operations on main thread
-    - Heavy computation in onDraw()
-    - View inflation in RecyclerView onBindViewHolder
-    - Not using ViewHolder pattern
-    - Allocations in onDraw() or onMeasure()
-    """,
+checks = [
+    "Check for unused resources or dependencies.",
+    "Check for feature flags for features that shipped long ago.",
+    "Check for dead code paths that were not cleaned up.",
 ]
