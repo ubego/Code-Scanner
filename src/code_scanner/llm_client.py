@@ -212,6 +212,8 @@ class LMStudioClient(BaseLLMClient):
         if self._client is None:
             raise LLMClientError("Not connected")
 
+        last_raw_response = "(no response received)"
+
         for attempt in range(max_retries):
             try:
                 logger.debug(f"Sending query (attempt {attempt + 1}/{max_retries})")
@@ -251,6 +253,7 @@ class LMStudioClient(BaseLLMClient):
                     return result
                 except json.JSONDecodeError as e:
                     # This is normal - LLMs sometimes return non-JSON. Auto-fix will handle it.
+                    last_raw_response = content if content else "(empty)"
                     raw_preview = content[:500] if content else "(empty)"
                     logger.info(
                         f"LLM returned non-JSON response (attempt {attempt + 1}/{max_retries}). "
@@ -314,8 +317,11 @@ class LMStudioClient(BaseLLMClient):
                 logger.warning(f"API error (attempt {attempt + 1}): {e}")
                 continue
 
+        # Show the last raw response to help debug
+        raw_preview = last_raw_response[:1000] if len(last_raw_response) > 1000 else last_raw_response
         raise LLMClientError(
-            f"Failed to get valid JSON response after {max_retries} attempts"
+            f"Failed to get valid JSON response after {max_retries} attempts.\n"
+            f"--- Last raw LLM response ---\n{raw_preview}\n--- End raw response ---"
         )
 
     def _try_fix_json_response(self, malformed_content: str, original_params: dict) -> Optional[dict]:

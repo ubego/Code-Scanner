@@ -38,6 +38,7 @@ The primary objective of this project is to implement a software program that **
     *   **Untracked Files:** Untracked files are **still included** in commit-relative mode, regardless of the specified commit.
 *   **Rebase/Merge Conflict Handling:** If a rebase or merge with conflict resolution is in progress (detected via `.git/MERGE_HEAD`, `.git/REBASE_HEAD`, or similar), the scanner must **wait for completion** before launching new scans. Poll for resolution status during the wait state.
 *   **Monitoring Loop:** The application will run in a continuous loop. If changes are detected via Git, the scanner will **continue from the last completed check** rather than restarting from the beginning—this ensures progress is preserved and avoids redundant re-scanning. If no changes occur, the application will **poll every 30 seconds** for new updates.
+*   **Scan Completion Behavior:** After completing all checks in a scan cycle, the scanner **waits for new file changes** before starting another scan. It tracks file content hashes to detect actual changes—simply having uncommitted files is not enough to trigger a rescan. This prevents endless scanning loops when files haven't been modified.
 *   **Startup Behavior:** If no uncommitted changes exist at startup, the application must **enter the wait state immediately** and poll for changes. It should not exit.
 *   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
 

@@ -57,6 +57,8 @@ class Scanner:
         # State
         self._current_check_index = 0
         self._last_git_state: Optional[GitState] = None
+        self._last_scanned_files: set[str] = set()  # Files scanned in last cycle
+        self._last_file_contents_hash: dict[str, int] = {}  # Hash of file contents
         self._scan_info: dict = {}
 
     def start(self) -> None:
@@ -107,19 +109,68 @@ class Scanner:
                 # Wait if no changes
                 if not git_state.has_changes:
                     logger.debug("No changes detected, waiting...")
+                    # Clear tracking since files were committed/reverted
+                    self._last_scanned_files.clear()
+                    self._last_file_contents_hash.clear()
                     # Wait for refresh signal or timeout
                     self._refresh_event.wait(timeout=self.config.git_poll_interval)
                     self._refresh_event.clear()
                     continue
 
-                # Run scan
-                self._run_scan(git_state)
+                # Check if files have actually changed since last scan
+                current_files = {f.path for f in git_state.changed_files if not f.is_deleted}
+                if self._has_files_changed(current_files, git_state):
+                    # Run scan
+                    self._run_scan(git_state)
+                else:
+                    # No new changes - wait for refresh signal or timeout
+                    logger.debug("No new file changes since last scan, waiting...")
+                    self._refresh_event.wait(timeout=self.config.git_poll_interval)
+                    self._refresh_event.clear()
 
             except Exception as e:
                 logger.error(f"Scanner error: {e}", exc_info=True)
                 time.sleep(5)  # Brief pause before retrying
 
         logger.info("Scanner loop ended")
+
+    def _has_files_changed(self, current_files: set[str], git_state: GitState) -> bool:
+        """Check if files have changed since the last scan.
+        
+        Args:
+            current_files: Set of current file paths (non-deleted).
+            git_state: Current git state.
+            
+        Returns:
+            True if files have changed and need rescanning.
+        """
+        # If refresh was signaled, always rescan
+        if self._refresh_event.is_set():
+            return True
+        
+        # If set of files is different, need to scan
+        if current_files != self._last_scanned_files:
+            return True
+        
+        # Check if any file contents have changed by comparing hashes
+        for changed_file in git_state.changed_files:
+            if changed_file.is_deleted:
+                continue
+            
+            file_path = self.config.target_directory / changed_file.path
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                content_hash = hash(content)
+                
+                if changed_file.path not in self._last_file_contents_hash:
+                    return True
+                if self._last_file_contents_hash[changed_file.path] != content_hash:
+                    return True
+            except Exception:
+                # If we can't read the file, assume it changed
+                return True
+        
+        return False
 
     def _run_scan(self, git_state: GitState) -> None:
         """Run a full scan cycle.
@@ -226,6 +277,14 @@ class Scanner:
         # Write output
         self.output_generator.write(self.issue_tracker, self._scan_info)
         logger.info(f"Output file updated with {self.issue_tracker.get_stats()['total']} total issues")
+
+        # Track scanned files and their content hashes to avoid rescanning unchanged files
+        self._last_scanned_files = set(scanned_files)
+        self._last_file_contents_hash = {
+            file_path: hash(content)
+            for file_path, content in files_content.items()
+        }
+        logger.info("Scan cycle complete. Waiting for new file changes...")
 
     def _filter_batches_by_pattern(
         self,
