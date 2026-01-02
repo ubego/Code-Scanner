@@ -5,7 +5,7 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
-*   **Quality Assurance:** The codebase maintains **91% test coverage** with 430+ unit tests ensuring reliability and maintainability.
+*   **Quality Assurance:** The codebase maintains **87% test coverage** with 482 unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
@@ -14,10 +14,11 @@ The primary objective of this project is to implement a software program that **
 *   **MVP Philosophy:** The initial delivery will be an **MVP (Minimum Viable Product)**, focusing on core functionality without excessive configuration or customization.
 *   **Cross-Platform:** The scanner must be **cross-platform**, supporting Windows, macOS, and Linux.
 *   **Interactive Mode Only:** The scanner is designed for **interactive terminal use only**. Non-interactive environments (CI, daemons) are not supported.
+*   **Continuous Scanning by Default:** The scanner runs in continuous monitoring mode automatically—there is no separate "watch mode" flag. Once started, it monitors for changes and scans indefinitely until manually stopped (`Ctrl+C`).
 *   **Passive Operation:** The scanner operates as a **passive background tool** that only reports issues to a log file. It does **not** modify any source files in the target directory.
 *   **Success Criteria:** 
     *   Ability to accurately identify issues based on user-provided queries in a configuration file.
-    *   Successful integration with a local LLM server (LM Studio).
+    *   Successful integration with local LLM servers (**LM Studio** and **Ollama**).
     *   Automated re-scanning triggered by Git changes.
 
 ---
@@ -45,6 +46,11 @@ The primary objective of this project is to implement a software program that **
 *   **Config File Location:** The TOML config file is specified via **CLI argument**, or defaults to the **scanner's script directory** if not provided.
 *   **Missing Config File:** If no config file is found (not provided and not in script directory), **fail with error**.
 *   **Empty Checks List:** If the config file exists but contains no checks, **fail with error**.
+*   **Strict Configuration Validation:** The scanner validates configuration files strictly:
+    *   **Supported Sections:** Only `[llm]` and `[[checks]]` sections are allowed. Any other top-level section (e.g., `[scan]`, `[output]`) causes an immediate error.
+    *   **Supported LLM Parameters:** Only `backend`, `host`, `port`, `model`, `timeout`, `context_limit` are allowed in `[llm]`. Unknown parameters cause an error.
+    *   **Supported Check Parameters:** Only `pattern` and `rules` are allowed in `[[checks]]`. Unknown parameters (e.g., `name`, `query`) cause an error.
+    *   **Error Messages:** Validation errors list the unsupported parameters and show supported alternatives.
 *   **Check Groups Structure:** Checks are organized into **groups**, each with a file pattern and list of rules:
     *   **Pattern:** Glob pattern to match files (e.g., `"*.cpp, *.h"` for C++ files, `"*"` for all files).
     *   **Rules:** List of prompt strings to run against matching files.
@@ -60,14 +66,20 @@ The primary objective of this project is to implement a software program that **
 *   **Token Estimation:** Use a **simple character/word ratio** approximation to estimate token count before sending to the LLM.
 *   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model.
-*   **Context Limit Detection:** The AI model's context window size must be **queried from LM Studio** at runtime (not hardcoded).
-    *   **Auto-detection:** First attempt to query context limit from LM Studio API.
-    *   **Config Override:** If `context_limit` is specified in the TOML config `[llm]` section, use that value instead of querying the API.
+*   **Context Limit Detection:** The AI model's context window size handling varies by backend:
+    *   **LM Studio:** Query context limit from LM Studio API at runtime.
+    *   **Ollama:** Query context limit via `/api/show` endpoint.
+    *   **Config Override:** If `context_limit` is specified in the TOML config `[llm]` section, use that value.
+    *   **Context Limit Validation (Ollama):** When using Ollama, if config `context_limit` exceeds the model's actual limit (from `/api/show`), **fail with error**. If config value is less than or equal to the model's limit, log a warning and continue with config value.
     *   **Interactive Fallback:** If the API does not return a valid context limit and running interactively, **prompt the user** to enter the context limit manually. Display common values (4096, 8192, 16384, 32768, 131072) as guidance.
     *   **Non-Interactive Failure:** If the API does not return a valid context limit and running non-interactively, the application must **fail with a clear error** instructing the user to set `context_limit` in config.toml.
-*   **AI Configuration:** The scanner should default to connecting to LM Studio at `localhost` with default ports, but these values (host, port, model) must be overridable via the TOML config.
+*   **AI Configuration:** Connection settings (host, port, model) must be specified in the TOML config `[llm]` section. No default ports are assumed.
 *   **LM Studio Client:** Use the **Python client library for LM Studio** (OpenAI-compatible API client).
-*   **Model Selection:** Use the **first/default model** available in LM Studio. No explicit model selection required.
+*   **Ollama Client:** Use the **native Ollama `/api/chat` endpoint** for message-based interactions with system/user role separation.
+*   **Model Selection:**
+    *   **LM Studio:** Use the **first/default model** available. No explicit model selection required.
+    *   **Ollama:** Model specification is **required** in config (e.g., `model = "qwen3:4b"`).
+*   **Client Architecture:** Both `LMStudioClient` and `OllamaClient` must implement a common **abstract base class** (`BaseLLMClient`) to ensure interchangeable usage by the Scanner.
 *   **Prompt Format:** Use an optimized prompt structure that is well-understood by LLMs (system prompt with instructions, user prompt with code context).
 *   **Response Format:** The scanner must request a **structured JSON response** from the LLM with a fixed schema.
     *   **Strict Prompt Instructions:** The system prompt must explicitly forbid markdown code fences, explanations, and any text outside the JSON object.
@@ -85,8 +97,8 @@ The primary objective of this project is to implement a software program that **
     *   Log all retry attempts with attempt count (e.g., "attempt 1/3") to system log.
     *   Common causes: model timeout, context overflow, or model returning explanation text instead of JSON.
 *   **LM Studio Connection Handling:**
-    *   **Startup Failure:** If LM Studio is not running or unreachable at startup, **fail immediately** with a clear error message.
-    *   **Mid-Session Failure:** If LM Studio becomes unavailable during scanning, **pause and retry every 10 seconds** until connection is restored.
+    *   **Startup Failure:** If the LLM backend (LM Studio or Ollama) is not running or unreachable at startup, **fail immediately** with a clear error message.
+    *   **Mid-Session Failure:** If the LLM backend becomes unavailable during scanning, **pause and retry every 10 seconds** until connection is restored.
 
 ### 2.3 Output and Reporting
 *   **Log Generation:** The system must produce a **Markdown log file** named `code_scanner_results.md` as its primary and only User Interface.
@@ -131,7 +143,11 @@ The primary objective of this project is to implement a software program that **
 ### 3.1 Technology Stack
 *   **Language:** The application must be written in **Python**.
 *   **Dependency Management:** The project is required to use either **Poetry or UV** for managing packages and environments.
-*   **AI Backend:** The system requires a running **LM Studio server**. Default connection settings should be used unless overridden in the config.
+*   **AI Backend:** The system supports two LLM backends:
+    *   **LM Studio:** OpenAI-compatible API server for local LLM inference.
+    *   **Ollama:** Native Ollama API server for local LLM inference.
+    *   **Backend Selection:** The `backend` key in `[llm]` section is **required**. Valid values: `"lm-studio"` or `"ollama"`. Missing backend specification is a configuration error.
+    *   **No Default Backend:** There is no default backend. Users must explicitly choose one.
 *   **Configuration Format:** The configuration file must be in **TOML format**.
 
 ### 3.2 System Architecture and Logic
@@ -183,8 +199,15 @@ The following checks are provided as **examples only** and can be completely cus
 *   Check for any detectable errors and suggest code simplifications where possible.
 *   Check for unused files or dead code.
 
-**Example TOML configuration:**
+**Example TOML configuration (LM Studio):**
 ```toml
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+# model = "specific-model-name"  # Optional for LM Studio
+context_limit = 32768
+
 [[checks]]
 pattern = "*.cpp, *.h"
 rules = [
@@ -196,6 +219,23 @@ rules = [
 pattern = "*"
 rules = [
     "Check for unused code"
+]
+```
+
+**Example TOML configuration (Ollama):**
+```toml
+[llm]
+backend = "ollama"
+host = "localhost"
+port = 11434
+model = "qwen3:4b"  # Required for Ollama
+context_limit = 8192
+
+[[checks]]
+pattern = "*.py"
+rules = [
+    "Check for type hints",
+    "Check for docstrings"
 ]
 ```
 

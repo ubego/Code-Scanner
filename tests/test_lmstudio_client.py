@@ -1,4 +1,4 @@
-"""Tests for LLM client module."""
+"""Tests for LM Studio client module."""
 
 import pytest
 import json
@@ -8,17 +8,18 @@ from unittest.mock import MagicMock, patch
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from code_scanner.llm_client import LLMClient, LLMClientError, ContextOverflowError
+from code_scanner.lmstudio_client import LMStudioClient, LLMClientError, ContextOverflowError
 from code_scanner.models import LLMConfig
 
 
-class TestLLMClient:
-    """Tests for LLMClient class."""
+class TestLMStudioClient:
+    """Tests for LMStudioClient class."""
 
     @pytest.fixture
     def llm_config(self) -> LLMConfig:
         """Create LLM config for testing."""
         return LLMConfig(
+            backend="lm-studio",
             host="localhost",
             port=1234,
             model="qwen-coder",
@@ -27,12 +28,12 @@ class TestLLMClient:
 
     def test_create_client(self, llm_config: LLMConfig):
         """Test creating LLM client."""
-        client = LLMClient(llm_config)
+        client = LMStudioClient(llm_config)
         
         assert client.config == llm_config
         assert not client.is_connected()
 
-    @patch('code_scanner.llm_client.OpenAI')
+    @patch('code_scanner.lmstudio_client.OpenAI')
     def test_connect_success(self, mock_openai, llm_config: LLMConfig):
         """Test successful connection to LM Studio."""
         mock_client = MagicMock()
@@ -43,7 +44,7 @@ class TestLLMClient:
         mock_models.data = [MagicMock(id="qwen-coder")]
         mock_client.models.list.return_value = mock_models
         
-        client = LLMClient(llm_config)
+        client = LMStudioClient(llm_config)
         client.connect()
         
         assert client.is_connected()
@@ -53,7 +54,7 @@ class TestLLMClient:
             timeout=120,
         )
 
-    @patch('code_scanner.llm_client.OpenAI')
+    @patch('code_scanner.lmstudio_client.OpenAI')
     def test_connect_failure(self, mock_openai, llm_config: LLMConfig):
         """Test connection failure handling."""
         from openai import APIConnectionError
@@ -62,14 +63,14 @@ class TestLLMClient:
         mock_openai.return_value = mock_client
         mock_client.models.list.side_effect = APIConnectionError(request=MagicMock())
         
-        client = LLMClient(llm_config)
+        client = LMStudioClient(llm_config)
         
         with pytest.raises(LLMClientError) as exc_info:
             client.connect()
         
         assert "connect" in str(exc_info.value).lower()
 
-    @patch('code_scanner.llm_client.OpenAI')
+    @patch('code_scanner.lmstudio_client.OpenAI')
     def test_query_returns_json(self, mock_openai, llm_config: LLMConfig):
         """Test that query returns parsed JSON."""
         mock_client = MagicMock()
@@ -96,7 +97,7 @@ class TestLLMClient:
         mock_response.choices = [mock_choice]
         mock_client.chat.completions.create.return_value = mock_response
         
-        client = LLMClient(llm_config)
+        client = LMStudioClient(llm_config)
         client.connect()
         
         result = client.query("Test prompt", "Code context")
@@ -105,10 +106,10 @@ class TestLLMClient:
         assert len(result["issues"]) == 1
         assert result["issues"][0]["file"] == "test.cpp"
 
-    @patch('code_scanner.llm_client.OpenAI')
+    @patch('code_scanner.lmstudio_client.OpenAI')
     def test_query_without_connection_raises_error(self, mock_openai, llm_config: LLMConfig):
         """Test that query without connection raises error."""
-        client = LLMClient(llm_config)
+        client = LMStudioClient(llm_config)
         
         with pytest.raises(LLMClientError) as exc_info:
             client.query("Test prompt", "Code context")
@@ -116,10 +117,11 @@ class TestLLMClient:
         assert "Not connected" in str(exc_info.value) or "connect" in str(exc_info.value).lower()
 
 
-    @patch('code_scanner.llm_client.OpenAI')
+    @patch('code_scanner.lmstudio_client.OpenAI')
     def test_context_limit_from_config(self, mock_openai):
         """Test that context_limit from config is used when provided."""
         config = LLMConfig(
+            backend="lm-studio",
             host="localhost",
             port=1234,
             model="qwen-coder",
@@ -131,13 +133,13 @@ class TestLLMClient:
         mock_openai.return_value = mock_client
         mock_client.models.list.return_value = MagicMock(data=[MagicMock(id="qwen-coder")])
         
-        client = LLMClient(config)
+        client = LMStudioClient(config)
         client.connect()
         
         assert client.context_limit == 16384
         assert client.is_ready()
 
-    @patch('code_scanner.llm_client.OpenAI')
+    @patch('code_scanner.lmstudio_client.OpenAI')
     def test_needs_context_limit_when_not_detected(self, mock_openai, llm_config: LLMConfig):
         """Test that needs_context_limit returns True when context limit unavailable."""
         mock_client = MagicMock()
@@ -148,21 +150,21 @@ class TestLLMClient:
         mock_model.id = "qwen-coder"
         mock_client.models.list.return_value = MagicMock(data=[mock_model])
         
-        client = LLMClient(llm_config)
+        client = LMStudioClient(llm_config)
         client.connect()
         
         # Context limit couldn't be detected
         assert client.needs_context_limit()
         assert not client.is_ready()
 
-    @patch('code_scanner.llm_client.OpenAI')
+    @patch('code_scanner.lmstudio_client.OpenAI')
     def test_set_context_limit_manually(self, mock_openai, llm_config: LLMConfig):
         """Test that context limit can be set manually."""
         mock_client = MagicMock()
         mock_openai.return_value = mock_client
         mock_client.models.list.return_value = MagicMock(data=[MagicMock(id="qwen-coder")])
         
-        client = LLMClient(llm_config)
+        client = LMStudioClient(llm_config)
         client.connect()
         
         client.set_context_limit(8192)
@@ -171,14 +173,14 @@ class TestLLMClient:
         assert client.is_ready()
         assert not client.needs_context_limit()
 
-    @patch('code_scanner.llm_client.OpenAI')
+    @patch('code_scanner.lmstudio_client.OpenAI')
     def test_set_context_limit_invalid_value(self, mock_openai, llm_config: LLMConfig):
         """Test that setting invalid context limit raises error."""
         mock_client = MagicMock()
         mock_openai.return_value = mock_client
         mock_client.models.list.return_value = MagicMock(data=[MagicMock(id="qwen-coder")])
         
-        client = LLMClient(llm_config)
+        client = LMStudioClient(llm_config)
         client.connect()
         
         with pytest.raises(ValueError):
@@ -187,7 +189,7 @@ class TestLLMClient:
         with pytest.raises(ValueError):
             client.set_context_limit(-100)
 
-    @patch('code_scanner.llm_client.OpenAI')
+    @patch('code_scanner.lmstudio_client.OpenAI')
     def test_context_overflow_error_shows_helpful_message(self, mock_openai, llm_config: LLMConfig):
         """Test that context overflow errors provide helpful guidance."""
         from openai import APIError
@@ -211,7 +213,7 @@ class TestLLMClient:
         )
         
         llm_config.context_limit = 36000  # Config says 36000
-        client = LLMClient(llm_config)
+        client = LMStudioClient(llm_config)
         client.connect()
         client.set_context_limit(36000)
         
@@ -228,5 +230,5 @@ class TestLLMClient:
 
 
 class TestTokenEstimation:
-    """Tests for token estimation functionality - skipped since LLMClient doesn't have these methods."""
+    """Tests for token estimation functionality - skipped since LMStudioClient doesn't have these methods."""
     pass

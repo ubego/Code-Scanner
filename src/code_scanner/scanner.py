@@ -10,7 +10,7 @@ from typing import Optional
 from .config import Config
 from .git_watcher import GitWatcher
 from .issue_tracker import IssueTracker
-from .llm_client import LLMClient, LLMClientError, ContextOverflowError, SYSTEM_PROMPT_TEMPLATE, build_user_prompt
+from .base_client import BaseLLMClient, LLMClientError, ContextOverflowError, SYSTEM_PROMPT_TEMPLATE, build_user_prompt
 from .models import Issue, GitState, ChangedFile, CheckGroup
 from .output import OutputGenerator
 from .utils import (
@@ -30,7 +30,7 @@ class Scanner:
         self,
         config: Config,
         git_watcher: GitWatcher,
-        llm_client: LLMClient,
+        llm_client: BaseLLMClient,
         issue_tracker: IssueTracker,
         output_generator: OutputGenerator,
     ):

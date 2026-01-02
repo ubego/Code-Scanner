@@ -1,0 +1,126 @@
+# Code Scanner Configuration for Python Projects
+# This example shows common checks for Python codebases
+#
+# Copy this file to your project root as `config.toml` and customize as needed.
+
+# ==============================================================================
+# LLM Backend Configuration
+# ==============================================================================
+# Choose ONE of the backend configurations below (LM Studio or Ollama)
+
+[llm]
+# -----------------------------------------------------------------------------
+# Option 1: Ollama (recommended for simplicity)
+# -----------------------------------------------------------------------------
+# Install: https://ollama.ai/download
+# Pull a model: ollama pull qwen3:4b
+# Start server: ollama serve (runs automatically on macOS/Linux)
+
+# backend = "ollama"
+# host = "localhost"
+# port = 11434
+# model = "qwen3:4b"  # Required for Ollama
+# timeout = 120
+# context_limit = 8192
+
+# -----------------------------------------------------------------------------
+# Option 2: LM Studio (comment out Ollama section above, uncomment below)
+# -----------------------------------------------------------------------------
+# Download: https://lmstudio.ai
+# Load a model in LM Studio and start the local server
+
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+model = "qwen/qwen3-4b-thinking-2507"
+timeout = 120
+context_limit = 8192  # Context window size in tokens
+
+
+# ==============================================================================
+# Code Quality Checks
+# ==============================================================================
+# Each [[checks]] group has:
+#   - pattern: Glob pattern to match files (e.g., "*.py", "src/*.py", "*" for all)
+#   - rules: List of natural language descriptions of what to check for
+
+# Python-specific checks
+[[checks]]
+pattern = "*.py"
+rules = [
+    """
+    Check for functions and methods missing type hints.
+    Flag:
+    - Functions without return type annotation
+    - Parameters without type annotations
+    - Use of 'Any' type where a more specific type would be better
+    - Missing Optional[] for parameters with None defaults
+    Do NOT flag:
+    - Test functions (def test_*)
+    - __init__ methods that only assign to self
+    """,
+    """
+    Check for missing or incomplete docstrings.
+    Flag:
+    - Public modules without module docstring
+    - Public classes without class docstring
+    - Public functions/methods without docstring
+    - Docstrings missing parameter descriptions
+    - Docstrings missing return value description
+    Do NOT flag:
+    - Private methods (starting with _)
+    - Simple __init__ methods
+    - Property getters
+    - Test functions
+    """,
+    """
+    Check for problematic exception handling patterns.
+    Flag:
+    - Bare 'except:' clauses (should specify exception type)
+    - 'except Exception:' that catches too broadly
+    - Empty except blocks that silently swallow errors
+    - Catching and re-raising without adding context
+    - Missing exception handling for I/O operations
+    Do NOT flag:
+    - Broad catches with proper logging
+    - Intentional catch-all in main entry points
+    """,
+    """
+    Check for potential security vulnerabilities.
+    Flag:
+    - Hardcoded passwords, API keys, or secrets
+    - SQL queries built with string formatting (SQL injection risk)
+    - Use of eval() or exec() with user input
+    - Pickle loading of untrusted data
+    - Subprocess calls with shell=True
+    - Use of assert for validation (disabled in production)
+    - Insecure random number generation (random module for crypto)
+    """,
+]
+
+# General code quality checks for all files
+[[checks]]
+pattern = "*"
+rules = [
+    """
+    Check for general code quality issues.
+    Flag:
+    - Unused variables or imports
+    - Functions that are too long (>50 lines)
+    - Deeply nested code (>4 levels)
+    - Magic numbers without explanation
+    - Duplicate code blocks
+    - Mutable default arguments in function definitions
+    - Global variable mutations
+    """,
+    """
+    Check for Python-specific best practices.
+    Flag:
+    - Using 'type()' instead of 'isinstance()' for type checking
+    - Using 'len(x) == 0' instead of 'not x' for empty checks
+    - Manual iteration with indices instead of enumerate()
+    - Manual dictionary iteration instead of .items()
+    - String concatenation in loops instead of join()
+    - Opening files without context manager (with statement)
+    """,
+]

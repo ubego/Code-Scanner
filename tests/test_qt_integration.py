@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from code_scanner.config import load_config, Config, CheckGroup, LLMConfig
 from code_scanner.git_watcher import GitWatcher
-from code_scanner.llm_client import LLMClient, build_user_prompt, SYSTEM_PROMPT_TEMPLATE
+from code_scanner.lmstudio_client import LLMClient, build_user_prompt, SYSTEM_PROMPT_TEMPLATE
 from code_scanner.issue_tracker import IssueTracker
 from code_scanner.output import OutputGenerator
 from code_scanner.scanner import Scanner
@@ -474,6 +474,7 @@ rules = [
 ]
 
 [llm]
+backend = "lm-studio"
 host = "localhost"
 port = 1234
 timeout = 120
@@ -518,7 +519,7 @@ class TestErrorHandling:
         mock_llm = MagicMock()
         mock_llm.context_limit = 8000
         
-        from code_scanner.llm_client import LLMClientError
+        from code_scanner.lmstudio_client import LLMClientError
         
         call_count = [0]
         def query_side_effect(*args, **kwargs):

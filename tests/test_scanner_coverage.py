@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch, PropertyMock, call
 from code_scanner.scanner import Scanner
 from code_scanner.config import Config, LLMConfig, CheckGroup
 from code_scanner.models import Issue, GitState, ChangedFile, IssueStatus
-from code_scanner.llm_client import LLMClientError
+from code_scanner.lmstudio_client import LLMClientError
 
 
 @pytest.fixture

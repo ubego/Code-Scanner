@@ -14,12 +14,39 @@ from typing import Optional
 from .config import Config, ConfigError, load_config
 from .git_watcher import GitWatcher, GitError
 from .issue_tracker import IssueTracker
-from .llm_client import LLMClient, LLMClientError
+from .base_client import BaseLLMClient, LLMClientError
+from .lmstudio_client import LMStudioClient
+from .ollama_client import OllamaClient
 from .output import OutputGenerator
 from .scanner import Scanner
 from .utils import setup_logging, is_interactive, prompt_yes_no
 
 logger = logging.getLogger(__name__)
+
+
+def create_llm_client(config: Config) -> BaseLLMClient:
+    """Create the appropriate LLM client based on configuration.
+
+    Args:
+        config: Application configuration with LLM settings.
+
+    Returns:
+        Configured LLM client instance.
+
+    Raises:
+        ConfigError: If backend is invalid.
+    """
+    backend = config.llm.backend
+    
+    if backend == "lm-studio":
+        return LMStudioClient(config.llm)
+    elif backend == "ollama":
+        return OllamaClient(config.llm)
+    else:
+        raise ConfigError(
+            f"Invalid backend '{backend}'. "
+            f"Supported backends: lm-studio, ollama"
+        )
 
 
 class LockFileError(Exception):
@@ -39,7 +66,7 @@ class Application:
         """
         self.config = config
         self.git_watcher: Optional[GitWatcher] = None
-        self.llm_client: Optional[LLMClient] = None
+        self.llm_client: Optional[BaseLLMClient] = None
         self.issue_tracker: Optional[IssueTracker] = None
         self.output_generator: Optional[OutputGenerator] = None
         self.scanner: Optional[Scanner] = None
@@ -100,8 +127,10 @@ class Application:
         )
         self.git_watcher.connect()
 
-        self.llm_client = LLMClient(self.config.llm)
+        # Create appropriate LLM client based on backend
+        self.llm_client = create_llm_client(self.config)
         self.llm_client.connect()
+        logger.info(f"Connected to {self.llm_client.backend_name}")
 
         # If context limit couldn't be determined, prompt user
         if self.llm_client.needs_context_limit():

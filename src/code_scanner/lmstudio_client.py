@@ -8,32 +8,20 @@ from typing import Any, Optional
 
 from openai import OpenAI, APIConnectionError, APIError
 
+from .base_client import BaseLLMClient, LLMClientError, ContextOverflowError
 from .models import LLMConfig
 
 logger = logging.getLogger(__name__)
 
-
-class LLMClientError(Exception):
-    """Error communicating with LM Studio."""
-
-    pass
+# Re-export exceptions for backward compatibility
+__all__ = ["LMStudioClient", "LLMClient", "LLMClientError", "ContextOverflowError"]
 
 
-class ContextOverflowError(LLMClientError):
-    """Fatal error when model context length is exceeded.
-    
-    This error should not be caught by retry logic - it requires
-    user intervention to fix (change model settings or config).
-    """
-
-    pass
-
-
-class LLMClient:
+class LMStudioClient(BaseLLMClient):
     """Client for communicating with LM Studio via OpenAI-compatible API."""
 
     def __init__(self, config: LLMConfig):
-        """Initialize the LLM client.
+        """Initialize the LM Studio client.
 
         Args:
             config: LLM configuration with host, port, etc.
@@ -43,6 +31,11 @@ class LLMClient:
         self._context_limit: Optional[int] = None
         self._model_id: Optional[str] = None
         self._supports_json_format: bool = True  # Assume supported, fallback if not
+
+    @property
+    def backend_name(self) -> str:
+        """Get the human-readable backend name for logging."""
+        return "LM Studio"
 
     def connect(self) -> None:
         """Establish connection to LM Studio and get model info.
@@ -94,8 +87,24 @@ class LLMClient:
 
         except APIConnectionError as e:
             raise LLMClientError(
-                f"Could not connect to LM Studio at {self.config.base_url}. "
-                f"Please ensure LM Studio is running. Error: {e}"
+                f"\n{'='*70}\n"
+                f"CONNECTION ERROR: LM Studio\n"
+                f"{'='*70}\n\n"
+                f"Could not connect to LM Studio.\n\n"
+                f"Connection parameters:\n"
+                f"  Backend:  lm-studio\n"
+                f"  Host:     {self.config.host}\n"
+                f"  Port:     {self.config.port}\n"
+                f"  URL:      {self.config.base_url}\n"
+                f"  Model:    {self.config.model or '(default)'}\n"
+                f"  Timeout:  {self.config.timeout}s\n\n"
+                f"Please ensure:\n"
+                f"1. LM Studio is running\n"
+                f"2. A model is loaded in LM Studio\n"
+                f"3. The local server is started (Developer tab → Start Server)\n"
+                f"4. Host and port match your LM Studio settings\n\n"
+                f"Error: {e}\n"
+                f"{'='*70}"
             )
         except APIError as e:
             raise LLMClientError(f"LM Studio API error: {e}")
@@ -449,45 +458,8 @@ class LLMClient:
         logger.info(f"Context limit manually set to: {limit} tokens")
 
 
-# System prompt template for code analysis
-SYSTEM_PROMPT_TEMPLATE = """You are a code analysis assistant. Your task is to analyze source code and identify issues based on specific checks.
+# Backward compatibility alias - LLMClient maps to LMStudioClient
+LLMClient = LMStudioClient
 
-CRITICAL: Your response must be ONLY a valid JSON object. Do NOT include:
-- Markdown code fences (```)
-- Explanations or comments before/after the JSON
-- Any text outside the JSON object
-
-REQUIRED OUTPUT FORMAT (copy this structure exactly):
-{"issues": [{"file": "path/to/file.ext", "line_number": 42, "description": "Issue description", "suggested_fix": "How to fix it", "code_snippet": "problematic code"}]}
-
-Each issue in the array must have these exact keys:
-- "file": string - the file path where the issue was found
-- "line_number": integer - the line number (1-based)
-- "description": string - clear description of the issue
-- "suggested_fix": string - the suggested fix
-- "code_snippet": string - the problematic code snippet
-
-If no issues are found, return exactly: {"issues": []}
-
-Be precise with line numbers. Only report actual issues, not potential or hypothetical ones."""
-
-
-def build_user_prompt(check_query: str, files_content: dict[str, str]) -> str:
-    """Build the user prompt with file contents.
-
-    Args:
-        check_query: The check/query to run against the code.
-        files_content: Dictionary mapping file paths to their content.
-
-    Returns:
-        Formatted user prompt.
-    """
-    prompt_parts = [
-        f"## Check to perform:\n{check_query}\n",
-        "## Files to analyze:\n",
-    ]
-
-    for file_path, content in files_content.items():
-        prompt_parts.append(f"### File: {file_path}\n```\n{content}\n```\n")
-
-    return "\n".join(prompt_parts)
+# Re-export from base_client for backward compatibility
+from .base_client import SYSTEM_PROMPT_TEMPLATE, build_user_prompt

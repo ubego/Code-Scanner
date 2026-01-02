@@ -1,0 +1,152 @@
+# Code Scanner Configuration for JavaScript/TypeScript Projects
+# This example shows common checks for frontend web applications
+#
+# Copy this file to your project root as `config.toml` and customize as needed.
+
+# ==============================================================================
+# LLM Backend Configuration
+# ==============================================================================
+# Choose ONE of the backend configurations below (LM Studio or Ollama)
+
+[llm]
+# -----------------------------------------------------------------------------
+# Option 1: LM Studio (recommended for large context windows)
+# -----------------------------------------------------------------------------
+# Download: https://lmstudio.ai
+# Load a model in LM Studio and start the local server
+
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+model = "qwen/qwen3-4b-thinking-2507"
+timeout = 300
+# context_limit = 32768  # Context window size in tokens
+
+# -----------------------------------------------------------------------------
+# Option 2: Ollama (comment out LM Studio section above, uncomment below)
+# -----------------------------------------------------------------------------
+# Install: https://ollama.ai/download
+# Pull a model: ollama pull qwen3:4b
+# Start server: ollama serve (runs automatically on macOS/Linux)
+
+# backend = "ollama"
+# host = "localhost"
+# port = 11434
+# model = "qwen3:4b"  # Required for Ollama
+# timeout = 120
+# context_limit = 8192
+
+
+# ==============================================================================
+# Code Quality Checks
+# ==============================================================================
+# Each [[checks]] group has:
+#   - pattern: Glob pattern to match files (e.g., "*.js", "*.tsx", "*" for all)
+#   - rules: List of natural language descriptions of what to check for
+
+# React/TypeScript specific checks
+[[checks]]
+pattern = "*.tsx, *.jsx"
+rules = [
+    """
+    Check for React hooks usage violations.
+    Flag:
+    - Hooks called conditionally (inside if statements, loops)
+    - Hooks called inside nested functions
+    - Custom hooks not starting with 'use' prefix
+    - useEffect with missing dependencies
+    - useEffect with functions as dependencies (should use useCallback)
+    - useState with object spread anti-pattern for updates
+    - useMemo/useCallback with empty dependency array when deps needed
+    """,
+    """
+    Check for potential memory leaks in React components.
+    Flag:
+    - Event listeners added but not removed in cleanup
+    - setInterval/setTimeout without cleanup
+    - Subscriptions (WebSocket, EventSource) not unsubscribed
+    - State updates after component unmount
+    - Missing AbortController for fetch requests in useEffect
+    Do NOT flag:
+    - Global event listeners that are intentional
+    - Singletons/services that persist
+    """,
+    """
+    Check for React performance issues.
+    Flag:
+    - Large components that should be split
+    - Missing React.memo for expensive child components
+    - Inline function definitions in JSX props
+    - Object literals created in render
+    - Array.map without key prop
+    - Expensive calculations in render without useMemo
+    - State updates that could be batched
+    """,
+    """
+    Check for accessibility (a11y) issues.
+    Flag:
+    - Images without alt attribute
+    - Interactive elements without aria-label
+    - onClick on non-interactive elements without role
+    - Missing form labels
+    - Color-only indicators without text alternatives
+    - focusable elements with tabIndex > 0
+    - Autofocus that disrupts user experience
+    """,
+]
+
+# TypeScript checks
+[[checks]]
+pattern = "*.ts, *.tsx"
+rules = [
+    """
+    Check for TypeScript type safety issues.
+    Flag:
+    - Use of 'any' type (prefer unknown or specific types)
+    - Type assertions with 'as' without validation
+    - Non-null assertions (!) on potentially null values
+    - Missing return types on functions
+    - Object spread on types that might have extra properties
+    - Using 'object' instead of Record<string, unknown>
+    """,
+]
+
+# General JavaScript/TypeScript checks
+[[checks]]
+pattern = "*.js, *.ts, *.jsx, *.tsx"
+rules = [
+    """
+    Check for frontend security vulnerabilities.
+    Flag:
+    - dangerouslySetInnerHTML without sanitization
+    - Direct DOM manipulation with innerHTML
+    - eval() or new Function() usage
+    - Storing sensitive data in localStorage/sessionStorage
+    - Hardcoded API keys or secrets
+    - Missing input sanitization before API calls
+    - window.open with user-controlled URLs
+    """,
+    """
+    Check for async/await error handling issues.
+    Flag:
+    - await without try/catch or .catch()
+    - Promise.all without error handling
+    - Async functions that don't handle rejections
+    - Race conditions in state updates from async code
+    - Missing loading/error states for async operations
+    - Sequential awaits that could be parallel (Promise.all)
+    """,
+    """
+    Check for debug code that should be removed.
+    Flag:
+    - console.log statements
+    - console.warn/console.error for non-error cases
+    - debugger statements
+    - TODO/FIXME/HACK comments that need attention
+    - Commented-out code blocks
+    - alert() calls
+    Do NOT flag:
+    - console.error for actual error logging
+    - Intentional logging in development-only code
+    """,
+]

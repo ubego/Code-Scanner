@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from code_scanner.llm_client import (
-    LLMClient,
+from code_scanner.lmstudio_client import (
+    LMStudioClient,
     LLMClientError,
     SYSTEM_PROMPT_TEMPLATE,
     build_user_prompt,
@@ -44,8 +44,8 @@ class TestStripMarkdownFences:
 
     def test_strip_json_fence(self):
         """Strip ```json ... ``` fences."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         
         content = '```json\n{"issues": []}\n```'
         result = client._strip_markdown_fences(content)
@@ -53,8 +53,8 @@ class TestStripMarkdownFences:
 
     def test_strip_plain_fence(self):
         """Strip ``` ... ``` fences without language."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         
         content = '```\n{"issues": []}\n```'
         result = client._strip_markdown_fences(content)
@@ -62,8 +62,8 @@ class TestStripMarkdownFences:
 
     def test_no_fence_unchanged(self):
         """Content without fences unchanged."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         
         content = '{"issues": []}'
         result = client._strip_markdown_fences(content)
@@ -71,8 +71,8 @@ class TestStripMarkdownFences:
 
     def test_whitespace_handling(self):
         """Handles whitespace around fences."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         
         content = '  ```json\n{"issues": []}\n```  '
         result = client._strip_markdown_fences(content)
@@ -80,53 +80,53 @@ class TestStripMarkdownFences:
 
     def test_case_insensitive(self):
         """Case insensitive fence detection."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         
         content = '```JSON\n{"issues": []}\n```'
         result = client._strip_markdown_fences(content)
         assert result == '{"issues": []}'
 
 
-class TestLLMClientProperties:
-    """Tests for LLMClient property methods."""
+class TestLMStudioClientProperties:
+    """Tests for LMStudioClient property methods."""
 
     def test_context_limit_not_connected(self):
         """context_limit raises error when not connected."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         
         with pytest.raises(LLMClientError, match="Not connected"):
             _ = client.context_limit
 
     def test_model_id_not_connected(self):
         """model_id raises error when not connected."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         
         with pytest.raises(LLMClientError, match="Not connected"):
             _ = client.model_id
 
     def test_is_connected_false_initially(self):
         """is_connected returns False initially."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         assert client.is_connected() is False
 
     def test_is_ready_false_initially(self):
         """is_ready returns False initially."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         assert client.is_ready() is False
 
 
-class TestLLMClientQuery:
-    """Tests for LLMClient query functionality."""
+class TestLMStudioClientQuery:
+    """Tests for LMStudioClient query functionality."""
 
     def test_query_retry_on_empty_response(self):
         """Query retries on empty response."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
         client._context_limit = 8192
@@ -151,8 +151,8 @@ class TestLLMClientQuery:
 
     def test_query_max_retries_exceeded(self):
         """Query raises error after max retries."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
         client._context_limit = 8192
@@ -173,16 +173,16 @@ class TestTryFixJsonResponse:
 
     def test_fix_returns_none_when_not_connected(self):
         """Returns None when client not connected."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         
         result = client._try_fix_json_response("malformed", {})
         assert result is None
 
     def test_fix_succeeds_with_valid_response(self):
         """Successfully fixes malformed JSON."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
         client._supports_json_format = True
@@ -197,8 +197,8 @@ class TestTryFixJsonResponse:
 
     def test_fix_returns_none_on_exception(self):
         """Returns None when fix attempt raises exception."""
-        config = LLMConfig()
-        client = LLMClient(config)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
         

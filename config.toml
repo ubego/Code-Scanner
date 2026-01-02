@@ -25,9 +25,26 @@ rules = [
 ]
 
 # LM Studio connection settings (optional - these are the defaults)
+# [llm]
+# host = "localhost"
+# port = 1234
+# model = "openai/gpt-oss-20b"  # Leave commented to use default model
+# timeout = 120
+# context_limit = 37000  # Context window size in tokens
+
 [llm]
+# -----------------------------------------------------------------------------
+# Option 1: Ollama (recommended for simplicity)
+# -----------------------------------------------------------------------------
+# Install: https://ollama.ai/download
+# Pull a model: ollama pull qwen3:4b
+# Start server: ollama serve (runs automatically on macOS/Linux)
+
+backend = "ollama"
 host = "localhost"
-port = 1234
-# model = "specific-model-name"  # Leave commented to use default model
+port = 11434
+model = "qwen3:4b"  # Required for Ollama
 timeout = 120
-context_limit = 37000  # Context window size in tokens
+# Optional: Override model's default context window
+# Only set this if you know the model supports it
+context_limit = 8192

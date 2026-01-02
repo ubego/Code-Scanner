@@ -30,6 +30,7 @@ checks = [
 ]
 
 [llm]
+backend = "lm-studio"
 host = "localhost"
 port = 1234
 """)

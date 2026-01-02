@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 from code_scanner.cli import Application, LockFileError, parse_args, main
 from code_scanner.config import Config, ConfigError, LLMConfig, CheckGroup
 from code_scanner.git_watcher import GitError
-from code_scanner.llm_client import LLMClientError
+from code_scanner.lmstudio_client import LLMClientError
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def mock_config(temp_git_repo):
     config.llm_retry_interval = 0.1
     config.max_llm_retries = 2
     config.check_groups = [CheckGroup(pattern="*", rules=["Check"])]
-    config.llm = LLMConfig()
+    config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
     config.commit_hash = None
     return config
 
@@ -61,17 +61,20 @@ class TestApplicationSetup:
         """Setup acquires the lock file."""
         app = Application(mock_config)
         
+        mock_llm = MagicMock()
+        mock_llm.connect = MagicMock()
+        mock_llm.needs_context_limit.return_value = False
+        mock_llm.backend_name = "LM Studio"
+        
         with patch.object(app, '_check_output_file'), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
-             patch('code_scanner.cli.LLMClient') as MockLLMClient, \
+             patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator'), \
              patch('code_scanner.cli.Scanner'):
             
             MockGitWatcher.return_value.connect = MagicMock()
-            MockLLMClient.return_value.connect = MagicMock()
-            MockLLMClient.return_value.needs_context_limit.return_value = False
             
             app._setup()
             
@@ -85,17 +88,19 @@ class TestApplicationSetup:
         """Setup initializes GitWatcher correctly."""
         app = Application(mock_config)
         
+        mock_llm = MagicMock()
+        mock_llm.connect = MagicMock()
+        mock_llm.needs_context_limit.return_value = False
+        mock_llm.backend_name = "LM Studio"
+        
         with patch.object(app, '_acquire_lock'), \
              patch.object(app, '_check_output_file'), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
-             patch('code_scanner.cli.LLMClient') as MockLLMClient, \
+             patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator'), \
              patch('code_scanner.cli.Scanner'):
-            
-            MockLLMClient.return_value.connect = MagicMock()
-            MockLLMClient.return_value.needs_context_limit.return_value = False
             
             app._setup()
             
@@ -109,41 +114,47 @@ class TestApplicationSetup:
         """Setup initializes LLMClient correctly."""
         app = Application(mock_config)
         
+        mock_llm = MagicMock()
+        mock_llm.connect = MagicMock()
+        mock_llm.needs_context_limit.return_value = False
+        mock_llm.backend_name = "LM Studio"
+        
         with patch.object(app, '_acquire_lock'), \
              patch.object(app, '_check_output_file'), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
-             patch('code_scanner.cli.LLMClient') as MockLLMClient, \
+             patch('code_scanner.cli.create_llm_client', return_value=mock_llm) as mock_factory, \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator'), \
              patch('code_scanner.cli.Scanner'):
             
             MockGitWatcher.return_value.connect = MagicMock()
-            MockLLMClient.return_value.connect = MagicMock()
-            MockLLMClient.return_value.needs_context_limit.return_value = False
             
             app._setup()
             
-            MockLLMClient.assert_called_once_with(mock_config.llm)
-            MockLLMClient.return_value.connect.assert_called_once()
+            mock_factory.assert_called_once_with(mock_config)
+            mock_llm.connect.assert_called_once()
 
     def test_setup_prompts_for_context_limit_when_needed(self, mock_config):
         """Setup prompts for context limit when it can't be determined."""
         app = Application(mock_config)
+        
+        mock_llm = MagicMock()
+        mock_llm.connect = MagicMock()
+        mock_llm.needs_context_limit.return_value = True
+        mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
              patch.object(app, '_check_output_file'), \
              patch.object(app, '_prompt_for_context_limit') as mock_prompt, \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
-             patch('code_scanner.cli.LLMClient') as MockLLMClient, \
+             patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator'), \
              patch('code_scanner.cli.Scanner'):
             
             MockGitWatcher.return_value.connect = MagicMock()
-            MockLLMClient.return_value.connect = MagicMock()
-            MockLLMClient.return_value.needs_context_limit.return_value = True
             
             app._setup()
             
@@ -154,19 +165,21 @@ class TestApplicationSetup:
         app = Application(mock_config)
         
         mock_output = MagicMock()
+        mock_llm = MagicMock()
+        mock_llm.connect = MagicMock()
+        mock_llm.needs_context_limit.return_value = False
+        mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
              patch.object(app, '_check_output_file'), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
-             patch('code_scanner.cli.LLMClient') as MockLLMClient, \
+             patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator') as MockOutputGen, \
              patch('code_scanner.cli.Scanner'):
             
             MockGitWatcher.return_value.connect = MagicMock()
-            MockLLMClient.return_value.connect = MagicMock()
-            MockLLMClient.return_value.needs_context_limit.return_value = False
             MockOutputGen.return_value = mock_output
             
             app._setup()
@@ -632,7 +645,15 @@ class TestMainFunction:
     def test_main_creates_application_and_runs(self, temp_git_repo):
         """Main creates Application and calls run."""
         config_path = temp_git_repo / "config.toml"
-        config_path.write_text('[[checks]]\npattern = "*"\nrules = ["Check"]\n')
+        config_path.write_text('''[[checks]]
+pattern = "*"
+rules = ["Check"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+''')
         
         with patch('sys.argv', ['code-scanner', str(temp_git_repo), '-c', str(config_path)]), \
              patch('code_scanner.cli.Application') as MockApp:

@@ -1,0 +1,80 @@
+# Code Scanner Configuration
+#
+# This file configures the AI-powered code scanner.
+# Copy this file to your project root as `config.toml` and customize as needed.
+#
+# For language-specific examples, see the examples/ directory:
+#   - examples/python-config.toml    - Python project configuration
+#   - examples/javascript-config.toml - JavaScript/TypeScript configuration
+
+# ==============================================================================
+# LLM Backend Configuration (REQUIRED)
+# ==============================================================================
+# You must specify which LLM backend to use.
+
+[llm]
+# Choose your backend: "lm-studio" or "ollama"
+# Both require the host and port to be specified (no defaults).
+
+# -----------------------------------------------------------------------------
+# Option 1: LM Studio
+# -----------------------------------------------------------------------------
+# Download LM Studio: https://lmstudio.ai
+# Load a model and start the local server from the GUI.
+
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+timeout = 120
+
+# model = "qwen3:4b"
+# context_limit = 8192
+
+# -----------------------------------------------------------------------------
+# Option 2: Ollama (uncomment below and comment out LM Studio above)
+# -----------------------------------------------------------------------------
+# Install Ollama: https://ollama.ai/download
+# Pull a model: ollama pull qwen3:4b
+# Start server: ollama serve (runs automatically on macOS/Linux)
+
+# backend = "ollama"
+# host = "localhost"
+# port = 11434
+# model = "qwen3:4b"  # Required for Ollama
+# timeout = 120
+# context_limit = 8192
+
+# -----------------------------------------------------------------------------
+# Context Limit (optional)
+# -----------------------------------------------------------------------------
+# Override the model's default context window size (in tokens).
+# Only set this if you know your model supports it.
+# context_limit = 32768
+
+
+# ==============================================================================
+# Code Checks Configuration
+# ==============================================================================
+# Checks are organized into groups, each with a file pattern and list of rules.
+# Pattern uses glob syntax: "*.cpp, *.h" matches C++ files, "*" matches all files.
+
+# C++/Qt specific checks
+[[checks]]
+pattern = "*.cpp, *.h, *.cxx, *.hpp"
+rules = [
+    "Check for any detectable errors and suggest code simplifications where possible.",
+    "Check that iteration continues automatically until the final result, without requiring user prompts to proceed.",
+    "Check that constexpr and compile-time programming techniques are applied where appropriate.",
+    "Check that stack allocation is preferred over heap allocation whenever possible.",
+    "Check that string literals are handled through QStringView variables.",
+    "Check that string literals used multiple times are stored in named QStringView constants instead of being repeated.",
+    "Check that comments provide meaningful context or rationale and avoid restating obvious code behavior.",
+    "Check that functions are implemented in .cpp files rather than .h files.",
+]
+
+# General checks for all files
+[[checks]]
+pattern = "*"
+rules = [
+    "Check for unused files or dead code.",
+]

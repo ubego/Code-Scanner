@@ -96,6 +96,11 @@ checks = [
     "Check for bugs",
     "Check for style issues",
 ]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         config = load_config(
@@ -115,6 +120,11 @@ checks = [
     "Check for bugs",
     "",
 ]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -133,6 +143,11 @@ checks = [
     "Check for bugs",
     123,
 ]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -154,6 +169,11 @@ class TestNewConfigFormat:
 [[checks]]
 pattern = "*.py"
 rules = ["Check Python files"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         config = load_config(
@@ -176,6 +196,11 @@ rules = ["Check Python"]
 [[checks]]
 pattern = "*.cpp, *.h"
 rules = ["Check C++", "Check headers"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         config = load_config(
@@ -194,6 +219,11 @@ rules = ["Check C++", "Check headers"]
 [[checks]]
 pattern = ""
 rules = ["Check"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -211,6 +241,11 @@ rules = ["Check"]
 [[checks]]
 pattern = "*.py"
 rules = []
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -228,6 +263,11 @@ rules = []
 [[checks]]
 pattern = "*.py"
 rules = ["Valid rule", ""]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -244,6 +284,11 @@ rules = ["Valid rule", ""]
         config_file.write_text('''
 [[checks]]
 rules = ["Check all files"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         config = load_config(
@@ -257,13 +302,18 @@ rules = ["Check all files"]
 class TestLLMConfig:
     """Tests for LLM configuration."""
 
-    def test_llm_defaults(self, tmp_path):
-        """Test LLM config defaults."""
+    def test_llm_with_backend(self, tmp_path):
+        """Test LLM config with required backend."""
         config_file = tmp_path / "config.toml"
         config_file.write_text('''
 [[checks]]
 pattern = "*"
 rules = ["Check"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         config = load_config(
@@ -271,6 +321,7 @@ rules = ["Check"]
             config_file=config_file,
         )
         
+        assert config.llm.backend == "lm-studio"
         assert config.llm.host == "localhost"
         assert config.llm.port == 1234
         assert config.llm.timeout == 120
@@ -284,6 +335,7 @@ pattern = "*"
 rules = ["Check"]
 
 [llm]
+backend = "lm-studio"
 host = "192.168.1.100"
 port = 5000
 timeout = 300
@@ -312,6 +364,7 @@ class TestConfigProperties:
             target_directory=tmp_path,
             config_file=tmp_path / "config.toml",
             check_groups=[],
+            llm=LLMConfig(backend="lm-studio", host="localhost", port=1234),
         )
         
         assert config.output_path == tmp_path / "code_scanner_results.md"
@@ -322,6 +375,7 @@ class TestConfigProperties:
             target_directory=tmp_path,
             config_file=tmp_path / "config.toml",
             check_groups=[],
+            llm=LLMConfig(backend="lm-studio", host="localhost", port=1234),
         )
         
         assert config.log_path == tmp_path / "code_scanner.log"
@@ -332,6 +386,7 @@ class TestConfigProperties:
             target_directory=tmp_path,
             config_file=tmp_path / "config.toml",
             check_groups=[],
+            llm=LLMConfig(backend="lm-studio", host="localhost", port=1234),
         )
         
         # Lock file should NOT be in target directory
@@ -371,7 +426,15 @@ class TestCommitHash:
     def test_commit_hash_stored(self, tmp_path):
         """Test that commit hash is stored in config."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[[checks]]\npattern = "*"\nrules = ["Check"]\n')
+        config_file.write_text('''[[checks]]
+pattern = "*"
+rules = ["Check"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+''')
         
         config = load_config(
             target_directory=tmp_path,
@@ -384,7 +447,15 @@ class TestCommitHash:
     def test_commit_hash_defaults_to_none(self, tmp_path):
         """Test that commit hash defaults to None."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[[checks]]\npattern = "*"\nrules = ["Check"]\n')
+        config_file.write_text('''[[checks]]
+pattern = "*"
+rules = ["Check"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+''')
         
         config = load_config(
             target_directory=tmp_path,

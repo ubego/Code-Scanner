@@ -24,6 +24,7 @@ checks = [
 ]
 
 [llm]
+backend = "lm-studio"
 host = "192.168.1.100"
 port = 8080
 """)
@@ -39,6 +40,7 @@ port = 8080
         assert config.check_groups[0].rules[0] == "Check for errors"
         assert config.llm.host == "192.168.1.100"
         assert config.llm.port == 8080
+        assert config.llm.backend == "lm-studio"
 
     def test_missing_config_file_raises_error(self, temp_dir: Path):
         """Test that missing config file raises ConfigError."""
@@ -100,18 +102,21 @@ checks = [
         
         assert "does not exist" in str(exc_info.value)
 
-    def test_default_llm_settings(self, temp_dir: Path):
-        """Test that LLM settings have correct defaults."""
+    def test_missing_backend_raises_error(self, temp_dir: Path):
+        """Test that missing backend raises ConfigError."""
         config_file = temp_dir / "config.toml"
-        config_file.write_text('checks = ["test check"]')
+        config_file.write_text('''
+checks = ["test check"]
+
+[llm]
+host = "localhost"
+port = 1234
+''')
         
-        config = load_config(temp_dir, config_file)
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(temp_dir, config_file)
         
-        assert config.llm.host == "localhost"
-        assert config.llm.port == 1234
-        assert config.llm.model is None
-        assert config.llm.timeout == 120
-        assert config.llm.context_limit is None
+        assert "backend" in str(exc_info.value).lower()
 
     def test_llm_context_limit_from_config(self, temp_dir: Path):
         """Test that context_limit can be set in config."""
@@ -120,6 +125,9 @@ checks = [
 checks = ["test check"]
 
 [llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 context_limit = 16384
 """)
         
@@ -130,7 +138,13 @@ context_limit = 16384
     def test_commit_hash_passed_through(self, temp_dir: Path):
         """Test that commit hash is passed through to config."""
         config_file = temp_dir / "config.toml"
-        config_file.write_text('checks = ["test"]')
+        config_file.write_text('''checks = ["test"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+''')
         
         config = load_config(temp_dir, config_file, commit_hash="abc123")
         
@@ -139,7 +153,13 @@ context_limit = 16384
     def test_output_paths(self, temp_dir: Path):
         """Test that output paths are correctly constructed."""
         config_file = temp_dir / "config.toml"
-        config_file.write_text('checks = ["test"]')
+        config_file.write_text('''checks = ["test"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+''')
         
         config = load_config(temp_dir, config_file)
         
@@ -147,6 +167,69 @@ context_limit = 16384
         assert config.log_path == temp_dir / "code_scanner.log"
         # Lock file is in scanner's script directory, not target directory
         assert config.lock_path.name == ".code_scanner.lock"
+
+    def test_unsupported_section_raises_error(self, temp_dir: Path):
+        """Test that unsupported top-level sections raise ConfigError."""
+        config_file = temp_dir / "config.toml"
+        config_file.write_text('''
+checks = ["test"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+
+[scan]
+include_dirs = ["src"]
+''')
+        
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(temp_dir, config_file)
+        
+        assert "Unsupported configuration section" in str(exc_info.value)
+        assert "scan" in str(exc_info.value)
+
+    def test_unsupported_llm_param_raises_error(self, temp_dir: Path):
+        """Test that unsupported LLM parameters raise ConfigError."""
+        config_file = temp_dir / "config.toml"
+        config_file.write_text('''
+checks = ["test"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+unsupported_param = "value"
+''')
+        
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(temp_dir, config_file)
+        
+        assert "Unsupported parameter" in str(exc_info.value)
+        assert "llm" in str(exc_info.value).lower()
+        assert "unsupported_param" in str(exc_info.value)
+
+    def test_unsupported_check_param_raises_error(self, temp_dir: Path):
+        """Test that unsupported check parameters raise ConfigError."""
+        config_file = temp_dir / "config.toml"
+        config_file.write_text('''
+[[checks]]
+pattern = "*.py"
+rules = ["test"]
+name = "Test Check"
+query = "some query"
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+''')
+        
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(temp_dir, config_file)
+        
+        assert "Unsupported parameter" in str(exc_info.value)
+        assert "checks" in str(exc_info.value).lower()
 
 
 class TestCheckGroupFormat:
@@ -159,6 +242,11 @@ class TestCheckGroupFormat:
 [[checks]]
 pattern = "*.cpp, *.h"
 rules = ["Check for errors", "Check for memory leaks"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 """)
         
         config = load_config(temp_dir, config_file)
@@ -183,6 +271,11 @@ rules = ["Check Python code"]
 [[checks]]
 pattern = "*"
 rules = ["Check all files"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 """)
         
         config = load_config(temp_dir, config_file)
@@ -199,6 +292,11 @@ rules = ["Check all files"]
 [[checks]]
 pattern = "*.cpp"
 rules = []
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 """)
         
         with pytest.raises(ConfigError) as exc_info:
@@ -212,6 +310,11 @@ rules = []
         config_file.write_text("""
 [[checks]]
 rules = ["Check for errors"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 """)
         
         config = load_config(temp_dir, config_file)

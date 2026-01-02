@@ -60,4 +60,5 @@ ignore = ["E501"]
 [dependency-groups]
 dev = [
     "pytest-cov>=7.0.0",
+    "vulture>=2.14",
 ]

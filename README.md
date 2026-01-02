@@ -1,16 +1,41 @@
 # Code Scanner
 
-AI-powered code scanner that uses local LLM (LM Studio) to identify issues in your codebase based on configurable checks.
+![Code Scanner Banner](images/banner.png)
+
+AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify issues in your codebase based on configurable checks.
 
 ## Features
 
 - **Language-agnostic**: Works with any programming language
-- **Local LLM**: Uses LM Studio with OpenAI-compatible API
+- **Local AI (Privacy first)**: Uses LM Studio or Ollama with local APIs. Your code never leaves your machine.
+- **Hardware Efficient**: Designed for small local models. Runs comfortably on consumer GPUs like **NVIDIA RTX 3060**. (e.g., GPT OSS 20b runs smoothly on an **RTX 4070 8GB** via LM Studio).
+- **Cost Effective**: Zero token costs. Use your local resources instead of expensive API subscriptions.
+- **Continuous Monitoring**: Automatically runs in background mode, monitoring Git changes every 30 seconds and scanning indefinitely until stopped
 - **Git integration**: Monitors repository changes and scans modified files
 - **Configurable checks**: Define custom checks via TOML configuration with file pattern support
 - **Issue tracking**: Tracks issue lifecycle (new, existing, resolved)
 - **Real-time updates**: Output file updates immediately when issues are found (not just at end of scan)
 - **Markdown output**: Generates readable reports in `code_scanner_results.md`
+
+![Scanner Workflow](images/workflow.png)
+
+## Documentation
+
+- **[Getting Started](docs/getting-started.md)** - Quick installation and first run
+- **[Linux Setup](docs/linux-setup.md)** - Detailed Linux installation guide
+- **[macOS Setup](docs/macos-setup.md)** - Detailed macOS installation guide
+- **[Windows Setup](docs/windows-setup.md)** - Detailed Windows installation guide
+
+## Supported LLM Backends
+
+Code Scanner supports two local LLM backends:
+
+| Backend | Best For | Installation |
+|---------|----------|--------------|
+| **[LM Studio](https://lmstudio.ai)** | GUI users, trying different models | Download from lmstudio.ai |
+| **[Ollama](https://ollama.ai)** | CLI users, automation, simpler setup | `curl -fsSL https://ollama.ai/install.sh \| sh` |
+
+Both backends run entirely on your local machine - your code never leaves your computer.
 
 ## Installation
 
@@ -28,7 +53,7 @@ pip install -e .
 
 2. **Configure** the scanner by creating `config.toml`:
    ```bash
-   cp config.example.toml config.toml
+   cp examples/config.toml config.toml
    ```
 
 3. **Run** the scanner:
@@ -38,7 +63,47 @@ pip install -e .
 
 ## Configuration
 
-See `config.example.toml` for all available options.
+Create a `config.toml` file in your project. You must specify which LLM backend to use.
+
+See `examples/config.toml` for all available options, or use language-specific examples:
+- **[examples/python-config.toml](examples/python-config.toml)** - Python projects
+- **[examples/javascript-config.toml](examples/javascript-config.toml)** - JavaScript/TypeScript projects
+- **[examples/java-config.toml](examples/java-config.toml)** - Java projects
+- **[examples/cpp-config.toml](examples/cpp-config.toml)** - C++ projects
+- **[examples/cpp-qt-config.toml](examples/cpp-qt-config.toml)** - C++ with Qt framework
+- **[examples/android-config.toml](examples/android-config.toml)** - Android (Java + Kotlin)
+- **[examples/ios-macos-config.toml](examples/ios-macos-config.toml)** - iOS/macOS (Swift + Objective-C)
+
+### Basic Configuration
+
+**For Ollama:**
+```toml
+[llm]
+backend = "ollama"
+host = "localhost"
+port = 11434
+model = "qwen3:4b"
+timeout = 120
+context_limit = 8192
+
+[[checks]]
+pattern = "*"
+rules = ["Check for bugs and issues."]
+```
+
+**For LM Studio:**
+```toml
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+timeout = 120
+context_limit = 8192
+
+[[checks]]
+pattern = "*"
+rules = ["Check for bugs and issues."]
+```
 
 ### Check Groups
 
@@ -174,7 +239,7 @@ The scanner automatically excludes its own output files from scanning:
 
 ### Running Tests
 
-The project has comprehensive test coverage (91%) with 430+ tests.
+The project has comprehensive test coverage (87%) with 482 tests.
 
 ```bash
 # Run all unit tests
@@ -211,14 +276,16 @@ uv run pytest --cov=code_scanner --cov-report=term-missing --cov-report=html
 | Module | Coverage |
 |--------|----------|
 | issue_tracker.py | 100% |
-| models.py | 99% |
+| models.py | 97% |
 | utils.py | 97% |
 | output.py | 97% |
-| cli.py | 93% |
-| config.py | 93% |
-| llm_client.py | 90% |
-| scanner.py | 87% |
+| cli.py | 91% |
+| config.py | 90% |
+| lmstudio_client.py | 90% |
+| scanner.py | 88% |
 | git_watcher.py | 83% |
+| base_client.py | 78% |
+| ollama_client.py | 65% |
 
 ### Integration Testing
 
@@ -251,9 +318,11 @@ tests/
 ├── test_integration.py          # Full integration tests (LM Studio)
 ├── test_issue_tracker.py        # Issue tracking tests
 ├── test_issue_tracker_extended.py
-├── test_llm_client.py           # LLM client tests
-├── test_llm_client_extended.py
-├── test_llm_client_coverage.py
+├── test_base_client.py          # Base LLM client tests
+├── test_lmstudio_client.py      # LM Studio client tests
+├── test_lmstudio_client_extended.py
+├── test_lmstudio_client_coverage.py
+├── test_ollama_client.py        # Ollama client tests
 ├── test_output.py               # Output generation tests
 ├── test_qt_integration.py       # Qt project integration tests
 ├── test_scanner.py              # Scanner logic tests
@@ -266,17 +335,19 @@ tests/
 
 ```
 src/code_scanner/
-├── models.py       # Data models
-├── config.py       # Configuration loading
-├── llm_client.py   # LM Studio client
-├── git_watcher.py  # Git repository monitoring
+├── models.py        # Data models (LLMConfig, Issue, etc.)
+├── config.py        # Configuration loading and validation
+├── base_client.py   # Abstract base class for LLM clients
+├── lmstudio_client.py # LM Studio client (OpenAI-compatible API)
+├── ollama_client.py # Ollama client (native /api/chat endpoint)
+├── git_watcher.py   # Git repository monitoring
 ├── issue_tracker.py # Issue lifecycle management
-├── output.py       # Markdown report generation
-├── scanner.py      # AI scanning logic
-├── cli.py          # CLI and application coordinator
-└── __main__.py     # Entry point
+├── output.py        # Markdown report generation
+├── scanner.py       # AI scanning logic
+├── cli.py           # CLI and application coordinator
+└── __main__.py      # Entry point
 ```
 
 ## License
 
-MIT
+GNU Affero General Public License v3.0

@@ -114,6 +114,16 @@ def load_config(
     except tomllib.TOMLDecodeError as e:
         raise ConfigError(f"Invalid TOML in config file: {e}")
 
+    # Validate no unsupported top-level sections
+    SUPPORTED_SECTIONS = {"llm", "checks"}
+    unsupported_sections = set(data.keys()) - SUPPORTED_SECTIONS
+    if unsupported_sections:
+        raise ConfigError(
+            f"Unsupported configuration section(s): {sorted(unsupported_sections)}\n"
+            f"Supported sections are: {sorted(SUPPORTED_SECTIONS)}\n\n"
+            "Remove unsupported sections from your config.toml."
+        )
+
     # Extract checks - support both old format (list of strings) and new format (array of tables)
     checks_data = data.get("checks", [])
     if not checks_data:
@@ -141,9 +151,19 @@ def load_config(
             ))
         elif isinstance(checks_data[0], dict):
             # New format: array of tables
+            SUPPORTED_CHECK_PARAMS = {"pattern", "rules"}
             for i, group_data in enumerate(checks_data):
                 if not isinstance(group_data, dict):
                     raise ConfigError(f"Check group at index {i} must be a table")
+
+                # Validate no unsupported check parameters
+                unsupported_check_params = set(group_data.keys()) - SUPPORTED_CHECK_PARAMS
+                if unsupported_check_params:
+                    raise ConfigError(
+                        f"Unsupported parameter(s) in [[checks]] group {i}: {sorted(unsupported_check_params)}\n"
+                        f"Supported parameters are: {sorted(SUPPORTED_CHECK_PARAMS)}\n\n"
+                        "Remove unsupported parameters from the [[checks]] section."
+                    )
 
                 pattern = group_data.get("pattern", "*")
                 rules = group_data.get("rules", [])
@@ -169,13 +189,66 @@ def load_config(
 
     # Extract LLM config
     llm_data = data.get("llm", {})
-    llm_config = LLMConfig(
-        host=llm_data.get("host", "localhost"),
-        port=llm_data.get("port", 1234),
-        model=llm_data.get("model"),
-        timeout=llm_data.get("timeout", 120),
-        context_limit=llm_data.get("context_limit"),
-    )
+    
+    # Validate no unsupported LLM parameters
+    SUPPORTED_LLM_PARAMS = {"backend", "host", "port", "model", "timeout", "context_limit"}
+    unsupported_llm_params = set(llm_data.keys()) - SUPPORTED_LLM_PARAMS
+    if unsupported_llm_params:
+        raise ConfigError(
+            f"Unsupported parameter(s) in [llm] section: {sorted(unsupported_llm_params)}\n"
+            f"Supported parameters are: {sorted(SUPPORTED_LLM_PARAMS)}\n\n"
+            "Remove unsupported parameters from the [llm] section."
+        )
+    
+    # Validate required backend field
+    if "backend" not in llm_data:
+        raise ConfigError(
+            "\n" + "=" * 70 + "\n"
+            "Configuration Error: 'backend' must be specified in [llm] section.\n"
+            "=" * 70 + "\n\n"
+            "Supported backends:\n"
+            "  - \"lm-studio\": LM Studio with OpenAI-compatible API\n"
+            "  - \"ollama\": Ollama with native /api/chat endpoint\n\n"
+            "Example configuration:\n\n"
+            "  [llm]\n"
+            "  backend = \"lm-studio\"\n"
+            "  host = \"localhost\"\n"
+            "  port = 1234\n"
+            "  context_limit = 32768\n\n"
+            "Or for Ollama:\n\n"
+            "  [llm]\n"
+            "  backend = \"ollama\"\n"
+            "  host = \"localhost\"\n"
+            "  port = 11434\n"
+            "  model = \"qwen3:4b\"  # Required for Ollama\n"
+            "  context_limit = 8192\n\n"
+            "=" * 70
+        )
+    
+    # Validate required host and port fields
+    if "host" not in llm_data:
+        raise ConfigError(
+            "Configuration Error: 'host' must be specified in [llm] section.\n"
+            "Example: host = \"localhost\""
+        )
+    
+    if "port" not in llm_data:
+        raise ConfigError(
+            "Configuration Error: 'port' must be specified in [llm] section.\n"
+            "Example: port = 1234 (for LM Studio) or port = 11434 (for Ollama)"
+        )
+    
+    try:
+        llm_config = LLMConfig(
+            backend=llm_data["backend"],
+            host=llm_data["host"],
+            port=llm_data["port"],
+            model=llm_data.get("model"),
+            timeout=llm_data.get("timeout", 120),
+            context_limit=llm_data.get("context_limit"),
+        )
+    except ValueError as e:
+        raise ConfigError(f"LLM Configuration Error: {e}")
 
     # Build config
     config = Config(
@@ -188,7 +261,7 @@ def load_config(
 
     total_rules = sum(len(g.rules) for g in config.check_groups)
     logger.info(f"Loaded {len(config.check_groups)} check group(s) with {total_rules} total rules")
-    logger.debug(f"LM Studio endpoint: {config.llm.base_url}")
+    logger.debug(f"LLM backend: {config.llm.backend} at {config.llm.base_url}")
 
     return config
 

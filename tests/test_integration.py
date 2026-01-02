@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 from code_scanner.config import load_config, Config, CheckGroup
 from code_scanner.git_watcher import GitWatcher
-from code_scanner.llm_client import LLMClient, LLMClientError, build_user_prompt, SYSTEM_PROMPT_TEMPLATE
+from code_scanner.lmstudio_client import LLMClient, LLMClientError, build_user_prompt, SYSTEM_PROMPT_TEMPLATE
 from code_scanner.issue_tracker import IssueTracker
 from code_scanner.output import OutputGenerator
 from code_scanner.scanner import Scanner
@@ -53,8 +53,9 @@ def skip_without_integration(integration_enabled):
 def lm_studio_available():
     """Check if LM Studio is running and available."""
     from code_scanner.config import LLMConfig
+    from code_scanner.lmstudio_client import LMStudioClient
     
-    client = LLMClient(LLMConfig())
+    client = LMStudioClient(LLMConfig(backend="lm-studio", host="localhost", port=1234))
     try:
         client.connect()
         return True
@@ -111,7 +112,7 @@ class TestLLMClientIntegration:
         """Test connecting to LM Studio."""
         from code_scanner.config import LLMConfig
         
-        client = LLMClient(LLMConfig())
+        client = LLMClient(LLMConfig(backend="lm-studio", host="localhost", port=1234))
         client.connect()
         
         assert client.is_connected
@@ -122,7 +123,7 @@ class TestLLMClientIntegration:
         """Test a simple query to LM Studio."""
         from code_scanner.config import LLMConfig
         
-        client = LLMClient(LLMConfig())
+        client = LLMClient(LLMConfig(backend="lm-studio", host="localhost", port=1234))
         client.connect()
         
         # Simple test query
@@ -149,7 +150,7 @@ Return: {"issues": []} if no issues found."""
         """Test code analysis query with sample C++ code."""
         from code_scanner.config import LLMConfig
         
-        client = LLMClient(LLMConfig())
+        client = LLMClient(LLMConfig(backend="lm-studio", host="localhost", port=1234))
         client.connect()
         
         # Read sample Qt code
@@ -227,7 +228,7 @@ def hello():
         config.check_groups = [
             CheckGroup(pattern="*.py", rules=["Check for unused imports"]),
         ]
-        config.llm = LLMConfig()
+        config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
         
         # Create components
         git_watcher = GitWatcher(temp_git_repo)
@@ -275,7 +276,7 @@ def hello():
                 rules=["Check for memory leaks and heap allocations that could use stack"]
             ),
         ]
-        config.llm = LLMConfig()
+        config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
         
         # Create components
         git_watcher = GitWatcher(temp_git_repo_with_qt)
@@ -422,7 +423,7 @@ def divide(a, b):
         config.target_directory = temp_git_repo
         config.output_file = "results.md"
         config.log_file = "scanner.log"
-        config.llm = LLMConfig()
+        config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
         
         llm_client = LLMClient(config.llm)
         llm_client.connect()
@@ -563,6 +564,7 @@ rules = [
 ]
 
 [llm]
+backend = "lm-studio"
 host = "localhost"
 port = 1234
 timeout = 120

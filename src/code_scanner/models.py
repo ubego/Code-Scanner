@@ -123,18 +123,45 @@ class GitState:
 
 @dataclass
 class LLMConfig:
-    """Configuration for LM Studio connection."""
+    """Configuration for LLM backend connection.
+    
+    Supports both LM Studio and Ollama backends.
+    The 'backend' field is required and must be explicitly set.
+    """
 
-    host: str = "localhost"
-    port: int = 1234
-    model: Optional[str] = None
+    backend: str  # Required: "lm-studio" or "ollama"
+    host: str  # Required: no default
+    port: int  # Required: no default
+    model: Optional[str] = None  # Required for Ollama, optional for LM Studio
     timeout: int = 120
     context_limit: Optional[int] = None  # Manual override for context window size
 
+    # Valid backend values
+    VALID_BACKENDS = ("lm-studio", "ollama")
+
+    def __post_init__(self) -> None:
+        """Validate configuration after initialization."""
+        if self.backend not in self.VALID_BACKENDS:
+            raise ValueError(
+                f"Invalid backend '{self.backend}'. "
+                f"Must be one of: {', '.join(self.VALID_BACKENDS)}"
+            )
+        
+        if self.backend == "ollama" and not self.model:
+            raise ValueError(
+                "Ollama backend requires 'model' to be specified.\n"
+                "Example: model = \"qwen3:4b\""
+            )
+
     @property
     def base_url(self) -> str:
-        """Get the base URL for LM Studio API."""
-        return f"http://{self.host}:{self.port}/v1"
+        """Get the base URL for LLM API."""
+        if self.backend == "lm-studio":
+            return f"http://{self.host}:{self.port}/v1"
+        elif self.backend == "ollama":
+            return f"http://{self.host}:{self.port}"
+        else:
+            return f"http://{self.host}:{self.port}"
 
 
 @dataclass

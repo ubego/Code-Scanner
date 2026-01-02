@@ -1,0 +1,121 @@
+# Code Scanner Configuration for Java Projects
+# This example shows common checks for Java codebases
+#
+# Copy this file to your project root as `config.toml` and customize as needed.
+
+# ==============================================================================
+# LLM Backend Configuration
+# ==============================================================================
+# Choose ONE of the backend configurations below (LM Studio or Ollama)
+
+[llm]
+# -----------------------------------------------------------------------------
+# Option 1: LM Studio
+# -----------------------------------------------------------------------------
+# Download: https://lmstudio.ai
+# Load a model in LM Studio and start the local server
+
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+model = "qwen/qwen3-4b-thinking-2507"
+timeout = 120
+# context_limit = 32768  # Context window size in tokens
+
+# -----------------------------------------------------------------------------
+# Option 2: Ollama (comment out LM Studio section above, uncomment below)
+# -----------------------------------------------------------------------------
+# Install: https://ollama.ai/download
+# Pull a model: ollama pull qwen3:4b
+# Start server: ollama serve (runs automatically on macOS/Linux)
+
+# backend = "ollama"
+# host = "localhost"
+# port = 11434
+# model = "qwen3:4b"  # Required for Ollama
+# timeout = 120
+# context_limit = 8192
+
+
+# ==============================================================================
+# Code Quality Checks
+# ==============================================================================
+
+# Java-specific checks
+[[checks]]
+pattern = "*.java"
+rules = [
+    """
+    Check for potential NullPointerException risks.
+    Flag:
+    - Method calls on potentially null objects without null checks
+    - Missing @Nullable/@NonNull annotations on parameters and return types
+    - Optional.get() without isPresent() check
+    - Collections that could be null being iterated
+    Do NOT flag:
+    - Objects guaranteed non-null by constructor or builder
+    - Primitive types
+    """,
+    """
+    Check for resource leak issues.
+    Flag:
+    - Streams, connections, readers/writers not in try-with-resources
+    - Manual close() calls instead of try-with-resources
+    - Resources opened but not closed in finally block
+    - JDBC connections, statements, result sets not properly closed
+    """,
+    """
+    Check for thread safety issues.
+    Flag:
+    - Shared mutable state without synchronization
+    - Non-thread-safe collections used in concurrent context
+    - Double-checked locking without volatile
+    - Race conditions in lazy initialization
+    - Unsynchronized access to non-atomic fields
+    """,
+    """
+    Check for exception handling issues.
+    Flag:
+    - Catching Exception or Throwable too broadly
+    - Empty catch blocks that swallow exceptions
+    - Catching and ignoring InterruptedException
+    - Not preserving exception chain when rethrowing
+    - Using exceptions for flow control
+    """,
+    """
+    Check for Java best practices.
+    Flag:
+    - Using == instead of .equals() for object comparison
+    - String concatenation in loops instead of StringBuilder
+    - Raw types instead of parameterized generics
+    - Public fields instead of getters/setters
+    - Missing @Override annotation on overridden methods
+    - Mutable objects as Map keys
+    """,
+]
+
+# General checks for all files
+[[checks]]
+pattern = "*"
+rules = [
+    """
+    Check for code quality issues.
+    Flag:
+    - Unused imports
+    - Unused private methods or fields
+    - Methods that are too long (>50 lines)
+    - Classes with too many responsibilities (>500 lines)
+    - Magic numbers without constants
+    - Duplicate code blocks
+    """,
+    """
+    Check for security vulnerabilities.
+    Flag:
+    - SQL injection risks (string concatenation in queries)
+    - Hardcoded credentials or API keys
+    - Insecure random number generation (java.util.Random for security)
+    - Path traversal vulnerabilities
+    - XML external entity (XXE) vulnerabilities
+    - Deserialization of untrusted data
+    """,
+]

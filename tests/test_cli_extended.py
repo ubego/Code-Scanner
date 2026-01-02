@@ -46,7 +46,7 @@ def mock_config(temp_git_repo):
     config.llm_retry_interval = 1.0
     config.max_llm_retries = 3
     config.check_groups = [CheckGroup(pattern="*", rules=["Check"])]
-    config.llm = LLMConfig()
+    config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
     return config
 
 
@@ -257,6 +257,11 @@ class TestMainFunction:
 [[checks]]
 pattern = "*"
 rules = ["Check"]
+
+[llm]
+backend = "lm-studio"
+host = "localhost"
+port = 1234
 ''')
         
         with patch('sys.argv', ['code-scanner', str(temp_git_repo), '-c', str(config_path)]):
@@ -336,7 +341,7 @@ class TestApplicationContextLimitPrompt:
         app.llm_client = mock_client
         
         with patch('code_scanner.cli.is_interactive', return_value=False):
-            from code_scanner.llm_client import LLMClientError
+            from code_scanner.lmstudio_client import LLMClientError
             with pytest.raises(LLMClientError) as exc_info:
                 app._prompt_for_context_limit()
         

@@ -1,0 +1,146 @@
+# Code Scanner Configuration for C++ Qt Projects
+# This example shows common checks for Qt/C++ codebases
+#
+# Copy this file to your project root as `config.toml` and customize as needed.
+
+# ==============================================================================
+# LLM Backend Configuration
+# ==============================================================================
+# Choose ONE of the backend configurations below (LM Studio or Ollama)
+
+[llm]
+# -----------------------------------------------------------------------------
+# Option 1: LM Studio
+# -----------------------------------------------------------------------------
+# Download: https://lmstudio.ai
+# Load a model in LM Studio and start the local server
+
+backend = "lm-studio"
+host = "localhost"
+port = 1234
+model = "qwen/qwen3-4b-thinking-2507"
+timeout = 120
+# context_limit = 32768  # Context window size in tokens
+
+# -----------------------------------------------------------------------------
+# Option 2: Ollama (comment out LM Studio section above, uncomment below)
+# -----------------------------------------------------------------------------
+# Install: https://ollama.ai/download
+# Pull a model: ollama pull qwen3:4b
+# Start server: ollama serve (runs automatically on macOS/Linux)
+
+# backend = "ollama"
+# host = "localhost"
+# port = 11434
+# model = "qwen3:4b"  # Required for Ollama
+# timeout = 120
+# context_limit = 8192
+
+
+# ==============================================================================
+# Code Quality Checks
+# ==============================================================================
+
+# Qt/C++ source file checks
+[[checks]]
+pattern = "*.cpp, *.cxx, *.cc"
+rules = [
+    """
+    Check for Qt memory management issues.
+    Flag:
+    - QObject-derived classes deleted manually (should use deleteLater() or parent ownership)
+    - Missing parent parameter in QObject constructor
+    - Raw new without parent for QObject-derived classes
+    - QPointer not used for tracking QObject lifetime
+    - Widgets created on stack (should be heap with parent)
+    Do NOT flag:
+    - QObjects properly parented in constructor
+    - Local QObjects in functions that don't escape scope
+    """,
+    """
+    Check for Qt signal/slot issues.
+    Flag:
+    - Old-style SIGNAL()/SLOT() macros instead of function pointers
+    - Missing Q_OBJECT macro in QObject-derived classes with signals/slots
+    - Connecting to non-existent signals or slots
+    - Missing disconnect() before object deletion
+    - Slots not marked as public/protected/private slots
+    - Direct slot calls across threads without Qt::QueuedConnection
+    """,
+    """
+    Check for Qt string handling.
+    Flag:
+    - String literals not using QStringLiteral() or u""_s
+    - Repeated string literals (should be QStringView constants)
+    - QString::arg() chain inefficiency (use multi-arg overload)
+    - QString concatenation in loops (use QStringBuilder)
+    - Implicit QString conversions from char*
+    """,
+    """
+    Check for Qt thread safety issues.
+    Flag:
+    - GUI operations from non-main thread
+    - QObject created in one thread, used in another without moveToThread()
+    - Missing Qt::QueuedConnection for cross-thread signals
+    - Accessing QWidget from worker thread
+    - Shared data modified without mutex in threaded code
+    """,
+    """
+    Check for Qt best practices.
+    Flag:
+    - Using Qt containers where STL containers are more appropriate
+    - QList for large objects (should use QVector/std::vector)
+    - Missing override keyword on virtual method reimplementations
+    - Q_PROPERTY without NOTIFY signal for QML bindings
+    - Using QSharedPointer for QObject-derived (use QPointer or parent)
+    - Blocking GUI thread with long operations
+    """,
+]
+
+# Header file checks
+[[checks]]
+pattern = "*.h, *.hpp"
+rules = [
+    """
+    Check for Qt header issues.
+    Flag:
+    - Including QtWidgets when only QtCore is needed
+    - Missing Q_OBJECT macro in QObject-derived class declarations
+    - Missing Q_DECLARE_METATYPE for custom types used in signals
+    - Public member variables in QObject classes
+    - Missing virtual destructor in QObject-derived base classes
+    - Forward declarations missing for Qt pointer types
+    """,
+]
+
+# QML file checks
+[[checks]]
+pattern = "*.qml"
+rules = [
+    """
+    Check for QML issues.
+    Flag:
+    - Undefined properties or IDs
+    - JavaScript in property bindings (should be pure expressions)
+    - Missing anchors causing layout issues
+    - Hardcoded sizes instead of relative layouts
+    - Deprecated Qt Quick components
+    - Binding loops
+    - Accessing C++ properties without proper bindings
+    """,
+]
+
+# General checks
+[[checks]]
+pattern = "*"
+rules = [
+    """
+    Check for C++ code quality.
+    Flag:
+    - Memory leaks (non-Qt allocations)
+    - Unused includes
+    - Magic numbers without constants
+    - Functions longer than 50 lines
+    - Deeply nested code (>4 levels)
+    """,
+]
