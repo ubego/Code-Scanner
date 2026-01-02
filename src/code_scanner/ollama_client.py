@@ -280,12 +280,14 @@ class OllamaClient(BaseLLMClient):
                     logger.debug("Successfully parsed JSON response")
                     return result
                 except json.JSONDecodeError as e:
-                    raw_preview = content[:1000] if content else "(empty)"
-                    logger.warning(
-                        f"Malformed JSON response (attempt {attempt + 1}/{max_retries}): {e}. "
-                        f"Asking Ollama to reformat response.\n"
-                        f"--- Raw response ---\n{raw_preview}\n--- End raw response ---"
+                    # This is normal - LLMs sometimes return non-JSON. Auto-fix will handle it.
+                    raw_preview = content[:500] if content else "(empty)"
+                    logger.info(
+                        f"LLM returned non-JSON response (attempt {attempt + 1}/{max_retries}). "
+                        f"This is normal and will be auto-corrected.\n"
+                        f"Parse error: {e}"
                     )
+                    logger.debug(f"--- Raw response ---\n{raw_preview}\n--- End raw response ---")
                     
                     # Try to get LLM to fix its own response
                     fix_result = self._try_fix_json_response(content)

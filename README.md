@@ -220,17 +220,17 @@ The scanner is designed to work with various LM Studio models:
 
 **Markdown fence stripping**: LLMs often wrap JSON in markdown code fences (` ```json ... ``` `) despite being told not to. The scanner automatically detects and strips these fences before parsing.
 
-**Malformed JSON responses**: LLMs occasionally return incomplete or non-JSON responses. The scanner handles this intelligently:
+**Non-JSON responses**: LLMs occasionally return incomplete or non-JSON responses. The scanner handles this intelligently:
 1. Automatically strips markdown code fences if present
 2. If parsing still fails, asks the LLM to **reformat its own response** into valid JSON
 3. If reformatting fails, retries the original query (up to 3 times)
 
 ```
-WARNING - Malformed JSON response (attempt 1/3): Expecting value: line 1 column 1 (char 0). Asking LLM to reformat response.
+INFO - LLM returned non-JSON response (attempt 1/3). This is normal and will be auto-corrected.
 INFO - LLM successfully reformatted response to valid JSON.
 ```
 
-This is normal behavior - the scanner handles it automatically.
+This is expected behavior - LLMs sometimes include explanations or markdown formatting. The scanner handles it automatically, so there's no need for concern when you see these messages.
 
 **Empty responses**: If the LLM returns an empty response, the scanner retries automatically.
 
