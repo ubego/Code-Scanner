@@ -117,7 +117,8 @@ LM Studio provides a user-friendly Windows application.
 2. Download the model
 3. Load the model
 4. Go to "Local Server" tab (click the "<->" icon)
-5. Click "Start Server" (default port: 1234)
+5. **Set "Context Length" to at least 16384** in the right sidebar
+6. Click "Start Server" (default port: 1234)
 
 **Configuration for LM Studio:**
 

@@ -56,6 +56,7 @@ See `examples/` directory for configs tailored to JavaScript, Java, C++, Android
    - Open LM Studio
    - Search for "qwen2.5-coder-7b-instruct" and download it
    - Click the "<->" icon to open Local Server tab
+   - **Crucial**: Set "Context Overlap" to 0 and **"Context Length"** to at least **16384** in the right sidebar
    - Click "Start Server"
 
 2. **Run the scanner**
