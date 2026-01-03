@@ -53,7 +53,7 @@ Open PowerShell or Git Bash:
 
 ```powershell
 # Clone the repository
-git clone https://github.com/yourname/code-scanner.git
+git clone https://github.com/ubego/Code-Scanner.git
 cd code-scanner
 
 # Install dependencies with UV

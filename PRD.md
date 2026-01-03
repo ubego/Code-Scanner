@@ -50,11 +50,11 @@ The primary objective of this project is to implement a software program that **
 *   **Strict Configuration Validation:** The scanner validates configuration files strictly:
     *   **Supported Sections:** Only `[llm]` and `[[checks]]` sections are allowed. Any other top-level section (e.g., `[scan]`, `[output]`) causes an immediate error.
     *   **Supported LLM Parameters:** Only `backend`, `host`, `port`, `model`, `timeout`, `context_limit` are allowed in `[llm]`. Unknown parameters cause an error.
-    *   **Supported Check Parameters:** Only `pattern` and `rules` are allowed in `[[checks]]`. Unknown parameters (e.g., `name`, `query`) cause an error.
+    *   **Supported Check Parameters:** Only `pattern` and `checks` are allowed in `[[checks]]`. Unknown parameters (e.g., `name`, `query`) cause an error.
     *   **Error Messages:** Validation errors list the unsupported parameters and show supported alternatives.
-*   **Check Groups Structure:** Checks are organized into **groups**, each with a file pattern and list of rules:
+*   **Check Groups Structure:** Checks are organized into **groups**, each with a file pattern and list of check items:
     *   **Pattern:** Glob pattern to match files (e.g., `"*.cpp, *.h"` for C++ files, `"*"` for all files).
-    *   **Rules:** List of prompt strings to run against matching files.
+    *   **Checks:** List of prompt strings to run against matching files.
     *   **Legacy Support:** Simple list of strings format is still supported (converted to single group with `"*"` pattern).
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
 *   **Pattern-Based Filtering:** For each check group, only files matching the group's pattern are included in the analysis batches.

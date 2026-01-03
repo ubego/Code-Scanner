@@ -2,77 +2,114 @@
 
 ![Code Scanner Banner](images/banner.png)
 
-AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify issues in your codebase based on configurable checks.
+AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify issues in your codebase based on configurable checks. **Your code never leaves your machine.**
 
 ## Features
 
-- **Language-agnostic**: Works with any programming language
-- **Local AI (Privacy first)**: Uses LM Studio or Ollama with local APIs. Your code never leaves your machine.
-- **Hardware Efficient**: Designed for small local models. Runs comfortably on consumer GPUs like **NVIDIA RTX 3060**. (e.g., GPT OSS 20b runs smoothly on an **RTX 4070 8GB** via LM Studio).
-- **Cost Effective**: Zero token costs. Use your local resources instead of expensive API subscriptions.
-- **Continuous Monitoring**: Automatically runs in background mode, monitoring Git changes every 30 seconds and scanning indefinitely until stopped
-- **Git integration**: Monitors repository changes and scans modified files; when changes are detected mid-scan, continues from current check with refreshed file contents (preserves progress)
-- **Configurable checks**: Define custom checks via TOML configuration with file pattern support
-- **Issue tracking**: Tracks issue lifecycle (new, existing, resolved)
-- **Real-time updates**: Output file updates immediately when issues are found (not just at end of scan)
-- **Markdown output**: Generates readable reports in `code_scanner_results.md`
+- 🏠 **100% Local (Privacy first)**: Uses LM Studio or Ollama with local APIs. All processing happens on your machine, no cloud required.
+- 🖥️ **Hardware Efficient**: Designed for small local models. Runs comfortably on consumer GPUs like **NVIDIA RTX 3060**.
+- 💰 **Cost Effective**: Zero token costs. Use your local resources instead of expensive API subscriptions.
+- 🔍 **Language-agnostic**: Works with any programming language.
+- ⚡ **Continuous Monitoring**: Runs in background mode, monitoring Git changes every 30 seconds and scanning indefinitely until stopped.
+- 🔄 **Smart Change Detection**: When changes are detected mid-scan, continues from current check with refreshed file contents (preserves progress).
+- 🔧 **Configurable Checks**: Define checks in plain English via TOML configuration with file pattern support.
+- 📊 **Issue Tracking**: Tracks issue lifecycle (new, existing, resolved).
+- 📝 **Real-time Updates**: Output file updates immediately when issues are found (not just at end of scan).
 
 ![Scanner Workflow](images/workflow.png)
 
+## Quick Start
+
+### Prerequisites
+
+1. **Python 3.10 or higher**
+2. **Git** (for tracking file changes)
+3. **An LLM Backend** - one of:
+   - [LM Studio](https://lmstudio.ai) - GUI-based, great for beginners
+   - [Ollama](https://ollama.ai) - CLI-based, lightweight and simple
+
+### Installation
+
+```bash
+# Install UV (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone the repository
+git clone https://github.com/ubego/Code-Scanner.git
+cd Code-Scanner
+
+# Install dependencies
+uv sync
+```
+
+### Configuration
+
+Copy a language-specific example from `examples/` to your project root:
+
+```bash
+# Python project
+cp examples/python-config.toml config.toml
+
+# JavaScript/TypeScript project
+cp examples/javascript-config.toml config.toml
+```
+
+**Available examples:**
+- [examples/python-config.toml](examples/python-config.toml) - Python projects
+- [examples/javascript-config.toml](examples/javascript-config.toml) - JavaScript/TypeScript
+- [examples/java-config.toml](examples/java-config.toml) - Java projects
+- [examples/cpp-config.toml](examples/cpp-config.toml) - C++ projects
+- [examples/cpp-qt-config.toml](examples/cpp-qt-config.toml) - C++ with Qt framework
+- [examples/android-config.toml](examples/android-config.toml) - Android (Java + Kotlin)
+- [examples/ios-macos-config.toml](examples/ios-macos-config.toml) - iOS/macOS (Swift + Obj-C)
+- [examples/config.toml](examples/config.toml) - General purpose template
+
+After copying, update the `[llm]` section to match your backend.
+
+### Running Your First Scan
+
+1. **Start your LLM backend**
+
+   **For Ollama:**
+   ```bash
+   ollama pull qwen3:4b    # First time only
+   ollama serve            # Often runs automatically
+   ```
+
+   **For LM Studio:**
+   - Open LM Studio
+   - Search for "qwen2.5-coder-7b-instruct" and download it
+   - Click the "<->" icon to open Local Server tab
+   - Click "Start Server" (default port: 1234)
+
+2. **Run the scanner**
+   ```bash
+   uv run code-scanner /path/to/your/project --config config.toml
+   ```
+
+3. **View results**
+   
+   Results are saved to `code_scanner_results.md` in your project directory.
+
+4. **Stop the scanner**
+   
+   Press `Ctrl+C` to stop. The scanner runs continuously until interrupted.
+
 ## Documentation
 
-- **[Getting Started](docs/getting-started.md)** - Quick installation and first run
-- **[Linux Setup](docs/linux-setup.md)** - Detailed Linux installation guide
-- **[macOS Setup](docs/macos-setup.md)** - Detailed macOS installation guide
-- **[Windows Setup](docs/windows-setup.md)** - Detailed Windows installation guide
+For detailed platform-specific setup instructions:
+- **[Linux Setup](docs/linux-setup.md)**
+- **[macOS Setup](docs/macos-setup.md)**
+- **[Windows Setup](docs/windows-setup.md)**
 
 ## Supported LLM Backends
-
-Code Scanner supports two local LLM backends:
 
 | Backend | Best For | Installation |
 |---------|----------|--------------|
 | **[LM Studio](https://lmstudio.ai)** | GUI users, trying different models | Download from lmstudio.ai |
 | **[Ollama](https://ollama.ai)** | CLI users, automation, simpler setup | `curl -fsSL https://ollama.ai/install.sh \| sh` |
 
-Both backends run entirely on your local machine - your code never leaves your computer.
-
-## Installation
-
-```bash
-# Using UV (recommended)
-uv sync
-
-# Or using pip
-pip install -e .
-```
-
-## Quick Start
-
-1. **Start LM Studio** and load a model (e.g., `qwen-coder`)
-
-2. **Configure** the scanner by creating `config.toml`:
-   ```bash
-   cp examples/config.toml config.toml
-   ```
-
-3. **Run** the scanner:
-   ```bash
-   uv run code-scanner /path/to/your/project
-   ```
-
-## Configuration
-
-Create a `config.toml` file in your project. You must specify which LLM backend to use.
-
-See `examples/config.toml` for all available options, or use language-specific examples:
-- **[examples/python-config.toml](examples/python-config.toml)** - Python projects
-- **[examples/javascript-config.toml](examples/javascript-config.toml)** - JavaScript/TypeScript projects
-- **[examples/java-config.toml](examples/java-config.toml)** - Java projects
-- **[examples/cpp-config.toml](examples/cpp-config.toml)** - C++ projects
-- **[examples/cpp-qt-config.toml](examples/cpp-qt-config.toml)** - C++ with Qt framework
-- **[examples/android-config.toml](examples/android-config.toml)** - Android (Java + Kotlin)
-- **[examples/ios-macos-config.toml](examples/ios-macos-config.toml)** - iOS/macOS (Swift + Objective-C)
+## Configuration Reference
 
 ### Basic Configuration
 
@@ -116,7 +153,6 @@ pattern = "*.cpp, *.h, *.cxx, *.hpp"
 checks = [
     "Check for any detectable errors and suggest code simplifications where possible.",
     "Check that stack allocation is preferred over heap allocation whenever possible.",
-    "Check that string literals are handled through QStringView variables.",
 ]
 
 # General checks for all files
@@ -125,14 +161,6 @@ pattern = "*"
 checks = [
     "Check for unused files or dead code.",
 ]
-
-# LM Studio connection settings
-[llm]
-host = "localhost"
-port = 1234
-# model = "specific-model-name"  # Leave commented to use default model
-timeout = 120
-# context_limit = 16384  # See "Context Limit" section below
 ```
 
 **Pattern syntax:**
@@ -140,42 +168,19 @@ timeout = 120
 - `"*"` - Match all files
 - `"src/*.py"` - Match files in specific directories
 
-**Legacy format:** Simple list of strings is still supported:
-```toml
-checks = ["Check for errors", "Check for style issues"]
-```
-This is converted to a single group with `"*"` pattern.
-
 ### Context Limit
 
-The scanner needs to know the context window size (in tokens) of your LLM model to properly batch files for analysis.
+The scanner needs to know the context window size (in tokens) of your LLM.
 
-**Auto-detection**: The scanner first tries to query the context limit from LM Studio's API.
+> **⚠️ Warning:** Setting `context_limit` below 16384 is not recommended. The scanner needs context space for system prompts (~1000-2000 tokens), response buffer (~500-1000 tokens), and actual source code.
 
-**Interactive prompt**: If auto-detection fails and you're running interactively, the scanner will prompt you to enter the context limit:
-```
-Context limit could not be determined from LM Studio API.
-Please enter the context window size for your model.
-Common values: 4096, 8192, 16384, 32768, 131072
-
-Enter context limit (tokens): 
-```
-
-**Manual configuration**: For non-interactive use or to skip the prompt, set `context_limit` in your config.toml:
 ```toml
 [llm]
-context_limit = 16384  # Your model's context window size in tokens
+context_limit = 16384  # Recommended minimum
 ```
 
-> **⚠️ Warning:** Setting `context_limit` below 16384 is not recommended. The scanner needs context space for:
-> - System prompts and check rules (~1000-2000 tokens)
-> - Response buffer (~500-1000 tokens)  
-> - Actual source code (remaining tokens)
->
-> With 8192 tokens, only ~5000-6000 tokens remain for code, causing excessive batching and slower scans.
-
-Common context limit values:
-- 16384 - **Recommended minimum** for effective scanning
+Common values:
+- 16384 - **Recommended minimum**
 - 32768 - Large context models (Llama 3, Qwen, etc.)
 - 131072 - Very large context models (GPT-4, Claude, etc.)
 
@@ -194,49 +199,41 @@ Options:
   --help              Show help message
 ```
 
+## Troubleshooting
+
+### "Cannot connect to LLM backend"
+
+1. Ensure your LLM backend is running
+2. Check the host and port in your config match the running server
+3. For Ollama: `curl http://localhost:11434/api/tags`
+4. For LM Studio: `curl http://localhost:1234/v1/models`
+
+### "Model not found" (Ollama)
+
+1. Pull the model: `ollama pull model-name`
+2. List available models: `ollama list`
+
+### "Context length exceeded"
+
+1. Use a model with larger context window
+2. Reduce `context_limit` in your config to force smaller batches
+3. Use `.gitignore` to exclude large generated files
+
 ## Technical Details
 
 ### Lock File
 
-The scanner creates a lock file `.code_scanner.lock` in the **scanner's script directory** (not the target project directory) to prevent multiple instances from running simultaneously.
-
-**Graceful cleanup**: The lock file is automatically removed when the scanner exits via:
-- Normal exit
-- Ctrl+C (SIGINT)
-- SIGTERM
-- Any exception or error
-
-The cleanup is guaranteed via `atexit` handler and signal handlers. If the lock file exists after a crash (rare), you must manually delete it.
+The scanner creates `.code_scanner.lock` in the scanner's directory to prevent multiple instances. It's automatically removed on exit (Ctrl+C, SIGTERM, or normal exit).
 
 ### LLM Compatibility
 
-The scanner is designed to work with various LM Studio models:
-
-- **JSON response format**: Uses `response_format={"type": "json_object"}` if supported. Automatically falls back to prompt-based JSON formatting if the model doesn't support this parameter.
-- **Reasoning effort**: Uses `reasoning_effort="high"` for thorough code analysis.
-- **Context limit**: Auto-detected from API, with interactive prompt fallback.
-
-### Error Handling
-
-**Markdown fence stripping**: LLMs often wrap JSON in markdown code fences (` ```json ... ``` `) despite being told not to. The scanner automatically detects and strips these fences before parsing.
-
-**Non-JSON responses**: LLMs occasionally return incomplete or non-JSON responses. The scanner handles this intelligently:
-1. Automatically strips markdown code fences if present
-2. If parsing still fails, asks the LLM to **reformat its own response** into valid JSON
-3. If reformatting fails, retries the original query (up to 3 times)
-
-```
-INFO - LLM returned non-JSON response (attempt 1/3). This is normal and will be auto-corrected.
-INFO - LLM successfully reformatted response to valid JSON.
-```
-
-This is expected behavior - LLMs sometimes include explanations or markdown formatting. The scanner handles it automatically, so there's no need for concern when you see these messages.
-
-**Empty responses**: If the LLM returns an empty response, the scanner retries automatically.
+- **JSON response format**: Uses `response_format={"type": "json_object"}` if supported
+- **Auto-correction**: If LLM returns non-JSON, the scanner asks it to reformat
+- **Context limit**: Auto-detected from API, with interactive prompt fallback
 
 ### Excluded Files
 
-The scanner automatically excludes its own output files from scanning:
+The scanner automatically excludes:
 - `code_scanner_results.md` - The output report
 - `code_scanner.log` - The log file
 
@@ -244,97 +241,20 @@ The scanner automatically excludes its own output files from scanning:
 
 ### Running Tests
 
-The project has comprehensive test coverage (87%) with 482 tests.
-
 ```bash
-# Run all unit tests
-uv run pytest
-
-# Run tests with verbose output
-uv run pytest -v
-
-# Run specific test file
-uv run pytest tests/test_scanner.py -v
-
-# Run tests matching a pattern
-uv run pytest -k "test_scan" -v
+uv run pytest                    # Run all tests
+uv run pytest -v                 # Verbose output
+uv run pytest tests/test_scanner.py -v  # Specific file
 ```
 
 ### Coverage Reports
 
 ```bash
-# Run with terminal coverage report (shows missing lines)
 uv run pytest --cov=code_scanner --cov-report=term-missing
-
-# Generate HTML coverage report (opens in browser)
-uv run pytest --cov=code_scanner --cov-report=html
-# Then open: htmlcov/index.html
-
-# Generate XML coverage report (for CI/CD)
-uv run pytest --cov=code_scanner --cov-report=xml
-
-# Combined: terminal + HTML reports
-uv run pytest --cov=code_scanner --cov-report=term-missing --cov-report=html
+uv run pytest --cov=code_scanner --cov-report=html  # Open htmlcov/index.html
 ```
 
-**Current Coverage by Module:**
-| Module | Coverage |
-|--------|----------|
-| issue_tracker.py | 100% |
-| models.py | 97% |
-| utils.py | 97% |
-| output.py | 97% |
-| cli.py | 91% |
-| config.py | 90% |
-| lmstudio_client.py | 90% |
-| scanner.py | 88% |
-| git_watcher.py | 83% |
-| base_client.py | 78% |
-| ollama_client.py | 65% |
-
-### Integration Testing
-
-The project includes integration tests that can test with a real LM Studio instance:
-
-```bash
-# Run integration tests (requires LM Studio running)
-uv run pytest tests/test_integration.py -v --run-integration
-
-# Skip integration tests (default behavior)
-uv run pytest tests/test_integration.py -v
-```
-
-A sample C++ Qt project is provided in `tests/sample_qt_project/` for testing the scanner's ability to detect real code issues.
-
-### Test Structure
-
-```
-tests/
-├── conftest.py                  # Shared fixtures
-├── sample_qt_project/           # Sample C++ project for integration tests
-├── test_cli.py                  # CLI argument parsing tests
-├── test_cli_extended.py         # Extended CLI tests
-├── test_cli_coverage.py         # CLI coverage-focused tests
-├── test_config.py               # Configuration loading tests
-├── test_config_coverage.py      # Config coverage-focused tests
-├── test_git_watcher.py          # Git integration tests
-├── test_git_watcher_extended.py # Extended git tests
-├── test_git_watcher_coverage.py # Git coverage-focused tests
-├── test_integration.py          # Full integration tests (LM Studio)
-├── test_issue_tracker.py        # Issue tracking tests
-├── test_issue_tracker_extended.py
-├── test_base_client.py          # Base LLM client tests
-├── test_lmstudio_client.py      # LM Studio client tests
-├── test_lmstudio_client_extended.py
-├── test_lmstudio_client_coverage.py
-├── test_ollama_client.py        # Ollama client tests
-├── test_output.py               # Output generation tests
-├── test_qt_integration.py       # Qt project integration tests
-├── test_scanner.py              # Scanner logic tests
-├── test_scanner_extended.py
-├── test_scanner_coverage.py
-└── test_utils.py                # Utility function tests
-```
+**Current Coverage:** 87% with 482 tests.
 
 ### Project Structure
 
@@ -343,8 +263,8 @@ src/code_scanner/
 ├── models.py        # Data models (LLMConfig, Issue, etc.)
 ├── config.py        # Configuration loading and validation
 ├── base_client.py   # Abstract base class for LLM clients
-├── lmstudio_client.py # LM Studio client (OpenAI-compatible API)
-├── ollama_client.py # Ollama client (native /api/chat endpoint)
+├── lmstudio_client.py # LM Studio client
+├── ollama_client.py # Ollama client
 ├── git_watcher.py   # Git repository monitoring
 ├── issue_tracker.py # Issue lifecycle management
 ├── output.py        # Markdown report generation

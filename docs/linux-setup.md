@@ -57,7 +57,7 @@ uv --version
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourname/code-scanner.git
+git clone https://github.com/ubego/Code-Scanner.git
 cd code-scanner
 
 # Install dependencies with UV
