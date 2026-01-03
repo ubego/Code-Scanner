@@ -13,7 +13,7 @@
 backend = "lm-studio"   # Backend type: "lm-studio" or "ollama"
 host = "localhost"       # Server hostname (usually localhost)
 port = 1234              # Server port (LM Studio default: 1234, Ollama: 11434)
-model = "qwen2.5-coder-7b-instruct"  # Model identifier (required for Ollama, optional for LM Studio)
+model = "qwen2.5-coder-7b-instruct"  # Optional for LM Studio
 timeout = 600            # Request timeout in seconds
 context_limit = 16384    # Context window size in tokens (minimum 16384 recommended)
 

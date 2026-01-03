@@ -24,9 +24,7 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 
 1. **Python 3.10 or higher**
 2. **Git** (for tracking file changes)
-3. **An LLM Backend** - one of:
-   - [LM Studio](https://lmstudio.ai) - GUI-based, great for beginners
-   - [Ollama](https://ollama.ai) - CLI-based, lightweight and simple
+3. **[LM Studio](https://lmstudio.ai)** - Download and install from lmstudio.ai
 
 ### Installation
 
@@ -47,44 +45,22 @@ uv sync
 Copy a language-specific example from `examples/` to your project root:
 
 ```bash
-# Python project
 cp examples/python-config.toml config.toml
-
-# JavaScript/TypeScript project
-cp examples/javascript-config.toml config.toml
 ```
 
-**Available examples:**
-- [examples/python-config.toml](examples/python-config.toml) - Python projects
-- [examples/javascript-config.toml](examples/javascript-config.toml) - JavaScript/TypeScript
-- [examples/java-config.toml](examples/java-config.toml) - Java projects
-- [examples/cpp-config.toml](examples/cpp-config.toml) - C++ projects
-- [examples/cpp-qt-config.toml](examples/cpp-qt-config.toml) - C++ with Qt framework
-- [examples/android-config.toml](examples/android-config.toml) - Android (Java + Kotlin)
-- [examples/ios-macos-config.toml](examples/ios-macos-config.toml) - iOS/macOS (Swift + Obj-C)
-- [examples/config.toml](examples/config.toml) - General purpose template
-
-After copying, update the `[llm]` section to match your backend.
+See `examples/` directory for configs tailored to JavaScript, Java, C++, Android, iOS, and more.
 
 ### Running Your First Scan
 
-1. **Start your LLM backend**
-
-   **For Ollama:**
-   ```bash
-   ollama pull qwen3:4b    # First time only
-   ollama serve            # Often runs automatically
-   ```
-
-   **For LM Studio:**
+1. **Start LM Studio**
    - Open LM Studio
    - Search for "qwen2.5-coder-7b-instruct" and download it
    - Click the "<->" icon to open Local Server tab
-   - Click "Start Server" (default port: 1234)
+   - Click "Start Server"
 
 2. **Run the scanner**
    ```bash
-   uv run code-scanner /path/to/your/project --config config.toml
+   uv run code-scanner /path/to/your/project
    ```
 
 3. **View results**
@@ -93,7 +69,7 @@ After copying, update the `[llm]` section to match your backend.
 
 4. **Stop the scanner**
    
-   Press `Ctrl+C` to stop. The scanner runs continuously until interrupted.
+   Press `Ctrl+C`. The scanner runs continuously until interrupted.
 
 ## Documentation
 
