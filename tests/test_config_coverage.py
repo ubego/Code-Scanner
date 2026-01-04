@@ -101,6 +101,7 @@ checks = [
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         config = load_config(
@@ -125,6 +126,7 @@ checks = [
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -148,6 +150,7 @@ checks = [
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -174,6 +177,7 @@ checks = ["Check Python files"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         config = load_config(
@@ -201,6 +205,7 @@ checks = ["Check C++", "Check headers"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         config = load_config(
@@ -224,6 +229,7 @@ checks = ["Check"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -246,6 +252,7 @@ checks = []
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -268,6 +275,7 @@ checks = ["Valid rule", ""]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -289,6 +297,7 @@ checks = ["Check all files"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         config = load_config(
@@ -314,6 +323,7 @@ checks = ["Check"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         config = load_config(
@@ -364,33 +374,34 @@ class TestConfigProperties:
             target_directory=tmp_path,
             config_file=tmp_path / "config.toml",
             check_groups=[],
-            llm=LLMConfig(backend="lm-studio", host="localhost", port=1234),
+            llm=LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384),
         )
         
         assert config.output_path == tmp_path / "code_scanner_results.md"
 
     def test_log_path(self, tmp_path):
-        """Test log_path property."""
+        """Test log_path property (should be in ~/.code-scanner/)."""
         config = Config(
             target_directory=tmp_path,
             config_file=tmp_path / "config.toml",
             check_groups=[],
-            llm=LLMConfig(backend="lm-studio", host="localhost", port=1234),
+            llm=LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384),
         )
         
-        assert config.log_path == tmp_path / "code_scanner.log"
+        home_dir = Path.home() / ".code-scanner"
+        assert config.log_path == home_dir / "code_scanner.log"
 
     def test_lock_path(self, tmp_path):
-        """Test lock_path property (should be in script directory)."""
+        """Test lock_path property (should be in ~/.code-scanner/)."""
         config = Config(
             target_directory=tmp_path,
             config_file=tmp_path / "config.toml",
             check_groups=[],
-            llm=LLMConfig(backend="lm-studio", host="localhost", port=1234),
+            llm=LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384),
         )
         
-        # Lock file should NOT be in target directory
-        assert config.lock_path.name == ".code_scanner.lock"
+        home_dir = Path.home() / ".code-scanner"
+        assert config.lock_path == home_dir / "code_scanner.lock"
 
 
 class TestGetDefaultConfigPath:
@@ -434,6 +445,7 @@ checks = ["Check"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         config = load_config(
@@ -455,6 +467,7 @@ checks = ["Check"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         config = load_config(

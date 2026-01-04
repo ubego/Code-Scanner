@@ -49,7 +49,7 @@ def mock_config(temp_git_repo):
     config.llm_retry_interval = 0.1
     config.max_llm_retries = 2
     config.check_groups = [CheckGroup(pattern="*", checks=["Check"])]
-    config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+    config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
     config.commit_hash = None
     return config
 
@@ -66,7 +66,7 @@ class TestApplicationSetup:
         mock_llm.needs_context_limit.return_value = False
         mock_llm.backend_name = "LM Studio"
         
-        with patch.object(app, '_check_output_file'), \
+        with patch.object(app, '_backup_existing_output'), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
@@ -94,7 +94,7 @@ class TestApplicationSetup:
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
-             patch.object(app, '_check_output_file'), \
+             patch.object(app, '_backup_existing_output'), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
@@ -120,7 +120,7 @@ class TestApplicationSetup:
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
-             patch.object(app, '_check_output_file'), \
+             patch.object(app, '_backup_existing_output'), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm) as mock_factory, \
@@ -135,18 +135,17 @@ class TestApplicationSetup:
             mock_factory.assert_called_once_with(mock_config)
             mock_llm.connect.assert_called_once()
 
-    def test_setup_prompts_for_context_limit_when_needed(self, mock_config):
-        """Setup prompts for context limit when it can't be determined."""
+    def test_setup_sets_context_limit_from_config(self, mock_config):
+        """Setup sets context limit from config (now required)."""
         app = Application(mock_config)
         
         mock_llm = MagicMock()
         mock_llm.connect = MagicMock()
-        mock_llm.needs_context_limit.return_value = True
         mock_llm.backend_name = "LM Studio"
+        mock_config.llm.context_limit = 16384
         
         with patch.object(app, '_acquire_lock'), \
-             patch.object(app, '_check_output_file'), \
-             patch.object(app, '_prompt_for_context_limit') as mock_prompt, \
+             patch.object(app, '_backup_existing_output'), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
@@ -158,7 +157,7 @@ class TestApplicationSetup:
             
             app._setup()
             
-            mock_prompt.assert_called_once()
+            mock_llm.set_context_limit.assert_called_once_with(16384)
 
     def test_setup_creates_initial_output(self, mock_config):
         """Setup creates initial output file."""
@@ -171,7 +170,7 @@ class TestApplicationSetup:
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
-             patch.object(app, '_check_output_file'), \
+             patch.object(app, '_backup_existing_output'), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
@@ -287,135 +286,85 @@ class TestApplicationGitWatchLoop:
         assert call_count[0] >= 1
 
 
-class TestApplicationContextLimit:
-    """Tests for Application _prompt_for_context_limit method."""
+class TestApplicationBackupOutput:
+    """Tests for Application _backup_existing_output method."""
 
-    def test_prompt_non_interactive_raises(self, mock_config):
-        """Non-interactive mode raises LLMClientError."""
-        app = Application(mock_config)
-        app.llm_client = MagicMock()
-        
-        with patch('code_scanner.cli.is_interactive', return_value=False):
-            with pytest.raises(LLMClientError) as exc_info:
-                app._prompt_for_context_limit()
-        
-        assert "non-interactive mode" in str(exc_info.value)
-
-    def test_prompt_accepts_valid_input(self, mock_config):
-        """Prompt accepts valid numeric input."""
-        app = Application(mock_config)
-        app.llm_client = MagicMock()
-        
-        with patch('code_scanner.cli.is_interactive', return_value=True), \
-             patch('builtins.input', return_value='8192'), \
-             patch('builtins.print'):
-            app._prompt_for_context_limit()
-        
-        app.llm_client.set_context_limit.assert_called_once_with(8192)
-
-    def test_prompt_rejects_non_numeric(self, mock_config):
-        """Prompt rejects non-numeric input."""
-        app = Application(mock_config)
-        app.llm_client = MagicMock()
-        
-        inputs = iter(['invalid', '8192'])
-        
-        with patch('code_scanner.cli.is_interactive', return_value=True), \
-             patch('builtins.input', side_effect=lambda _: next(inputs)), \
-             patch('builtins.print'):
-            app._prompt_for_context_limit()
-        
-        app.llm_client.set_context_limit.assert_called_once_with(8192)
-
-    def test_prompt_rejects_negative(self, mock_config):
-        """Prompt rejects negative numbers."""
-        app = Application(mock_config)
-        app.llm_client = MagicMock()
-        
-        inputs = iter(['-1', '8192'])
-        
-        with patch('code_scanner.cli.is_interactive', return_value=True), \
-             patch('builtins.input', side_effect=lambda _: next(inputs)), \
-             patch('builtins.print'):
-            app._prompt_for_context_limit()
-        
-        app.llm_client.set_context_limit.assert_called_once_with(8192)
-
-    def test_prompt_rejects_empty(self, mock_config):
-        """Prompt rejects empty input."""
-        app = Application(mock_config)
-        app.llm_client = MagicMock()
-        
-        inputs = iter(['', '8192'])
-        
-        with patch('code_scanner.cli.is_interactive', return_value=True), \
-             patch('builtins.input', side_effect=lambda _: next(inputs)), \
-             patch('builtins.print'):
-            app._prompt_for_context_limit()
-        
-        app.llm_client.set_context_limit.assert_called_once_with(8192)
-
-    def test_prompt_handles_eof(self, mock_config):
-        """Prompt handles EOFError."""
-        app = Application(mock_config)
-        app.llm_client = MagicMock()
-        
-        with patch('code_scanner.cli.is_interactive', return_value=True), \
-             patch('builtins.input', side_effect=EOFError), \
-             patch('builtins.print'):
-            with pytest.raises(LLMClientError) as exc_info:
-                app._prompt_for_context_limit()
-        
-        assert "No input provided" in str(exc_info.value)
-
-
-class TestApplicationOutputFileCheck:
-    """Tests for Application _check_output_file method."""
-
-    def test_check_no_file_succeeds(self, mock_config):
-        """Check succeeds when no output file exists."""
+    def test_backup_no_existing_file(self, mock_config):
+        """Backup does nothing when no output file exists."""
         app = Application(mock_config)
         
         # Ensure output doesn't exist
         if mock_config.output_path.exists():
             mock_config.output_path.unlink()
         
-        app._check_output_file()  # Should not raise
+        app._backup_existing_output()  # Should not raise
 
-    def test_check_non_interactive_raises(self, mock_config):
-        """Check raises error in non-interactive mode with existing file."""
+    def test_backup_creates_backup_file(self, mock_config):
+        """Backup creates .bak file with content."""
         app = Application(mock_config)
-        mock_config.output_path.write_text("# Existing\n")
+        mock_config.output_path.write_text("# Original content\n")
         
-        with patch('code_scanner.cli.is_interactive', return_value=False):
-            with pytest.raises(RuntimeError) as exc_info:
-                app._check_output_file()
+        app._backup_existing_output()
         
-        assert "non-interactive mode" in str(exc_info.value)
-        mock_config.output_path.unlink()
+        backup_path = mock_config.output_path.parent / f"{mock_config.output_path.name}.bak"
+        assert backup_path.exists()
+        backup_content = backup_path.read_text()
+        assert "# Original content" in backup_content
+        assert "Backup created:" in backup_content
+        assert not mock_config.output_path.exists()  # Original should be deleted
+        
+        # Cleanup
+        backup_path.unlink()
 
-    def test_check_user_declines_exits(self, mock_config):
-        """Check exits when user declines overwrite."""
+    def test_backup_appends_to_existing_backup(self, mock_config):
+        """Backup appends to existing .bak file."""
         app = Application(mock_config)
-        mock_config.output_path.write_text("# Existing\n")
+        backup_path = mock_config.output_path.parent / f"{mock_config.output_path.name}.bak"
         
-        with patch('code_scanner.cli.is_interactive', return_value=True), \
-             patch('code_scanner.cli.prompt_yes_no', return_value=False):
-            with pytest.raises(SystemExit):
-                app._check_output_file()
+        # Create existing backup
+        backup_path.write_text("# Previous backup\n")
         
-        mock_config.output_path.unlink()
+        # Create output file
+        mock_config.output_path.write_text("# Current content\n")
+        
+        app._backup_existing_output()
+        
+        backup_content = backup_path.read_text()
+        assert "# Previous backup" in backup_content
+        assert "# Current content" in backup_content
+        
+        # Cleanup
+        backup_path.unlink()
 
-    def test_check_user_accepts_deletes_file(self, mock_config):
-        """Check deletes file when user accepts overwrite."""
+    def test_backup_includes_timestamp(self, mock_config):
+        """Backup includes timestamp in separator."""
         app = Application(mock_config)
-        mock_config.output_path.write_text("# Existing\n")
+        mock_config.output_path.write_text("# Test\n")
         
-        with patch('code_scanner.cli.is_interactive', return_value=True), \
-             patch('code_scanner.cli.prompt_yes_no', return_value=True):
-            app._check_output_file()
+        app._backup_existing_output()
         
-        assert not mock_config.output_path.exists()
+        backup_path = mock_config.output_path.parent / f"{mock_config.output_path.name}.bak"
+        backup_content = backup_path.read_text()
+        assert "Backup created:" in backup_content
+        assert "=" * 60 in backup_content
+        
+        # Cleanup
+        backup_path.unlink()
+
+
+class TestApplicationProcessCheck:
+    """Tests for Application _is_process_running method."""
+
+    def test_current_process_is_running(self, mock_config):
+        """Current process PID is reported as running."""
+        import os
+        app = Application(mock_config)
+        assert app._is_process_running(os.getpid()) is True
+
+    def test_invalid_pid_is_not_running(self, mock_config):
+        """Invalid PID is reported as not running."""
+        app = Application(mock_config)
+        assert app._is_process_running(999999999) is False
 
 
 class TestApplicationRun:
@@ -594,16 +543,33 @@ class TestApplicationLockFile:
         
         app._release_lock()
 
-    def test_acquire_lock_fails_if_exists(self, mock_config):
-        """Acquire lock fails if lock file exists."""
+    def test_acquire_lock_fails_if_process_running(self, mock_config):
+        """Acquire lock fails if lock file exists and process is running."""
+        import os
         app = Application(mock_config)
-        mock_config.lock_path.write_text("9999\n")
+        # Use current PID to simulate a running process
+        mock_config.lock_path.write_text(f"{os.getpid()}\n")
         
         with pytest.raises(LockFileError) as exc_info:
             app._acquire_lock()
         
-        assert "Lock file exists" in str(exc_info.value)
+        assert "Another code-scanner instance is already running" in str(exc_info.value)
         mock_config.lock_path.unlink()
+
+    def test_acquire_lock_removes_stale_lock(self, mock_config):
+        """Acquire lock removes stale lock if PID is not running."""
+        import os
+        app = Application(mock_config)
+        # Use a PID that's definitely not running
+        mock_config.lock_path.write_text("999999999\n")
+        
+        app._acquire_lock()  # Should succeed by removing stale lock
+        
+        assert app._lock_acquired is True
+        content = mock_config.lock_path.read_text()
+        assert str(os.getpid()) in content
+        
+        app._release_lock()
 
     def test_release_lock_removes_file(self, mock_config):
         """Release lock removes file."""
@@ -653,6 +619,7 @@ checks = ["Check"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         with patch('sys.argv', ['code-scanner', str(temp_git_repo), '-c', str(config_path)]), \

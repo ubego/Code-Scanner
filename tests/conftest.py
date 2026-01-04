@@ -98,26 +98,27 @@ checks = [
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 """)
     
     return Config(
         target_directory=temp_dir,
         config_file=config_file,
         checks=["Check for errors", "Check for style issues"],
-        llm=LLMConfig(backend="lm-studio", host="localhost", port=1234),
+        llm=LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384),
     )
 
 
 @pytest.fixture
 def lmstudio_config() -> LLMConfig:
     """Create an LM Studio LLMConfig for testing."""
-    return LLMConfig(backend="lm-studio", host="localhost", port=1234)
+    return LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
 
 
 @pytest.fixture
 def ollama_config() -> LLMConfig:
     """Create an Ollama LLMConfig for testing."""
-    return LLMConfig(backend="ollama", host="localhost", port=11434, model="llama3")
+    return LLMConfig(backend="ollama", host="localhost", port=11434, model="llama3", context_limit=16384)
 
 
 @pytest.fixture

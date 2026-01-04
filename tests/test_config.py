@@ -27,6 +27,7 @@ checks = [
 backend = "lm-studio"
 host = "192.168.1.100"
 port = 8080
+context_limit = 16384
 """)
         
         config = load_config(temp_dir, config_file)
@@ -111,6 +112,7 @@ checks = ["test check"]
 [llm]
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -144,6 +146,7 @@ context_limit = 16384
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         config = load_config(temp_dir, config_file, commit_hash="abc123")
@@ -159,14 +162,17 @@ port = 1234
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         config = load_config(temp_dir, config_file)
         
+        # Output file stays in target directory
         assert config.output_path == temp_dir / "code_scanner_results.md"
-        assert config.log_path == temp_dir / "code_scanner.log"
-        # Lock file is in scanner's script directory, not target directory
-        assert config.lock_path.name == ".code_scanner.lock"
+        # Log and lock files are now in ~/.code-scanner/
+        home_dir = Path.home() / ".code-scanner"
+        assert config.log_path == home_dir / "code_scanner.log"
+        assert config.lock_path == home_dir / "code_scanner.lock"
 
     def test_unsupported_section_raises_error(self, temp_dir: Path):
         """Test that unsupported top-level sections raise ConfigError."""
@@ -178,6 +184,7 @@ checks = ["test"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 
 [scan]
 include_dirs = ["src"]
@@ -199,6 +206,7 @@ checks = ["test"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 unsupported_param = "value"
 ''')
         
@@ -223,6 +231,7 @@ query = "some query"
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         with pytest.raises(ConfigError) as exc_info:
@@ -247,6 +256,7 @@ checks = ["Check for errors", "Check for memory leaks"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 """)
         
         config = load_config(temp_dir, config_file)
@@ -276,6 +286,7 @@ checks = ["Check all files"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 """)
         
         config = load_config(temp_dir, config_file)
@@ -297,6 +308,7 @@ checks = []
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 """)
         
         with pytest.raises(ConfigError) as exc_info:
@@ -315,6 +327,7 @@ checks = ["Check for errors"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 """)
         
         config = load_config(temp_dir, config_file)

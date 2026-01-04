@@ -101,7 +101,7 @@ host = "localhost"
 port = 11434
 model = "qwen3:4b"
 timeout = 120
-context_limit = 16384
+context_limit = 16384  # Required
 ```
 
 ### Option 2: LM Studio
@@ -130,6 +130,7 @@ backend = "lm-studio"
 host = "localhost"
 port = 1234
 timeout = 120
+context_limit = 16384  # Required
 ```
 
 ## Running Code Scanner
@@ -191,26 +192,18 @@ LM Studio and Ollama can use NVIDIA GPUs for faster inference:
 
 ## Running as a Windows Service
 
-### Using Task Scheduler
+Use the provided autostart script for easy setup:
 
-1. Open Task Scheduler (search in Start menu)
-2. Click "Create Basic Task"
-3. Name: "Code Scanner"
-4. Trigger: "When I log on"
-5. Action: "Start a program"
-6. Program: `C:\path\to\code-scanner\.venv\Scripts\python.exe`
-7. Arguments: `-m code_scanner --config C:\path\to\project\config.toml`
-8. Start in: `C:\path\to\project`
-
-### Using NSSM (Non-Sucking Service Manager)
-
-```powershell
-# Download NSSM from nssm.cc
-# Install as service
-nssm install CodeScanner "C:\path\to\code-scanner\.venv\Scripts\python.exe" "-m code_scanner --config C:\path\to\project\config.toml"
-nssm set CodeScanner AppDirectory "C:\path\to\project"
-nssm start CodeScanner
+```batch
+scripts\autostart-windows.bat
 ```
+
+See **[Autostart Guide](autostart-windows.md)** for detailed instructions.
+
+The script creates a Task Scheduler task with:
+- 60-second startup delay for LLM backend
+- Automatic lock file cleanup
+- Log files in `%USERPROFILE%\.code-scanner\`
 
 ## Troubleshooting
 

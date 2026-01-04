@@ -32,10 +32,12 @@ class Config:
     commit_hash: Optional[str] = None
     llm: LLMConfig = field(default_factory=LLMConfig)
 
-    # Output file names (in target directory)
+    # Output file name (in target directory)
     output_file: str = "code_scanner_results.md"
+    
+    # Home directory files
     log_file: str = "code_scanner.log"
-    lock_file: str = ".code_scanner.lock"
+    lock_file: str = "code_scanner.lock"
 
     # Polling intervals
     git_poll_interval: int = 30  # seconds
@@ -45,24 +47,29 @@ class Config:
     max_llm_retries: int = 3
 
     @property
+    def home_dir(self) -> Path:
+        """Get the code-scanner home directory (~/.code-scanner/)."""
+        home = Path.home() / ".code-scanner"
+        home.mkdir(parents=True, exist_ok=True)
+        return home
+
+    @property
     def output_path(self) -> Path:
-        """Get full path to output file."""
+        """Get full path to output file (in target directory)."""
         return self.target_directory / self.output_file
 
     @property
     def log_path(self) -> Path:
-        """Get full path to log file."""
-        return self.target_directory / self.log_file
+        """Get full path to log file (in ~/.code-scanner/)."""
+        return self.home_dir / self.log_file
 
     @property
     def lock_path(self) -> Path:
-        """Get full path to lock file.
+        """Get full path to lock file (in ~/.code-scanner/).
         
-        Lock file is stored in the scanner's script directory (sibling to code-scanner)
-        to prevent multiple instances from running, regardless of target directory.
+        Lock file is global - only one instance of code-scanner can run at a time.
         """
-        script_dir = Path(__file__).parent.parent.parent
-        return script_dir / self.lock_file
+        return self.home_dir / self.lock_file
 
 
 def load_config(
@@ -238,6 +245,29 @@ def load_config(
             "Example: port = 1234 (for LM Studio) or port = 11434 (for Ollama)"
         )
     
+    # Validate required context_limit field
+    if "context_limit" not in llm_data:
+        raise ConfigError(
+            "\n" + "=" * 70 + "\n"
+            "Configuration Error: 'context_limit' must be specified in [llm] section.\n"
+            "=" * 70 + "\n\n"
+            "The context_limit parameter is required and defines how much text\n"
+            "the LLM can process at once. Common values:\n\n"
+            "  - 4096   (small models)\n"
+            "  - 8192   (medium models)\n"
+            "  - 16384  (recommended minimum)\n"
+            "  - 32768  (large context)\n"
+            "  - 131072 (very large context)\n\n"
+            "Add context_limit to your config.toml:\n\n"
+            "  [llm]\n"
+            "  backend = \"lm-studio\"\n"
+            "  host = \"localhost\"\n"
+            "  port = 1234\n"
+            "  context_limit = 16384  # <-- Add this line\n\n"
+            "Tip: Check your model's context window in LM Studio/Ollama settings.\n"
+            "=" * 70
+        )
+    
     try:
         llm_config = LLMConfig(
             backend=llm_data["backend"],
@@ -245,7 +275,7 @@ def load_config(
             port=llm_data["port"],
             model=llm_data.get("model"),
             timeout=llm_data.get("timeout", 120),
-            context_limit=llm_data.get("context_limit"),
+            context_limit=llm_data["context_limit"],  # Now required
         )
     except ValueError as e:
         raise ConfigError(f"LLM Configuration Error: {e}")

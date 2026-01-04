@@ -477,6 +477,7 @@ checks = [
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 timeout = 120
 ''')
         

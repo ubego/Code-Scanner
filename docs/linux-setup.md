@@ -101,7 +101,7 @@ host = "localhost"
 port = 11434
 model = "qwen3:4b"
 timeout = 120
-context_limit = 16384
+context_limit = 16384  # Required
 ```
 
 ### Option 2: LM Studio
@@ -138,6 +138,7 @@ backend = "lm-studio"
 host = "localhost"
 port = 1234
 timeout = 120
+context_limit = 16384  # Required
 ```
 
 ## Running Code Scanner
@@ -155,33 +156,18 @@ uv run code-scanner --config config.toml
 
 ## Running as a Background Service
 
-### Using systemd (User Service)
-
-Create `~/.config/systemd/user/code-scanner.service`:
-
-```ini
-[Unit]
-Description=Code Scanner
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/path/to/your/project
-ExecStart=/path/to/code-scanner/.venv/bin/python -m code_scanner --config config.toml
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
+Use the provided autostart script for easy setup:
 
 ```bash
-# Enable and start
-systemctl --user enable code-scanner
-systemctl --user start code-scanner
-
-# View logs
-journalctl --user -u code-scanner -f
+./scripts/autostart-linux.sh
 ```
+
+See **[Autostart Guide](autostart-linux.md)** for detailed instructions.
+
+The script creates a systemd user service with:
+- 60-second startup delay for LLM backend
+- Automatic lock file cleanup
+- Log files in `~/.code-scanner/`
 
 ## Troubleshooting
 

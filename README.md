@@ -15,6 +15,7 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 - 🔧 **Configurable Checks**: Define checks in plain English via TOML configuration with file pattern support.
 - 📊 **Issue Tracking**: Tracks issue lifecycle (new, existing, resolved).
 - 📝 **Real-time Updates**: Output file updates immediately when issues are found (not just at end of scan).
+- 🤖 **Daemon-Ready**: Fully uninteractive mode—no prompts, configurable via file only. Supports autostart on all platforms.
 
 ![Scanner Workflow](images/workflow.png)
 
@@ -72,12 +73,26 @@ See `examples/` directory for configs tailored to JavaScript, Java, C++, Android
    
    Press `Ctrl+C`. The scanner runs continuously until interrupted.
 
+5. **(Optional) Enable autostart**
+   
+   To start the scanner automatically on login:
+   ```bash
+   # Linux
+   ./scripts/autostart-linux.sh
+   
+   # macOS
+   ./scripts/autostart-macos.sh
+   
+   # Windows
+   scripts\autostart-windows.bat
+   ```
+
 ## Documentation
 
 For detailed platform-specific setup instructions:
-- **[Linux Setup](docs/linux-setup.md)**
-- **[macOS Setup](docs/macos-setup.md)**
-- **[Windows Setup](docs/windows-setup.md)**
+- **[Linux Setup](docs/linux-setup.md)** | **[Autostart](docs/autostart-linux.md)**
+- **[macOS Setup](docs/macos-setup.md)** | **[Autostart](docs/autostart-macos.md)**
+- **[Windows Setup](docs/windows-setup.md)** | **[Autostart](docs/autostart-windows.md)**
 
 ## Supported LLM Backends
 
@@ -98,7 +113,7 @@ host = "localhost"
 port = 11434
 model = "qwen3:4b"
 timeout = 120
-context_limit = 16384
+context_limit = 16384  # Required
 
 [[checks]]
 pattern = "*"
@@ -112,7 +127,7 @@ backend = "lm-studio"
 host = "localhost"
 port = 1234
 timeout = 120
-context_limit = 16384
+context_limit = 16384  # Required
 
 [[checks]]
 pattern = "*"
@@ -145,15 +160,15 @@ checks = [
 - `"*"` - Match all files
 - `"src/*.py"` - Match files in specific directories
 
-### Context Limit
+### Context Limit (Required)
 
-The scanner needs to know the context window size (in tokens) of your LLM.
+The `context_limit` parameter is **required** and specifies the context window size (in tokens) of your LLM.
 
 > **⚠️ Warning:** Setting `context_limit` below 16384 is not recommended. The scanner needs context space for system prompts (~1000-2000 tokens), response buffer (~500-1000 tokens), and actual source code.
 
 ```toml
 [llm]
-context_limit = 16384  # Recommended minimum
+context_limit = 16384  # Required - recommended minimum
 ```
 
 Common values:
@@ -200,19 +215,23 @@ Options:
 
 ### Lock File
 
-The scanner creates `.code_scanner.lock` in the scanner's directory to prevent multiple instances. It's automatically removed on exit (Ctrl+C, SIGTERM, or normal exit).
+The scanner creates `~/.code-scanner/code_scanner.lock` (global location) to prevent multiple instances. The lock file stores the PID of the running process and automatically detects/removes stale locks from crashed processes. It's automatically removed on exit (Ctrl+C, SIGTERM, or normal exit).
 
 ### LLM Compatibility
 
 - **JSON response format**: Uses `response_format={"type": "json_object"}` if supported
 - **Auto-correction**: If LLM returns non-JSON, the scanner asks it to reformat
-- **Context limit**: Auto-detected from API, with interactive prompt fallback
+- **Context limit**: Required in config file (no interactive prompts)
 
 ### Excluded Files
 
 The scanner automatically excludes:
 - `code_scanner_results.md` - The output report
-- `code_scanner.log` - The log file
+- `code_scanner.log` - The log file (in `~/.code-scanner/`)
+
+### Backup Files
+
+On startup, if `code_scanner_results.md` exists, its content is automatically appended to `code_scanner_results.md.bak` with a timestamp. This preserves previous results without requiring user confirmation.
 
 ## Development
 
@@ -231,7 +250,7 @@ uv run pytest --cov=code_scanner --cov-report=term-missing
 uv run pytest --cov=code_scanner --cov-report=html  # Open htmlcov/index.html
 ```
 
-**Current Coverage:** 87% with 482 tests.
+**Current Coverage:** 87% with 484 tests.
 
 ### Project Structure
 

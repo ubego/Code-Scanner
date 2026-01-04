@@ -33,6 +33,7 @@ checks = [
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 """)
         from code_scanner.config import load_config
         return load_config(temp_dir, config_file)

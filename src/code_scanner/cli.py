@@ -19,7 +19,7 @@ from .lmstudio_client import LMStudioClient
 from .ollama_client import OllamaClient
 from .output import OutputGenerator
 from .scanner import Scanner
-from .utils import setup_logging, is_interactive, prompt_yes_no
+from .utils import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -103,11 +103,15 @@ class Application:
 
     def _setup(self) -> None:
         """Set up all components."""
+        # Print paths before logging is set up (goes to console only)
+        print(f"Log file: {self.config.log_path}")
+        print(f"Lock file: {self.config.lock_path}")
+        
         # Check and acquire lock
         self._acquire_lock()
 
-        # Check for existing output file
-        self._check_output_file()
+        # Backup existing output file (automated, no prompts)
+        self._backup_existing_output()
 
         # Set up logging
         setup_logging(self.config.log_path)
@@ -116,6 +120,8 @@ class Application:
         logger.info(f"Target directory: {self.config.target_directory}")
         logger.info(f"Config file: {self.config.config_file}")
         logger.info(f"Output file: {self.config.output_path}")
+        logger.info(f"Log file: {self.config.log_path}")
+        logger.info(f"Lock file: {self.config.lock_path}")
         total_checks = sum(len(g.checks) for g in self.config.check_groups)
         logger.info(f"Check groups: {len(self.config.check_groups)}, Total checks: {total_checks}")
         logger.info("=" * 60)
@@ -132,9 +138,8 @@ class Application:
         self.llm_client.connect()
         logger.info(f"Connected to {self.llm_client.backend_name}")
 
-        # If context limit couldn't be determined, prompt user
-        if self.llm_client.needs_context_limit():
-            self._prompt_for_context_limit()
+        # Set context limit from config (now required)
+        self.llm_client.set_context_limit(self.config.llm.context_limit)
 
         self.issue_tracker = IssueTracker()
         self.output_generator = OutputGenerator(self.config.output_path)
@@ -153,17 +158,39 @@ class Application:
 
     def _acquire_lock(self) -> None:
         """Acquire the lock file.
+        
+        Checks if the lock file exists and if the PID in it is still running.
+        If the process is dead, removes the stale lock and acquires a new one.
 
         Raises:
-            LockFileError: If lock file exists.
+            LockFileError: If another instance is already running.
         """
         lock_path = self.config.lock_path
 
         if lock_path.exists():
-            raise LockFileError(
-                f"Lock file exists: {lock_path}\n"
-                "Another instance may be running. If not, delete the lock file manually."
-            )
+            # Read PID from lock file
+            try:
+                pid_str = lock_path.read_text().strip()
+                pid = int(pid_str)
+                
+                # Check if process is still running
+                if self._is_process_running(pid):
+                    raise LockFileError(
+                        f"Another code-scanner instance is already running (PID: {pid}).\n"
+                        f"Lock file: {lock_path}\n"
+                        "Wait for it to finish or terminate it manually."
+                    )
+                else:
+                    # Process is dead, remove stale lock
+                    lock_path.unlink()
+                    logger.info(f"Removed stale lock file (PID {pid} no longer running)")
+            except (ValueError, IOError) as e:
+                # Invalid lock file contents, remove it
+                try:
+                    lock_path.unlink()
+                    logger.warning(f"Removed invalid lock file: {e}")
+                except IOError:
+                    raise LockFileError(f"Could not remove invalid lock file: {lock_path}")
 
         # Create lock file with PID
         try:
@@ -177,6 +204,22 @@ class Application:
         except IOError as e:
             raise LockFileError(f"Could not create lock file: {e}")
 
+    def _is_process_running(self, pid: int) -> bool:
+        """Check if a process with the given PID is running.
+        
+        Args:
+            pid: Process ID to check.
+            
+        Returns:
+            True if the process is running, False otherwise.
+        """
+        try:
+            # os.kill with signal 0 doesn't kill, just checks if process exists
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
     def _release_lock(self) -> None:
         """Release the lock file."""
         if self._lock_acquired:
@@ -189,80 +232,35 @@ class Application:
                 logger.warning(f"Could not remove lock file: {e}")
             self._lock_acquired = False
 
-    def _prompt_for_context_limit(self) -> None:
-        """Prompt user to enter context limit when it can't be determined.
-
-        Raises:
-            LLMClientError: If running non-interactively or invalid input.
-        """
-        if not is_interactive():
-            raise LLMClientError(
-                "Could not determine context limit from LM Studio API and "
-                "running in non-interactive mode. Please set context_limit "
-                "in the [llm] section of config.toml."
-            )
-
-        print("\n" + "=" * 60)
-        print("Context limit could not be determined from LM Studio API.")
-        print("Please enter the context window size for your model.")
-        print("Common values: 4096, 8192, 16384, 32768, 131072")
-        print("=" * 60)
-
-        while True:
-            try:
-                user_input = input("\nEnter context limit (tokens): ").strip()
-                if not user_input:
-                    print("Please enter a value.")
-                    continue
-
-                limit = int(user_input)
-                if limit <= 0:
-                    print("Context limit must be a positive number.")
-                    continue
-
-                self.llm_client.set_context_limit(limit)
-                print(f"Context limit set to {limit} tokens.\n")
-                return
-
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-            except EOFError:
-                raise LLMClientError("No input provided for context limit.")
-
-    def _check_output_file(self) -> None:
-        """Check for existing output file and prompt for overwrite.
-
-        Raises:
-            SystemExit: If user declines to overwrite.
+    def _backup_existing_output(self) -> None:
+        """Backup existing output file if it exists.
+        
+        Appends content to .bak file with timestamp prefix.
         """
         output_path = self.config.output_path
 
         if output_path.exists():
-            if not is_interactive():
-                raise RuntimeError(
-                    "Output file exists and running in non-interactive mode. "
-                    "Please delete the file manually or run interactively."
-                )
-
-            # Get file stats
+            backup_path = output_path.parent / f"{output_path.name}.bak"
+            timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+            
             try:
-                stats = output_path.stat()
-                size_mb = stats.st_size / (1024 * 1024)
-                mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stats.st_mtime))
-                file_info = f" (Size: {size_mb:.2f} MB, Modified: {mtime})"
-            except OSError:
-                file_info = ""
-
-            if not prompt_yes_no(
-                f"Output file {output_path} already exists{file_info}. Overwrite?",
-                default=False,
-            ):
-                logger.info("User declined to overwrite, exiting")
-                sys.exit(0)
-
-            # Delete existing file
-            output_path.unlink()
-            logger.info(f"Deleted existing output file: {output_path}")
+                content = output_path.read_text(encoding='utf-8')
+                
+                # Append to backup file with timestamp separator
+                with open(backup_path, "a", encoding='utf-8') as f:
+                    f.write(f"\n\n{'=' * 60}\n")
+                    f.write(f"Backup created: {timestamp}\n")
+                    f.write(f"{'=' * 60}\n\n")
+                    f.write(content)
+                
+                logger.info(f"Backed up existing output to {backup_path}")
+                
+                # Remove original file
+                output_path.unlink()
+                logger.debug(f"Removed existing output file: {output_path}")
+                
+            except IOError as e:
+                logger.warning(f"Could not backup output file: {e}")
 
     def _run_main_loop(self) -> None:
         """Run the main application loop."""

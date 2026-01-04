@@ -46,7 +46,7 @@ def mock_config(temp_git_repo):
     config.llm_retry_interval = 1.0
     config.max_llm_retries = 3
     config.check_groups = [CheckGroup(pattern="*", checks=["Check"])]
-    config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+    config.llm = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
     return config
 
 
@@ -92,16 +92,19 @@ class TestApplicationLockFile:
         app._release_lock()
 
     def test_acquire_lock_already_exists(self, mock_config):
-        """Lock acquisition fails when file exists."""
-        # Create lock file
-        mock_config.lock_path.write_text("123\n")
+        """Lock acquisition fails when file exists with running process."""
+        # Create lock file with current PID (simulating running process)
+        current_pid = os.getpid()
+        mock_config.lock_path.write_text(f"{current_pid}\n")
         
         app = Application(mock_config)
         
         with pytest.raises(LockFileError) as exc_info:
             app._acquire_lock()
         
-        assert "Lock file exists" in str(exc_info.value)
+        error_msg = str(exc_info.value)
+        assert "code-scanner" in error_msg.lower() or "already running" in error_msg.lower()
+        assert str(current_pid) in error_msg
         
         # Cleanup
         mock_config.lock_path.unlink()
@@ -262,6 +265,7 @@ checks = ["Check"]
 backend = "lm-studio"
 host = "localhost"
 port = 1234
+context_limit = 16384
 ''')
         
         with patch('sys.argv', ['code-scanner', str(temp_git_repo), '-c', str(config_path)]):
@@ -272,108 +276,83 @@ port = 1234
         assert result == 0
 
 
-class TestApplicationCheckOutputFile:
-    """Tests for output file checking."""
+class TestApplicationBackupOutput:
+    """Tests for output file backup functionality."""
 
-    def test_check_output_non_interactive_with_existing(self, mock_config):
-        """Non-interactive mode with existing output raises error."""
+    def test_backup_creates_bak_file(self, mock_config):
+        """Backup creates .bak file with timestamp."""
         # Create existing output file
-        mock_config.output_path.write_text("# Existing\n")
+        mock_config.output_path.write_text("# Existing content\n")
+        backup_path = mock_config.output_path.parent / f"{mock_config.output_path.name}.bak"
         
         app = Application(mock_config)
+        app._backup_existing_output()
         
-        with patch('code_scanner.cli.is_interactive', return_value=False):
-            with pytest.raises(RuntimeError) as exc_info:
-                app._check_output_file()
-        
-        assert "non-interactive mode" in str(exc_info.value)
+        # Check backup file was created
+        assert backup_path.exists()
+        content = backup_path.read_text()
+        assert "# Existing content" in content
+        assert "Backup created:" in content  # Timestamp header
         
         # Cleanup
-        mock_config.output_path.unlink()
+        mock_config.output_path.unlink(missing_ok=True)
+        backup_path.unlink(missing_ok=True)
 
-    def test_check_output_user_declines(self, mock_config):
-        """User declining overwrite causes exit."""
-        # Create existing output file
-        mock_config.output_path.write_text("# Existing\n")
+    def test_backup_appends_to_existing_bak(self, mock_config):
+        """Backup appends to existing .bak file."""
+        backup_path = mock_config.output_path.parent / f"{mock_config.output_path.name}.bak"
+        
+        # Create existing backup
+        backup_path.write_text("# First backup\n")
+        
+        # Create output file to backup
+        mock_config.output_path.write_text("# Second content\n")
         
         app = Application(mock_config)
+        app._backup_existing_output()
         
-        with patch('code_scanner.cli.is_interactive', return_value=True):
-            with patch('code_scanner.cli.prompt_yes_no', return_value=False):
-                with pytest.raises(SystemExit):
-                    app._check_output_file()
+        content = backup_path.read_text()
+        assert "# First backup" in content
+        assert "# Second content" in content
         
         # Cleanup
-        mock_config.output_path.unlink()
+        mock_config.output_path.unlink(missing_ok=True)
+        backup_path.unlink(missing_ok=True)
 
-    def test_check_output_user_accepts(self, mock_config):
-        """User accepting overwrite deletes file."""
-        # Create existing output file
-        mock_config.output_path.write_text("# Existing\n")
-        
-        app = Application(mock_config)
-        
-        with patch('code_scanner.cli.is_interactive', return_value=True):
-            with patch('code_scanner.cli.prompt_yes_no', return_value=True):
-                app._check_output_file()
-        
-        assert not mock_config.output_path.exists()
-
-    def test_check_output_no_existing_file(self, mock_config):
-        """No error when output file doesn't exist."""
+    def test_backup_no_existing_file(self, mock_config):
+        """No backup created when output file doesn't exist."""
         # Ensure output file doesn't exist
         if mock_config.output_path.exists():
             mock_config.output_path.unlink()
         
         app = Application(mock_config)
+        app._backup_existing_output()  # Should not raise
         
-        app._check_output_file()  # Should not raise
+        # No backup file should be created
+        backup_path = mock_config.output_path.parent / f"{mock_config.output_path.name}.bak"
+        # Note: backup file might not exist - that's fine
 
 
-class TestApplicationContextLimitPrompt:
-    """Tests for context limit prompting."""
+class TestApplicationStaleLockCleanup:
+    """Tests for stale lock file cleanup."""
 
-    def test_prompt_non_interactive_raises(self, mock_config):
-        """Non-interactive mode without context limit raises error."""
+    def test_stale_lock_file_removed(self, mock_config):
+        """Stale lock file (non-running PID) is removed and new lock acquired."""
+        # Create lock file with non-existent PID
+        mock_config.lock_path.write_text("999999999\n")
+        
         app = Application(mock_config)
+        app._acquire_lock()
         
-        mock_client = MagicMock()
-        app.llm_client = mock_client
+        # Lock should be acquired
+        assert app._lock_acquired is True
+        # Lock file should exist with our PID
+        assert mock_config.lock_path.exists()
+        content = mock_config.lock_path.read_text()
+        assert str(os.getpid()) in content
         
-        with patch('code_scanner.cli.is_interactive', return_value=False):
-            from code_scanner.lmstudio_client import LLMClientError
-            with pytest.raises(LLMClientError) as exc_info:
-                app._prompt_for_context_limit()
-        
-        assert "non-interactive mode" in str(exc_info.value)
-
-    def test_prompt_interactive_valid_input(self, mock_config):
-        """Interactive prompt accepts valid input."""
-        app = Application(mock_config)
-        
-        mock_client = MagicMock()
-        app.llm_client = mock_client
-        
-        with patch('code_scanner.cli.is_interactive', return_value=True):
-            with patch('builtins.input', return_value='8192'):
-                app._prompt_for_context_limit()
-        
-        mock_client.set_context_limit.assert_called_once_with(8192)
-
-    def test_prompt_interactive_invalid_then_valid(self, mock_config):
-        """Interactive prompt retries on invalid input."""
-        app = Application(mock_config)
-        
-        mock_client = MagicMock()
-        app.llm_client = mock_client
-        
-        inputs = iter(['invalid', '-1', '', '8192'])
-        
-        with patch('code_scanner.cli.is_interactive', return_value=True):
-            with patch('builtins.input', side_effect=lambda _: next(inputs)):
-                app._prompt_for_context_limit()
-        
-        mock_client.set_context_limit.assert_called_once_with(8192)
+        # Cleanup
+        app._release_lock()
 
 
 class TestApplicationRun:

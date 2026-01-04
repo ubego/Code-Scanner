@@ -19,7 +19,7 @@ class TestLMStudioClientConnect:
 
     def test_connect_success(self):
         """Test successful connection to LM Studio."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         mock_openai = MagicMock()
@@ -37,7 +37,7 @@ class TestLMStudioClientConnect:
 
     def test_connect_no_models(self):
         """Test connection fails when no models available."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         mock_openai = MagicMock()
@@ -51,7 +51,7 @@ class TestLMStudioClientConnect:
 
     def test_connect_connection_error(self):
         """Test connection fails on connection error."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         with patch('code_scanner.lmstudio_client.OpenAI') as mock_openai_class:
@@ -68,7 +68,7 @@ class TestLMStudioClientQuery:
 
     def test_query_not_connected(self):
         """Query raises error when not connected."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         with pytest.raises(LLMClientError) as exc_info:
@@ -78,7 +78,7 @@ class TestLMStudioClientQuery:
 
     def test_query_valid_json_response(self):
         """Query returns parsed JSON on valid response."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
@@ -95,7 +95,7 @@ class TestLMStudioClientQuery:
 
     def test_query_json_with_markdown_fences(self):
         """Query handles JSON wrapped in markdown fences."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
@@ -112,7 +112,7 @@ class TestLMStudioClientQuery:
 
     def test_query_response_format_fallback(self):
         """Query retries without response_format when not supported."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
@@ -143,7 +143,7 @@ class TestLMStudioClientQuery:
 
     def test_query_connection_lost(self):
         """Query raises error on connection loss."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
@@ -160,7 +160,7 @@ class TestLMStudioClientQuery:
 
     def test_query_max_retries_exceeded(self):
         """Query fails after max retries."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
@@ -178,7 +178,7 @@ class TestLMStudioClientQuery:
 
     def test_query_empty_response_retry(self):
         """Query retries on empty response."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
@@ -207,7 +207,7 @@ class TestTryFixJsonResponse:
 
     def test_fix_not_connected_returns_none(self):
         """Returns None when not connected."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = None
         
@@ -217,7 +217,7 @@ class TestTryFixJsonResponse:
 
     def test_fix_success(self):
         """Returns fixed JSON on success."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
@@ -234,7 +234,7 @@ class TestTryFixJsonResponse:
 
     def test_fix_returns_none_on_error(self):
         """Returns None when fix attempt fails."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
@@ -247,7 +247,7 @@ class TestTryFixJsonResponse:
 
     def test_fix_returns_none_on_invalid_json(self):
         """Returns None when fix response is also invalid."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test-model"
@@ -267,7 +267,7 @@ class TestStripMarkdownFences:
 
     def test_strip_json_fence(self):
         """Strips ```json fence."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         content = '```json\n{"key": "value"}\n```'
@@ -277,7 +277,7 @@ class TestStripMarkdownFences:
 
     def test_strip_plain_fence(self):
         """Strips plain ``` fence."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         content = '```\n{"key": "value"}\n```'
@@ -287,7 +287,7 @@ class TestStripMarkdownFences:
 
     def test_strip_with_extra_whitespace(self):
         """Handles extra whitespace around fences."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         content = '  ```json\n  {"key": "value"}  \n```  '
@@ -297,7 +297,7 @@ class TestStripMarkdownFences:
 
     def test_no_fence_unchanged(self):
         """Content without fence passes through."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         content = '{"key": "value"}'
@@ -307,7 +307,7 @@ class TestStripMarkdownFences:
 
     def test_case_insensitive(self):
         """Strips fences regardless of case."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         content = '```JSON\n{"key": "value"}\n```'
@@ -360,7 +360,7 @@ class TestLMStudioClientProperties:
 
     def test_context_limit_not_connected(self):
         """context_limit raises error when not connected."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         with pytest.raises(LLMClientError):
@@ -368,7 +368,7 @@ class TestLMStudioClientProperties:
 
     def test_context_limit_connected(self):
         """context_limit returns value when set."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._context_limit = 16384
         
@@ -376,7 +376,7 @@ class TestLMStudioClientProperties:
 
     def test_model_id_not_connected(self):
         """model_id raises error when not connected."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         with pytest.raises(LLMClientError):
@@ -384,7 +384,7 @@ class TestLMStudioClientProperties:
 
     def test_model_id_connected(self):
         """model_id returns value when set."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._model_id = "test-model"
         
@@ -392,14 +392,14 @@ class TestLMStudioClientProperties:
 
     def test_is_connected_false_initially(self):
         """is_connected() returns False before connect."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         assert client.is_connected() is False
 
     def test_is_connected_true_after_client_set(self):
         """is_connected() returns True when client is set."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         
@@ -407,7 +407,7 @@ class TestLMStudioClientProperties:
 
     def test_is_ready_false_without_context_limit(self):
         """is_ready() returns False without context limit."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test"
@@ -417,7 +417,7 @@ class TestLMStudioClientProperties:
 
     def test_is_ready_true_when_complete(self):
         """is_ready() returns True when fully configured."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._model_id = "test"
@@ -431,7 +431,7 @@ class TestLMStudioClientSetContextLimit:
 
     def test_set_valid_limit(self):
         """Valid context limit is set."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         client.set_context_limit(16384)
@@ -440,7 +440,7 @@ class TestLMStudioClientSetContextLimit:
 
     def test_set_invalid_limit_raises(self):
         """Invalid context limit raises error."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         with pytest.raises(ValueError):
@@ -455,14 +455,14 @@ class TestLMStudioClientNeedsContextLimit:
 
     def test_needs_limit_not_connected(self):
         """Returns False when not connected."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         assert client.needs_context_limit() is False
 
     def test_needs_limit_when_none(self):
         """Returns True when connected but context_limit is None."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._context_limit = None
@@ -471,7 +471,7 @@ class TestLMStudioClientNeedsContextLimit:
 
     def test_no_need_when_set(self):
         """Returns False when context_limit is set."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         client._client = MagicMock()
         client._context_limit = 8000
@@ -503,7 +503,7 @@ class TestLMStudioClientWaitForConnection:
 
     def test_wait_reconnects_successfully(self):
         """wait_for_connection reconnects when possible."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234)
+        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
         call_count = [0]

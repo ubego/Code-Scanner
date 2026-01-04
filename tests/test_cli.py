@@ -74,18 +74,38 @@ class TestApplicationLockFile:
         # Cleanup
         app._release_lock()
 
-    def test_acquire_lock_fails_if_exists(self, tmp_path):
-        """Acquire lock fails if lock file exists."""
+    def test_acquire_lock_fails_if_process_running(self, tmp_path):
+        """Acquire lock fails if lock file exists and process is running."""
         config = MagicMock(spec=Config)
         config.lock_path = tmp_path / ".code_scanner.lock"
         
-        # Create existing lock
-        config.lock_path.write_text("1234")
+        # Create existing lock with current process PID (definitely running)
+        import os
+        config.lock_path.write_text(str(os.getpid()))
         
         app = Application(config)
         
-        with pytest.raises(LockFileError, match="Lock file exists"):
+        with pytest.raises(LockFileError, match="Another code-scanner instance is already running"):
             app._acquire_lock()
+
+    def test_acquire_lock_removes_stale_lock(self, tmp_path):
+        """Acquire lock removes stale lock if process is not running."""
+        config = MagicMock(spec=Config)
+        config.lock_path = tmp_path / ".code_scanner.lock"
+        
+        # Create existing lock with a PID that's definitely not running
+        config.lock_path.write_text("999999999")
+        
+        app = Application(config)
+        app._acquire_lock()
+        
+        # Lock should be acquired with our PID
+        assert app._lock_acquired is True
+        import os
+        assert config.lock_path.read_text().strip() == str(os.getpid())
+        
+        # Cleanup
+        app._release_lock()
 
     def test_release_lock_removes_file(self, tmp_path):
         """Release lock removes lock file."""

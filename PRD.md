@@ -5,7 +5,7 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
-*   **Quality Assurance:** The codebase maintains **87% test coverage** with 482 unit tests ensuring reliability and maintainability.
+*   **Quality Assurance:** The codebase maintains **87% test coverage** with 484 unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
@@ -13,7 +13,7 @@ The primary objective of this project is to implement a software program that **
 *   **Privacy and Efficiency:** By utilizing a **local AI model**, the application ensures that source code does not leave the local environment while providing the intelligence of a Large Language Model (LLM).
 *   **MVP Philosophy:** The initial delivery will be an **MVP (Minimum Viable Product)**, focusing on core functionality without excessive configuration or customization.
 *   **Cross-Platform:** The scanner must be **cross-platform**, supporting Windows, macOS, and Linux.
-*   **Interactive Mode Only:** The scanner is designed for **interactive terminal use only**. Non-interactive environments (CI, daemons) are not supported.
+*   **Uninteractive Daemon Mode:** The scanner is designed for **fully uninteractive daemon operation**. No interactive prompts are used—all configuration must be provided via the config file. This enables running as a system service or background process.
 *   **Continuous Scanning by Default:** The scanner runs in continuous monitoring mode automatically—there is no separate "watch mode" flag. Once started, it monitors for changes and scans indefinitely until manually stopped (`Ctrl+C`).
 *   **Passive Operation:** The scanner operates as a **passive background tool** that only reports issues to a log file. It does **not** modify any source files in the target directory.
 *   **Success Criteria:** 
@@ -67,13 +67,12 @@ The primary objective of this project is to implement a software program that **
 *   **Token Estimation:** Use a **simple character/word ratio** approximation to estimate token count before sending to the LLM.
 *   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model.
-*   **Context Limit Detection:** The AI model's context window size handling varies by backend:
-    *   **LM Studio:** Query context limit from LM Studio API at runtime.
-    *   **Ollama:** Query context limit via `/api/show` endpoint.
-    *   **Config Override:** If `context_limit` is specified in the TOML config `[llm]` section, use that value.
+*   **Context Limit Configuration:** The AI model's context window size is configured in the TOML config:
+    *   **Required Parameter:** The `context_limit` parameter is **required** in the `[llm]` section. Missing context_limit is a configuration error that causes immediate failure.
+    *   **LM Studio:** The scanner queries context limit from LM Studio API for validation but uses the config value.
+    *   **Ollama:** The scanner queries context limit via `/api/show` endpoint for validation.
     *   **Context Limit Validation (Ollama):** When using Ollama, if config `context_limit` exceeds the model's actual limit (from `/api/show`), **fail with error**. If config value is less than or equal to the model's limit, log a warning and continue with config value.
-    *   **Interactive Fallback:** If the API does not return a valid context limit and running interactively, **prompt the user** to enter the context limit manually. Display common values (4096, 8192, 16384, 32768, 131072) as guidance.
-    *   **Non-Interactive Failure:** If the API does not return a valid context limit and running non-interactively, the application must **fail with a clear error** instructing the user to set `context_limit` in config.toml.
+    *   **Recommended Values:** Common values are 4096 (small models), 8192 (medium), 16384 (recommended minimum), 32768 (large), 131072 (very large).
 *   **AI Configuration:** Connection settings (host, port, model) must be specified in the TOML config `[llm]` section. No default ports are assumed.
 *   **LM Studio Client:** Use the **Python client library for LM Studio** (OpenAI-compatible API client).
 *   **Ollama Client:** Use the **native Ollama `/api/chat` endpoint** for message-based interactions with system/user role separation.
@@ -116,10 +115,12 @@ The primary objective of this project is to implement a software program that **
 *   **Output Organization:** Issues are grouped **by file**. Within each file section, each issue specifies which query/check caused it.
 *   **State Management & Persistence:** The system must maintain an internal model of detected issues **in memory only**.
     *   **No Persistence Across Restarts:** State is **not persisted** to disk. Each scanner session starts fresh.
-    *   **Overwrite Confirmation:** On startup, if `code_scanner_results.md` exists, **prompt the user** (interactive only) to confirm deletion/overwrite. If the user declines (answers "No"), the application must **exit immediately**.
+    *   **Automatic Results Backup:** On startup, if `code_scanner_results.md` exists, the scanner **automatically appends its content** to `code_scanner_results.md.bak` with a timestamp header, then proceeds with a fresh results file. No user prompt is required.
     *   **In-Session Tracking:** Smart matching, deduplication, and resolution tracking apply **within a single session** only.
-    *   **Lock File:** The scanner must create a lock file named **`.code_scanner.lock`** in the **scanner's script directory** (not the target directory) to prevent multiple instances from running simultaneously.
-        *   **Stale Locks:** If a lock file exists, **fail with a clear error message**. The user must **manually delete** the file if it is stale (e.g., after a crash). There is no automatic stale lock detection.
+    *   **Global Lock File:** The scanner creates a lock file at **`~/.code-scanner/code_scanner.lock`** (centralized location) to prevent multiple instances across all projects.
+        *   **PID Tracking:** The lock file stores the PID of the running process.
+        *   **Stale Lock Detection:** On startup, if a lock file exists, the scanner checks if the stored PID is still running. If the process is no longer active, the stale lock is automatically removed.
+        *   **Active Lock:** If the PID is still running, fail with a clear error showing the active PID.
     *   **Smart Matching & Deduplication:** Issues are tracked primarily by **file** and **issue nature/description/code pattern**, not strictly by line number.
         *   **Matching Algorithm:** Issue matching compares the source code snippet with **whitespace-normalized comparison** (truncating/collapsing spaces). This algorithm may be improved in future versions.
         *   If an issue is detected at a different line number (e.g., due to code added above it) but matches an existing open issue's pattern, the scanner must **update the line number** in the existing record rather than creating a duplicate or resolving/re-opening.
@@ -131,7 +132,7 @@ The primary objective of this project is to implement a software program that **
 *   **System Verbosity:** Verbose logging is **always enabled** (no quiet mode). The output includes system information and detailed runtime data for debugging purposes.
 *   **System Log Destination:** Internal system logs (retry attempts, skipped files, warnings, debug info) are written to **both**:
     *   **Console** (stdout/stderr) for real-time monitoring.
-    *   **Separate log file** named `code_scanner.log` in the target directory.
+    *   **Separate log file** at **`~/.code-scanner/code_scanner.log`** (centralized location shared across all projects).
 *   **Colored Console Output:** Console log messages use **ANSI color codes** for improved readability:
     *   **DEBUG:** Gray/dim text for low-priority diagnostic information.
     *   **INFO:** Cyan message with green level label for normal operation messages.
@@ -173,8 +174,8 @@ The primary objective of this project is to implement a software program that **
     *   An optional **Git commit hash** to scan changes relative to a specific commit.
 
 ### 3.3 Execution Workflow
-1.  **Check for lock file.** If exists, fail with error. Otherwise, create lock file.
-2.  **Check for existing output file.** If `code_scanner_results.md` exists, prompt user to confirm overwrite.
+1.  **Check for lock file.** If exists and PID is running, fail with error. If stale (PID not running), remove and continue. Create lock file with current PID.
+2.  **Backup existing output file.** If `code_scanner_results.md` exists, append to `.bak` with timestamp. Print lock/log file paths.
 3.  Initialize by reading the **TOML config file**.
 4.  Start the **Git watcher thread** to monitor for changes every 30 seconds.
 5.  Start the **AI scanner thread**.
@@ -188,12 +189,25 @@ The primary objective of this project is to implement a software program that **
     10. **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop.
     11. **Update Output (Incremental):** After *each* completed query:
         *   Update the internal model with new findings.
-        *   **immediatelyrewrite the output Markdown file** to provide real-time feedback.
+        *   **immediately rewrite the output Markdown file** to provide real-time feedback.
 12. Upon completing all checks, **loop back** to the first check and continue.
 13. If the Git watcher detects new changes during scanning, the scanner **continues from the current check** with refreshed file contents (preserving progress rather than restarting).
 14. On **SIGINT**, immediately exit and remove lock file.
 
-### 3.4 Sample Configuration Checks
+### 3.4 Service Installation
+The scanner can be installed as a system service to start automatically on boot. Autostart scripts are provided in the `scripts/` directory:
+
+*   **Linux:** `scripts/autostart-linux.sh` - Creates a systemd user service. See [docs/autostart-linux.md](docs/autostart-linux.md).
+*   **macOS:** `scripts/autostart-macos.sh` - Creates a LaunchAgent plist. See [docs/autostart-macos.md](docs/autostart-macos.md).
+*   **Windows:** `scripts/autostart-windows.bat` - Creates a Task Scheduler task. See [docs/autostart-windows.md](docs/autostart-windows.md).
+
+All scripts include:
+*   **60-second startup delay** to allow LLM servers to initialize.
+*   **Test launch** before registering the service.
+*   **Legacy service detection** and removal.
+*   **Interactive prompts** for project paths and config files.
+
+### 3.5 Sample Configuration Checks
 The following checks are provided as **examples only** and can be completely customized or replaced by the user in the TOML configuration file. Checks are organized into **groups by file pattern**:
 
 **C++/Qt-specific checks (pattern: `"*.cpp, *.h, *.cxx, *.hpp"`):**

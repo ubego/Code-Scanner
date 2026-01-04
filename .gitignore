@@ -157,6 +157,7 @@ cython_debug/
 
 # Project-specific ignores
 code_scanner_results.md
+code_scanner_results.md.bak
 code-scanner-results.json
 code_scanner.log
 *.log

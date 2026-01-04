@@ -90,7 +90,7 @@ host = "localhost"
 port = 11434
 model = "qwen3:4b"
 timeout = 120
-context_limit = 16384
+context_limit = 16384  # Required
 ```
 
 ### Option 2: LM Studio
@@ -120,6 +120,7 @@ backend = "lm-studio"
 host = "localhost"
 port = 1234
 timeout = 120
+context_limit = 16384  # Required
 ```
 
 ## Running Code Scanner
@@ -159,49 +160,18 @@ ollama ps
 
 ## Running as a Background Service
 
-### Using launchd
-
-Create `~/Library/LaunchAgents/com.code-scanner.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.code-scanner</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/path/to/code-scanner/.venv/bin/python</string>
-        <string>-m</string>
-        <string>code_scanner</string>
-        <string>--config</string>
-        <string>/path/to/project/config.toml</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>/path/to/project</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardErrorPath</key>
-    <string>/tmp/code-scanner.err</string>
-    <key>StandardOutPath</key>
-    <string>/tmp/code-scanner.out</string>
-</dict>
-</plist>
-```
+Use the provided autostart script for easy setup:
 
 ```bash
-# Load the service
-launchctl load ~/Library/LaunchAgents/com.code-scanner.plist
-
-# Check status
-launchctl list | grep code-scanner
-
-# View logs
-tail -f /tmp/code-scanner.out
+./scripts/autostart-macos.sh
 ```
+
+See **[Autostart Guide](autostart-macos.md)** for detailed instructions.
+
+The script creates a LaunchAgent with:
+- 60-second startup delay for LLM backend
+- Automatic lock file cleanup
+- Log files in `~/.code-scanner/`
 
 ## Troubleshooting
 
