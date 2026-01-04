@@ -5,7 +5,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from .config import Config
 from .git_watcher import GitWatcher
@@ -441,6 +441,41 @@ class Scanner:
 
         return batches
 
+    def _parse_issues_from_response(
+        self,
+        response: dict[str, Any],
+        check_query: str,
+        batch_idx: int,
+    ) -> list[Issue]:
+        """Parse issues from LLM response.
+
+        Args:
+            response: Raw LLM response dictionary.
+            check_query: The check query that was run.
+            batch_idx: Current batch index (for logging).
+
+        Returns:
+            List of parsed Issue objects.
+        """
+        issues_data = response.get("issues", [])
+        logger.info(f"LLM returned {len(issues_data)} issue(s) for batch {batch_idx + 1}")
+        timestamp = datetime.now()
+
+        parsed_issues: list[Issue] = []
+        for issue_data in issues_data:
+            try:
+                issue = Issue.from_llm_response(
+                    issue_data,
+                    check_query=check_query,
+                    timestamp=timestamp,
+                )
+                parsed_issues.append(issue)
+                logger.debug(f"Parsed issue: {issue.file_path}:{issue.line_number}")
+            except Exception as e:
+                logger.warning(f"Failed to parse issue: {e}, data: {issue_data}")
+
+        return parsed_issues
+
     def _run_check(
         self,
         check_query: str,
@@ -480,23 +515,10 @@ class Scanner:
                 )
 
                 # Parse issues from response
-                issues_data = response.get("issues", [])
-                logger.info(f"LLM returned {len(issues_data)} issue(s) for batch {batch_idx + 1}")
-                timestamp = datetime.now()
-
-                batch_issues: list[Issue] = []
-                for issue_data in issues_data:
-                    try:
-                        issue = Issue.from_llm_response(
-                            issue_data,
-                            check_query=check_query,
-                            timestamp=timestamp,
-                        )
-                        batch_issues.append(issue)
-                        all_issues.append(issue)
-                        logger.debug(f"Parsed issue: {issue.file_path}:{issue.line_number}")
-                    except Exception as e:
-                        logger.warning(f"Failed to parse issue: {e}, data: {issue_data}")
+                batch_issues = self._parse_issues_from_response(
+                    response, check_query, batch_idx
+                )
+                all_issues.extend(batch_issues)
 
                 # Immediately add batch issues to tracker and update output
                 if batch_issues:
