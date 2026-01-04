@@ -31,7 +31,7 @@ class TestLMStudioClient:
         client = LMStudioClient(llm_config)
         
         assert client.config == llm_config
-        assert not client.is_connected()
+        assert client.config == llm_config
 
     @patch('code_scanner.lmstudio_client.OpenAI')
     def test_connect_success(self, mock_openai, llm_config: LLMConfig):
@@ -47,7 +47,6 @@ class TestLMStudioClient:
         client = LMStudioClient(llm_config)
         client.connect()
         
-        assert client.is_connected()
         mock_openai.assert_called_once_with(
             base_url="http://localhost:1234/v1",
             api_key="lm-studio",
@@ -137,25 +136,9 @@ class TestLMStudioClient:
         client.connect()
         
         assert client.context_limit == 16384
-        assert client.is_ready()
+        assert client.context_limit == 16384
 
-    @patch('code_scanner.lmstudio_client.OpenAI')
-    def test_needs_context_limit_when_not_detected(self, mock_openai, llm_config: LLMConfig):
-        """Test that needs_context_limit returns True when context limit unavailable."""
-        mock_client = MagicMock()
-        mock_openai.return_value = mock_client
-        
-        # Create a model mock that explicitly doesn't have context_length
-        mock_model = MagicMock(spec=['id'])
-        mock_model.id = "qwen-coder"
-        mock_client.models.list.return_value = MagicMock(data=[mock_model])
-        
-        client = LMStudioClient(llm_config)
-        client.connect()
-        
-        # Context limit couldn't be detected
-        assert client.needs_context_limit()
-        assert not client.is_ready()
+
 
     @patch('code_scanner.lmstudio_client.OpenAI')
     def test_set_context_limit_manually(self, mock_openai, llm_config: LLMConfig):
@@ -170,8 +153,7 @@ class TestLMStudioClient:
         client.set_context_limit(8192)
         
         assert client.context_limit == 8192
-        assert client.is_ready()
-        assert not client.needs_context_limit()
+        assert client.context_limit == 8192
 
     @patch('code_scanner.lmstudio_client.OpenAI')
     def test_set_context_limit_invalid_value(self, mock_openai, llm_config: LLMConfig):

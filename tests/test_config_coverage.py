@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from code_scanner.config import Config, ConfigError, load_config, get_default_config_path
+from code_scanner.config import Config, ConfigError, load_config
 from code_scanner.models import LLMConfig, CheckGroup
 
 
@@ -404,15 +404,7 @@ class TestConfigProperties:
         assert config.lock_path == home_dir / "code_scanner.lock"
 
 
-class TestGetDefaultConfigPath:
-    """Tests for get_default_config_path function."""
 
-    def test_returns_path(self):
-        """Test that get_default_config_path returns a Path."""
-        result = get_default_config_path()
-        
-        assert isinstance(result, Path)
-        assert result.name == "config.toml"
 
 
 class TestDefaultConfigFile:

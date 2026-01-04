@@ -259,54 +259,6 @@ class TestGitWatcherFileStatuses:
         assert "untracked.txt" in file_paths
 
 
-class TestGitWatcherIsConnectedProperty:
-    """Tests for is_connected property."""
-
-    def test_is_connected_false_before_connect(self, temp_git_repo):
-        """is_connected is False before connect() called."""
-        watcher = GitWatcher(temp_git_repo)
-        assert watcher.is_connected is False
-
-    def test_is_connected_true_after_connect(self, temp_git_repo):
-        """is_connected is True after connect() called."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        assert watcher.is_connected is True
-
-
-class TestGitWatcherGetFileContent:
-    """Tests for get_file_content method."""
-
-    def test_get_content_existing_file(self, temp_git_repo):
-        """Reading existing file returns content."""
-        test_file = temp_git_repo / "test.txt"
-        test_file.write_text("Hello World\n")
-        
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        content = watcher.get_file_content("test.txt")
-        assert content == "Hello World\n"
-
-    def test_get_content_nonexistent_file(self, temp_git_repo):
-        """Reading nonexistent file returns None."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        content = watcher.get_file_content("nonexistent.txt")
-        assert content is None
-
-    def test_get_content_binary_file(self, temp_git_repo):
-        """Reading binary file returns None (UnicodeDecodeError)."""
-        binary_file = temp_git_repo / "binary.bin"
-        binary_file.write_bytes(b"\x00\x01\x02\x03\xff\xfe")
-        
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        content = watcher.get_file_content("binary.bin")
-        assert content is None
-
 
 class TestGitWatcherHasChangesSince:
     """Tests for has_changes_since method."""

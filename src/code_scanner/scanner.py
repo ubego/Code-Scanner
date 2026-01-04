@@ -55,8 +55,6 @@ class Scanner:
         self._thread: Optional[threading.Thread] = None
 
         # State
-        self._current_check_index = 0
-        self._last_git_state: Optional[GitState] = None
         self._last_scanned_files: set[str] = set()  # Files scanned in last cycle
         self._last_file_contents_hash: dict[str, int] = {}  # Hash of file contents
         self._scan_info: dict = {}

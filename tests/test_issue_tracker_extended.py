@@ -7,44 +7,6 @@ from code_scanner.issue_tracker import IssueTracker
 from code_scanner.models import Issue, IssueStatus
 
 
-class TestIssueTrackerClear:
-    """Tests for IssueTracker clear functionality."""
-
-    def test_clear_removes_all_issues(self):
-        """Clear removes all tracked issues."""
-        tracker = IssueTracker()
-        now = datetime.now()
-        
-        issue1 = Issue(
-            file_path="a.py",
-            line_number=1,
-            description="Issue 1",
-            suggested_fix="Fix 1",
-            code_snippet="code",
-            check_query="check",
-            timestamp=now,
-        )
-        issue2 = Issue(
-            file_path="b.py",
-            line_number=1,
-            description="Issue 2",
-            suggested_fix="Fix 2",
-            code_snippet="code",
-            check_query="check",
-            timestamp=now,
-        )
-        
-        tracker.add_issue(issue1)
-        tracker.add_issue(issue2)
-        
-        assert len(tracker.issues) == 2
-        
-        tracker.clear()
-        
-        assert len(tracker.issues) == 0
-        assert tracker.has_changed is True
-
-
 class TestIssueTrackerResolveNonMatching:
     """Tests for _resolve_non_matching method."""
 
@@ -63,7 +25,6 @@ class TestIssueTrackerResolveNonMatching:
             timestamp=now,
         )
         tracker.add_issue(old_issue)
-        tracker.reset_changed_flag()
         
         # New scan finds different issue in same file
         new_issue = Issue(
@@ -80,7 +41,6 @@ class TestIssueTrackerResolveNonMatching:
         
         assert resolved == 1
         assert old_issue.status == IssueStatus.RESOLVED
-        assert tracker.has_changed is True
 
 
 class TestIssueTrackerUpdateFromScan:
@@ -101,7 +61,6 @@ class TestIssueTrackerUpdateFromScan:
             timestamp=now,
         )
         tracker.add_issue(issue)
-        tracker.reset_changed_flag()
         
         # Scan same file but find no issues
         new_count, resolved_count = tracker.update_from_scan([], ["test.py"])

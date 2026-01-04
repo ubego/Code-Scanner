@@ -63,7 +63,6 @@ class TestApplicationSetup:
         
         mock_llm = MagicMock()
         mock_llm.connect = MagicMock()
-        mock_llm.needs_context_limit.return_value = False
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_backup_existing_output'), \
@@ -90,7 +89,6 @@ class TestApplicationSetup:
         
         mock_llm = MagicMock()
         mock_llm.connect = MagicMock()
-        mock_llm.needs_context_limit.return_value = False
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
@@ -116,7 +114,6 @@ class TestApplicationSetup:
         
         mock_llm = MagicMock()
         mock_llm.connect = MagicMock()
-        mock_llm.needs_context_limit.return_value = False
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
@@ -166,7 +163,6 @@ class TestApplicationSetup:
         mock_output = MagicMock()
         mock_llm = MagicMock()
         mock_llm.connect = MagicMock()
-        mock_llm.needs_context_limit.return_value = False
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \

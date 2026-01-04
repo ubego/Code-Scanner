@@ -164,25 +164,6 @@ class TestOutputGenerator:
         assert "Old content" not in content
         assert "widget.cpp" in content
 
-    def test_exists_check(self, output_path: Path):
-        """Test exists() method."""
-        generator = OutputGenerator(output_path)
-        
-        assert not generator.exists()
-        
-        output_path.write_text("content")
-        
-        assert generator.exists()
-
-    def test_delete_removes_file(self, output_path: Path):
-        """Test delete() method."""
-        output_path.write_text("content")
-        generator = OutputGenerator(output_path)
-        
-        generator.delete()
-        
-        assert not output_path.exists()
-
 
 class TestMarkdownFormatting:
     """Tests for Markdown formatting specifics."""

@@ -296,6 +296,4 @@ def load_config(
     return config
 
 
-def get_default_config_path() -> Path:
-    """Get the default config file path (in script directory)."""
-    return Path(__file__).parent.parent.parent / "config.toml"
+

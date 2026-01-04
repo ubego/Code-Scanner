@@ -88,7 +88,6 @@ def mock_llm_client():
     client = MagicMock(spec=LLMClient)
     client.context_limit = 16000
     client.model_id = "test-model"
-    client.is_connected = True
     
     # Default response with issues
     client.query.return_value = {
@@ -156,13 +155,17 @@ class TestSampleQtProjectScan:
         # Get changed files
         state = git_watcher.get_state()
         
-        # Get file contents
+        # Get file contents (read directly from filesystem)
         files_content = {}
         for f in state.changed_files:
             if f.path.endswith(('.cpp', '.h')) and not f.is_deleted:
-                content = git_watcher.get_file_content(f.path)
-                if content:
-                    files_content[f.path] = content
+                file_path = temp_repo_with_qt / f.path
+                if file_path.exists():
+                    try:
+                        content = file_path.read_text(encoding='utf-8')
+                        files_content[f.path] = content
+                    except (UnicodeDecodeError, IOError):
+                        pass
         
         assert len(files_content) > 0, "No C++ files found"
         

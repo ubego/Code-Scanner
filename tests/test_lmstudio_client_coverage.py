@@ -32,7 +32,6 @@ class TestLMStudioClientConnect:
         with patch('code_scanner.lmstudio_client.OpenAI', return_value=mock_openai):
             client.connect()
         
-        assert client.is_connected()
         assert client.model_id == "test-model"
 
     def test_connect_no_models(self):
@@ -211,7 +210,7 @@ class TestTryFixJsonResponse:
         client = LMStudioClient(config)
         client._client = None
         
-        result = client._try_fix_json_response("bad json", {})
+        result = client._try_fix_json_response("bad json")
         
         assert result is None
 
@@ -228,7 +227,7 @@ class TestTryFixJsonResponse:
         mock_response.choices[0].message.content = '{"issues": []}'
         client._client.chat.completions.create.return_value = mock_response
         
-        result = client._try_fix_json_response("broken json", {})
+        result = client._try_fix_json_response("broken json")
         
         assert result == {"issues": []}
 
@@ -241,7 +240,7 @@ class TestTryFixJsonResponse:
         
         client._client.chat.completions.create.side_effect = Exception("API error")
         
-        result = client._try_fix_json_response("bad json", {})
+        result = client._try_fix_json_response("bad json")
         
         assert result is None
 
@@ -257,7 +256,7 @@ class TestTryFixJsonResponse:
         mock_response.choices[0].message.content = 'still not json'
         client._client.chat.completions.create.return_value = mock_response
         
-        result = client._try_fix_json_response("bad json", {})
+        result = client._try_fix_json_response("bad json")
         
         assert result is None
 
@@ -390,41 +389,6 @@ class TestLMStudioClientProperties:
         
         assert client.model_id == "test-model"
 
-    def test_is_connected_false_initially(self):
-        """is_connected() returns False before connect."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
-        client = LMStudioClient(config)
-        
-        assert client.is_connected() is False
-
-    def test_is_connected_true_after_client_set(self):
-        """is_connected() returns True when client is set."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
-        client = LMStudioClient(config)
-        client._client = MagicMock()
-        
-        assert client.is_connected() is True
-
-    def test_is_ready_false_without_context_limit(self):
-        """is_ready() returns False without context limit."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
-        client = LMStudioClient(config)
-        client._client = MagicMock()
-        client._model_id = "test"
-        client._context_limit = None
-        
-        assert client.is_ready() is False
-
-    def test_is_ready_true_when_complete(self):
-        """is_ready() returns True when fully configured."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
-        client = LMStudioClient(config)
-        client._client = MagicMock()
-        client._model_id = "test"
-        client._context_limit = 8000
-        
-        assert client.is_ready() is True
-
 
 class TestLMStudioClientSetContextLimit:
     """Tests for set_context_limit method."""
@@ -450,33 +414,7 @@ class TestLMStudioClientSetContextLimit:
             client.set_context_limit(-1)
 
 
-class TestLMStudioClientNeedsContextLimit:
-    """Tests for needs_context_limit method."""
 
-    def test_needs_limit_not_connected(self):
-        """Returns False when not connected."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
-        client = LMStudioClient(config)
-        
-        assert client.needs_context_limit() is False
-
-    def test_needs_limit_when_none(self):
-        """Returns True when connected but context_limit is None."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
-        client = LMStudioClient(config)
-        client._client = MagicMock()
-        client._context_limit = None
-        
-        assert client.needs_context_limit() is True
-
-    def test_no_need_when_set(self):
-        """Returns False when context_limit is set."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
-        client = LMStudioClient(config)
-        client._client = MagicMock()
-        client._context_limit = 8000
-        
-        assert client.needs_context_limit() is False
 
 
 class TestSystemPromptTemplate:

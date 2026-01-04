@@ -17,8 +17,6 @@ from code_scanner.utils import (
     get_context_lines,
     setup_logging,
     group_files_by_directory,
-    is_interactive,
-    prompt_yes_no,
     CHARS_PER_TOKEN,
     Colors,
     ColoredFormatter,
@@ -196,71 +194,6 @@ class TestGroupFilesByDirectory:
         assert result == {}
 
 
-class TestIsInteractive:
-    """Tests for is_interactive function."""
-
-    def test_interactive_when_tty(self):
-        """Returns True when both stdin and stdout are TTY."""
-        with patch.object(sys.stdin, 'isatty', return_value=True):
-            with patch.object(sys.stdout, 'isatty', return_value=True):
-                assert is_interactive() is True
-
-    def test_not_interactive_when_stdin_not_tty(self):
-        """Returns False when stdin is not TTY."""
-        with patch.object(sys.stdin, 'isatty', return_value=False):
-            with patch.object(sys.stdout, 'isatty', return_value=True):
-                assert is_interactive() is False
-
-    def test_not_interactive_when_stdout_not_tty(self):
-        """Returns False when stdout is not TTY."""
-        with patch.object(sys.stdin, 'isatty', return_value=True):
-            with patch.object(sys.stdout, 'isatty', return_value=False):
-                assert is_interactive() is False
-
-
-class TestPromptYesNo:
-    """Tests for prompt_yes_no function."""
-
-    def test_yes_response(self):
-        """User enters 'y'."""
-        with patch.object(sys.stdin, 'isatty', return_value=True):
-            with patch.object(sys.stdout, 'isatty', return_value=True):
-                with patch('builtins.input', return_value='y'):
-                    assert prompt_yes_no("Continue?") is True
-
-    def test_yes_full_response(self):
-        """User enters 'yes'."""
-        with patch.object(sys.stdin, 'isatty', return_value=True):
-            with patch.object(sys.stdout, 'isatty', return_value=True):
-                with patch('builtins.input', return_value='yes'):
-                    assert prompt_yes_no("Continue?") is True
-
-    def test_no_response(self):
-        """User enters 'n'."""
-        with patch.object(sys.stdin, 'isatty', return_value=True):
-            with patch.object(sys.stdout, 'isatty', return_value=True):
-                with patch('builtins.input', return_value='n'):
-                    assert prompt_yes_no("Continue?") is False
-
-    def test_empty_response_default_false(self):
-        """Empty response uses default (False)."""
-        with patch.object(sys.stdin, 'isatty', return_value=True):
-            with patch.object(sys.stdout, 'isatty', return_value=True):
-                with patch('builtins.input', return_value=''):
-                    assert prompt_yes_no("Continue?", default=False) is False
-
-    def test_empty_response_default_true(self):
-        """Empty response uses default (True)."""
-        with patch.object(sys.stdin, 'isatty', return_value=True):
-            with patch.object(sys.stdout, 'isatty', return_value=True):
-                with patch('builtins.input', return_value=''):
-                    assert prompt_yes_no("Continue?", default=True) is True
-
-    def test_non_interactive_raises_error(self):
-        """Raises error when not interactive."""
-        with patch.object(sys.stdin, 'isatty', return_value=False):
-            with pytest.raises(RuntimeError, match="non-interactive"):
-                prompt_yes_no("Continue?")
 
 
 class TestSetupLogging:

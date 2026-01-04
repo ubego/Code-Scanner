@@ -126,7 +126,6 @@ class TestIssueTracker:
         
         assert added is True
         assert len(tracker.issues) == 1
-        assert tracker.has_changed
 
     def test_add_duplicate_returns_false(self):
         """Test that adding duplicate issue returns False."""

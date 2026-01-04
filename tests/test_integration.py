@@ -115,7 +115,6 @@ class TestLLMClientIntegration:
         client = LLMClient(LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384))
         client.connect()
         
-        assert client.is_connected
         assert client.model_id is not None
         assert client.context_limit > 0
 
@@ -186,16 +185,6 @@ class TestGitWatcherIntegration:
         # Check that Qt files are detected
         file_paths = [f.path for f in state.changed_files]
         assert any("main.cpp" in p for p in file_paths)
-
-    def test_get_file_content(self, temp_git_repo_with_qt):
-        """Test reading file content."""
-        watcher = GitWatcher(temp_git_repo_with_qt)
-        watcher.connect()
-        
-        content = watcher.get_file_content("src/main.cpp")
-        
-        assert content is not None
-        assert "QApplication" in content
 
 
 class TestScannerIntegration:
@@ -298,14 +287,18 @@ def hello():
             output_generator=output_generator,
         )
         
-        # Get files content
+        # Get files content (read directly from filesystem)
         state = git_watcher.get_state()
         files_content = {}
         for f in state.changed_files:
             if f.path.endswith(('.cpp', '.h')) and not f.is_deleted:
-                content = git_watcher.get_file_content(f.path)
-                if content:
-                    files_content[f.path] = content
+                file_path = temp_git_repo_with_qt / f.path
+                if file_path.exists():
+                    try:
+                        content = file_path.read_text(encoding='utf-8')
+                        files_content[f.path] = content
+                    except (UnicodeDecodeError, IOError):
+                        pass
         
         batches = [files_content]
         
@@ -373,13 +366,17 @@ timeout = 60
         state = git_watcher.get_state()
         assert state.has_changes
         
-        # Get file contents
+        # Get file contents (read directly from filesystem)
         files_content = {}
         for f in state.changed_files:
             if f.path.endswith(('.cpp', '.h')) and not f.is_deleted:
-                content = git_watcher.get_file_content(f.path)
-                if content:
-                    files_content[f.path] = content
+                file_path = temp_git_repo_with_qt / f.path
+                if file_path.exists():
+                    try:
+                        content = file_path.read_text(encoding='utf-8')
+                        files_content[f.path] = content
+                    except (UnicodeDecodeError, IOError):
+                        pass
         
         assert len(files_content) > 0
         

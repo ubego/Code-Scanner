@@ -107,18 +107,6 @@ class TestLMStudioClientProperties:
         with pytest.raises(LLMClientError, match="Not connected"):
             _ = client.model_id
 
-    def test_is_connected_false_initially(self):
-        """is_connected returns False initially."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
-        client = LMStudioClient(config)
-        assert client.is_connected() is False
-
-    def test_is_ready_false_initially(self):
-        """is_ready returns False initially."""
-        config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
-        client = LMStudioClient(config)
-        assert client.is_ready() is False
-
 
 class TestLMStudioClientQuery:
     """Tests for LMStudioClient query functionality."""
@@ -176,7 +164,7 @@ class TestTryFixJsonResponse:
         config = LLMConfig(backend="lm-studio", host="localhost", port=1234, context_limit=16384)
         client = LMStudioClient(config)
         
-        result = client._try_fix_json_response("malformed", {})
+        result = client._try_fix_json_response("malformed")
         assert result is None
 
     def test_fix_succeeds_with_valid_response(self):
@@ -192,7 +180,7 @@ class TestTryFixJsonResponse:
         mock_response.choices[0].message.content = '{"issues": []}'
         client._client.chat.completions.create.return_value = mock_response
         
-        result = client._try_fix_json_response("broken json", {})
+        result = client._try_fix_json_response("broken json")
         assert result == {"issues": []}
 
     def test_fix_returns_none_on_exception(self):
@@ -204,7 +192,7 @@ class TestTryFixJsonResponse:
         
         client._client.chat.completions.create.side_effect = Exception("API error")
         
-        result = client._try_fix_json_response("broken", {})
+        result = client._try_fix_json_response("broken")
         assert result is None
 
 

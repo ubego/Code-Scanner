@@ -29,7 +29,6 @@ class TestOllamaClientInit:
         client = OllamaClient(ollama_config)
         
         assert client.config == ollama_config
-        assert not client.is_connected()
         assert client.backend_name == "Ollama"
 
     def test_backend_name(self, ollama_config: LLMConfig):
@@ -41,8 +40,6 @@ class TestOllamaClientInit:
         """Test client initial state."""
         client = OllamaClient(ollama_config)
         
-        assert not client.is_connected()
-        assert not client.is_ready()
         # model_id should raise when not connected
         with pytest.raises(LLMClientError):
             _ = client.model_id
@@ -100,7 +97,6 @@ class TestOllamaClientConnect:
         client = OllamaClient(ollama_config)
         client.connect()
         
-        assert client.is_connected()
         assert client.model_id == "llama3"
         assert client.context_limit == 8192
 
@@ -304,17 +300,9 @@ class TestOllamaClientContextLimit:
         client._context_limit = 16384
         
         assert client.context_limit == 16384
-        assert client.is_ready()
 
-    def test_needs_context_limit_when_not_set(self, ollama_config: LLMConfig):
-        """Test needs_context_limit when not set."""
-        client = OllamaClient(ollama_config)
-        client._connected = True
-        client._model_id = "llama3:latest"
-        client._context_limit = None
-        
-        assert client.needs_context_limit()
-        assert not client.is_ready()
+
+
 
     def test_set_context_limit_manually(self, ollama_config: LLMConfig):
         """Test setting context limit manually."""
@@ -326,7 +314,7 @@ class TestOllamaClientContextLimit:
         client.set_context_limit(32768)
         
         assert client.context_limit == 32768
-        assert client.is_ready()
+
 
     def test_set_context_limit_invalid_value(self, ollama_config: LLMConfig):
         """Test that invalid context limit raises error."""

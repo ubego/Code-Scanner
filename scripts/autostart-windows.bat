@@ -67,18 +67,49 @@ echo [INFO] Testing code-scanner launch...
 echo [INFO] Command: %SCANNER_CMD% --config "%CONFIG_PATH%" "%TARGET_DIR%"
 echo.
 
-REM Test launch (run for a few seconds)
-timeout /t 5 /nobreak >nul 2>&1
-start /b cmd /c "%SCANNER_CMD% --config "%CONFIG_PATH%" "%TARGET_DIR%" 2>&1 | head -20"
+REM Test launch - run for 5 seconds and capture output
+set "TEST_OUTPUT=%TEMP%\code-scanner-test.txt"
+start /b cmd /c ""%SCANNER_CMD%" --config "%CONFIG_PATH%" "%TARGET_DIR%" 2>&1" > "%TEST_OUTPUT%" 2>&1
 timeout /t 5 /nobreak >nul 2>&1
 
-echo.
-set /p "RESPONSE=Did the test launch succeed? (y/N): "
+REM Kill any running code-scanner processes from test
+taskkill /f /im code-scanner.exe >nul 2>&1
+taskkill /f /im python.exe /fi "WINDOWTITLE eq code-scanner*" >nul 2>&1
+
+REM Display output
+if exist "%TEST_OUTPUT%" (
+    type "%TEST_OUTPUT%"
+    echo.
+    
+    REM Check for success indicators
+    findstr /i "Scanner running Scanner loop started Scanner thread started" "%TEST_OUTPUT%" >nul 2>&1
+    if not errorlevel 1 (
+        echo [SUCCESS] Test launch succeeded - scanner started correctly.
+        del "%TEST_OUTPUT%" >nul 2>&1
+        goto :test_passed
+    )
+    
+    REM Check for error indicators
+    findstr /i "error failed exception traceback could not cannot refused" "%TEST_OUTPUT%" >nul 2>&1
+    if not errorlevel 1 (
+        echo [ERROR] Test launch failed. Please fix the issues above and try again.
+        del "%TEST_OUTPUT%" >nul 2>&1
+        exit /b 1
+    )
+    
+    del "%TEST_OUTPUT%" >nul 2>&1
+)
+
+REM No clear success or failure - ask user
+echo [WARNING] Could not automatically verify launch success.
+echo [WARNING] Please check the output above and ensure code-scanner starts correctly.
+set /p "RESPONSE=Continue with installation? (y/N): "
 if /i not "%RESPONSE%"=="y" (
-    echo [ERROR] Test launch failed or was declined. Fix configuration before installing.
+    echo [ERROR] Installation cancelled.
     exit /b 1
 )
-echo [SUCCESS] Test launch verified.
+
+:test_passed
 
 REM Check for existing task
 schtasks /query /tn "%TASK_NAME%" >nul 2>&1

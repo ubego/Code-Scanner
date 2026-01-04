@@ -32,14 +32,7 @@ class IssueTracker:
         """Get all resolved issues."""
         return [i for i in self._issues if i.status == IssueStatus.RESOLVED]
 
-    @property
-    def has_changed(self) -> bool:
-        """Check if issues have changed since last reset."""
-        return self._changed
 
-    def reset_changed_flag(self) -> None:
-        """Reset the changed flag after processing."""
-        self._changed = False
 
     def add_issue(self, issue: Issue) -> bool:
         """Add a new issue, handling deduplication.
@@ -207,11 +200,6 @@ class IssueTracker:
 
         # Sort files alphabetically
         return dict(sorted(by_file.items()))
-
-    def clear(self) -> None:
-        """Clear all tracked issues."""
-        self._issues.clear()
-        self._changed = True
 
     def get_stats(self) -> dict[str, int]:
         """Get issue statistics.

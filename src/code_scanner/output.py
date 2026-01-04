@@ -159,17 +159,3 @@ class OutputGenerator:
             lines.append("")
 
         return lines
-
-    def exists(self) -> bool:
-        """Check if output file already exists.
-
-        Returns:
-            True if file exists.
-        """
-        return self.output_path.exists()
-
-    def delete(self) -> None:
-        """Delete the output file if it exists."""
-        if self.output_path.exists():
-            self.output_path.unlink()
-            logger.info(f"Deleted existing output file: {self.output_path}")

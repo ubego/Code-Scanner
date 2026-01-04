@@ -89,12 +89,6 @@ class GitWatcher:
             logger.info("Merge/rebase in progress, skipping change detection")
             return state
 
-        # Get current commit
-        try:
-            state.current_commit = self._repo.head.commit.hexsha
-        except Exception:
-            state.current_commit = ""
-
         # Get changed files
         state.changed_files = self._get_changed_files()
 
@@ -300,27 +294,4 @@ class GitWatcher:
 
         return current_paths != last_paths
 
-    def get_file_content(self, file_path: str) -> Optional[str]:
-        """Get the content of a file in the working directory.
 
-        Args:
-            file_path: Relative path to the file.
-
-        Returns:
-            File content as string, or None if file doesn't exist or is binary.
-        """
-        full_path = self.repo_path / file_path
-
-        if not full_path.exists():
-            return None
-
-        try:
-            with open(full_path, encoding="utf-8") as f:
-                return f.read()
-        except (UnicodeDecodeError, IOError):
-            return None
-
-    @property
-    def is_connected(self) -> bool:
-        """Check if connected to repository."""
-        return self._repo is not None

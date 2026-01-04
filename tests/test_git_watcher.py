@@ -18,7 +18,7 @@ class TestGitWatcher:
         watcher = GitWatcher(git_repo)
         watcher.connect()
         
-        assert watcher.is_connected
+        watcher.connect()
 
     def test_connect_to_non_repo_raises_error(self, temp_dir: Path):
         """Test that connecting to non-Git directory raises error."""
@@ -149,26 +149,6 @@ class TestGitWatcher:
         
         # Now there should be changes
         assert watcher.has_changes_since(state1)
-
-    def test_get_file_content(self, git_repo: Path):
-        """Test reading file content."""
-        (git_repo / "test.txt").write_text("Hello, World!")
-        
-        watcher = GitWatcher(git_repo)
-        watcher.connect()
-        
-        content = watcher.get_file_content("test.txt")
-        
-        assert content == "Hello, World!"
-
-    def test_get_file_content_nonexistent(self, git_repo: Path):
-        """Test reading nonexistent file returns None."""
-        watcher = GitWatcher(git_repo)
-        watcher.connect()
-        
-        content = watcher.get_file_content("nonexistent.txt")
-        
-        assert content is None
 
     def test_merge_in_progress_detected(self, git_repo: Path):
         """Test that merge in progress is detected."""

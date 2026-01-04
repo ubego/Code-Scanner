@@ -263,7 +263,7 @@ class LMStudioClient(BaseLLMClient):
                     logger.debug(f"--- Raw LLM response ---\n{raw_preview}\n--- End raw response ---")
                     
                     # Try to get LLM to fix its own response
-                    fix_result = self._try_fix_json_response(content, request_params)
+                    fix_result = self._try_fix_json_response(content)
                     if fix_result is not None:
                         logger.info("LLM successfully reformatted response to valid JSON.")
                         return fix_result
@@ -324,12 +324,11 @@ class LMStudioClient(BaseLLMClient):
             f"--- Last raw LLM response ---\n{raw_preview}\n--- End raw response ---"
         )
 
-    def _try_fix_json_response(self, malformed_content: str, _original_params: dict) -> Optional[dict]:
+    def _try_fix_json_response(self, malformed_content: str) -> Optional[dict]:
         """Try to get LLM to fix its own malformed JSON response.
 
         Args:
             malformed_content: The malformed response from LLM.
-            _original_params: The original request parameters (reserved for future use).
 
         Returns:
             Parsed JSON dict if successful, None if fix attempt failed.
@@ -426,29 +425,7 @@ class LMStudioClient(BaseLLMClient):
                 logger.info(f"Retrying in {retry_interval} seconds...")
                 time.sleep(retry_interval)
 
-    def is_connected(self) -> bool:
-        """Check if client is connected.
 
-        Returns:
-            True if connected, False otherwise.
-        """
-        return self._client is not None
-
-    def is_ready(self) -> bool:
-        """Check if client is ready for queries (connected and has context limit).
-
-        Returns:
-            True if ready, False otherwise.
-        """
-        return self._client is not None and self._context_limit is not None
-
-    def needs_context_limit(self) -> bool:
-        """Check if context limit needs to be set manually.
-
-        Returns:
-            True if context limit is not set, False otherwise.
-        """
-        return self._client is not None and self._context_limit is None
 
     def set_context_limit(self, limit: int) -> None:
         """Manually set the context limit.

@@ -45,19 +45,6 @@ class Issue:
         # Match if code snippets are similar OR descriptions are similar
         return self_snippet == other_snippet or self_desc == other_desc
 
-    def to_dict(self) -> dict:
-        """Convert issue to dictionary for JSON serialization."""
-        return {
-            "file_path": self.file_path,
-            "line_number": self.line_number,
-            "description": self.description,
-            "suggested_fix": self.suggested_fix,
-            "check_query": self.check_query,
-            "timestamp": self.timestamp.isoformat(),
-            "status": self.status.value,
-            "code_snippet": self.code_snippet,
-        }
-
     @classmethod
     def from_llm_response(
         cls,
@@ -75,16 +62,6 @@ class Issue:
             timestamp=timestamp or datetime.now(),
             code_snippet=data.get("code_snippet", ""),
         )
-
-
-@dataclass
-class ScanResult:
-    """Result of a single scan cycle."""
-
-    issues: list[Issue] = field(default_factory=list)
-    files_scanned: list[str] = field(default_factory=list)
-    skipped_files: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -108,7 +85,6 @@ class GitState:
     changed_files: list[ChangedFile] = field(default_factory=list)
     is_merging: bool = False
     is_rebasing: bool = False
-    current_commit: str = ""
 
     @property
     def is_conflict_resolution_in_progress(self) -> bool:

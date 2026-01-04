@@ -95,23 +95,7 @@ class BaseLLMClient(ABC):
         """
         pass
 
-    @abstractmethod
-    def is_connected(self) -> bool:
-        """Check if client is connected.
 
-        Returns:
-            True if connected, False otherwise.
-        """
-        pass
-
-    @abstractmethod
-    def is_ready(self) -> bool:
-        """Check if client is ready for queries (connected and has context limit).
-
-        Returns:
-            True if ready, False otherwise.
-        """
-        pass
 
     @abstractmethod
     def wait_for_connection(self, retry_interval: int = 10) -> None:
@@ -121,15 +105,6 @@ class BaseLLMClient(ABC):
 
         Args:
             retry_interval: Seconds between retry attempts.
-        """
-        pass
-
-    @abstractmethod
-    def needs_context_limit(self) -> bool:
-        """Check if context limit needs to be set manually.
-
-        Returns:
-            True if context limit is not set, False otherwise.
         """
         pass
 

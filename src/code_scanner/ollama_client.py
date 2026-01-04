@@ -457,29 +457,7 @@ class OllamaClient(BaseLLMClient):
                 logger.info(f"Retrying in {retry_interval} seconds...")
                 time.sleep(retry_interval)
 
-    def is_connected(self) -> bool:
-        """Check if client is connected.
 
-        Returns:
-            True if connected, False otherwise.
-        """
-        return self._connected
-
-    def is_ready(self) -> bool:
-        """Check if client is ready for queries (connected and has context limit).
-
-        Returns:
-            True if ready, False otherwise.
-        """
-        return self._connected and self._context_limit is not None
-
-    def needs_context_limit(self) -> bool:
-        """Check if context limit needs to be set manually.
-
-        Returns:
-            True if context limit is not set, False otherwise.
-        """
-        return self._connected and self._context_limit is None
 
     def set_context_limit(self, limit: int) -> None:
         """Manually set the context limit.

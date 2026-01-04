@@ -314,33 +314,3 @@ def group_files_by_directory(files: list[str]) -> dict[str, list[str]]:
 
     return sorted_groups
 
-
-def is_interactive() -> bool:
-    """Check if running in an interactive terminal.
-
-    Returns:
-        True if stdin is a TTY, False otherwise.
-    """
-    return sys.stdin.isatty() and sys.stdout.isatty()
-
-
-def prompt_yes_no(message: str, default: bool = False) -> bool:
-    """Prompt user for yes/no confirmation.
-
-    Args:
-        message: The prompt message.
-        default: Default value if user just presses Enter.
-
-    Returns:
-        True for yes, False for no.
-    """
-    if not is_interactive():
-        raise RuntimeError("Cannot prompt in non-interactive mode")
-
-    suffix = " [Y/n] " if default else " [y/N] "
-    response = input(message + suffix).strip().lower()
-
-    if not response:
-        return default
-
-    return response in ("y", "yes")

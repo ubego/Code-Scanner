@@ -58,16 +58,33 @@ test_launch() {
     print_info "Command: $scanner_cmd --config \"$config_path\" \"$target_dir\""
     echo ""
     
-    # Run for 5 seconds, capture first 20 lines
-    timeout 5s $scanner_cmd --config "$config_path" "$target_dir" 2>&1 | head -20 || true
+    # Run for 5 seconds, capture output
+    local output
+    output=$(timeout 5s $scanner_cmd --config "$config_path" "$target_dir" 2>&1 | head -30) || true
     
+    echo "$output"
     echo ""
-    read -p "Did the test launch succeed? (y/N): " response
-    if [[ ! "$response" =~ ^[Yy]$ ]]; then
-        print_error "Test launch failed or was declined. Fix configuration before installing."
+    
+    # Check for success indicators
+    if echo "$output" | grep -q "Scanner running\|Scanner loop started\|Scanner thread started"; then
+        print_success "Test launch succeeded - scanner started correctly."
+        return 0
+    fi
+    
+    # Check for common error patterns
+    if echo "$output" | grep -qi "error\|failed\|exception\|traceback\|could not\|cannot\|refused"; then
+        print_error "Test launch failed. Please fix the issues above and try again."
         exit 1
     fi
-    print_success "Test launch verified."
+    
+    # No clear success or failure - warn but continue
+    print_warning "Could not automatically verify launch success."
+    print_warning "Please check the output above and ensure code-scanner starts correctly."
+    read -p "Continue with installation? (y/N): " response
+    if [[ ! "$response" =~ ^[Yy]$ ]]; then
+        print_error "Installation cancelled."
+        exit 1
+    fi
 }
 
 check_legacy() {
