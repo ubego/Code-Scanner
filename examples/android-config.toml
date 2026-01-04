@@ -69,6 +69,7 @@ checks = [
     "Check that large images are properly downscaled.",
     "Check that animations do not block user interaction.",
     "Check for missing empty, error, or loading states for data screens.",
+    "Check for opportunities to optimize algorithms and data structures.",
 ]
 
 [[checks]]

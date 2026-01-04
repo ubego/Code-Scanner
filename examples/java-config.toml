@@ -64,6 +64,7 @@ checks = [
     "Check for inconsistent exception handling mixing checked and unchecked exceptions.",
     "Check for missing null checks for method parameters.",
     "Check for incorrect equals and hashCode implementations.",
+    "Check for opportunities to optimize algorithms and data structures.",
 ]
 
 [[checks]]

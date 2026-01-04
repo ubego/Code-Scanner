@@ -70,6 +70,7 @@ checks = [
     "Check that std::string or string_view is used instead of manual string handling.",
     "Check that std::function is used instead of function pointers where clearer.",
     "Check that move operations are marked noexcept.",
+    "Check for opportunities to optimize algorithms and data structures.",
 ]
 
 [[checks]]

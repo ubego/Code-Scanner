@@ -63,4 +63,5 @@ checks = [
     "Check for commented-out code blocks that should be removed.",
     "Check for TODO or FIXME comments that have lingered too long.",
     "Check for duplicate implementations that should be consolidated.",
+    "Check for opportunities to optimize algorithms and data structures.",
 ]

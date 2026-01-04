@@ -63,6 +63,7 @@ checks = [
     "Check that const references are used for container parameters.",
     "Check that expensive operations are not performed in paint events.",
     "Check that model updates do not trigger full view refreshes unnecessarily.",
+    "Check for opportunities to optimize algorithms and data structures.",
 ]
 
 [[checks]]

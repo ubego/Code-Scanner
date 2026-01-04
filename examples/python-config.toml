@@ -65,6 +65,7 @@ checks = [
     "Check for currency or money calculations using float instead of Decimal.",
     "Check for incorrect handling of Unicode strings or encodings.",
     "Check for missing retry logic for network operations.",
+    "Check for opportunities to optimize algorithms and data structures.",
 ]
 
 [[checks]]

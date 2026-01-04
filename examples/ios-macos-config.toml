@@ -62,6 +62,7 @@ checks = [
     "Check that Published properties are on main actor.",
     "Check that views are properly identifiable for animations.",
     "Check that environment objects are present in previews.",
+    "Check for opportunities to optimize algorithms and data structures.",
 ]
 
 [[checks]]

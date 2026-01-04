@@ -15,6 +15,7 @@ checks = [
     "Check that string literals used multiple times are stored in named QStringView constants instead of being repeated.",
     "Check that comments provide meaningful context or rationale and avoid restating obvious code behavior.",
     "Check that functions are implemented in .cpp files rather than .h files.",
+    "Check for opportunities to optimize algorithms and data structures.",
 ]
 
 # General checks for all files

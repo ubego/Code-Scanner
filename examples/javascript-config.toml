@@ -93,4 +93,5 @@ checks = [
     "Check for missing pagination for large data sets.",
     "Check for unbounded growth of in-memory caches.",
     "Check for network waterfalls where sequential requests could be parallel.",
+    "Check for opportunities to optimize algorithms and data structures.",
 ]
