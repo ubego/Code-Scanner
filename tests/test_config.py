@@ -296,12 +296,16 @@ context_limit = 16384
         assert config.check_groups[1].pattern == "*.py"
         assert config.check_groups[2].pattern == "*"
 
-    def test_new_format_empty_rules_raises_error(self, temp_dir: Path):
-        """Test that empty checks list raises ConfigError."""
+    def test_new_format_empty_rules_creates_ignore_pattern(self, temp_dir: Path):
+        """Test that empty checks list creates an ignore pattern."""
         config_file = temp_dir / "config.toml"
         config_file.write_text("""
 [[checks]]
 pattern = "*.cpp"
+checks = ["Check for errors"]
+
+[[checks]]
+pattern = "*.md, *.txt"
 checks = []
 
 [llm]
@@ -311,10 +315,16 @@ port = 1234
 context_limit = 16384
 """)
         
-        with pytest.raises(ConfigError) as exc_info:
-            load_config(temp_dir, config_file)
+        config = load_config(temp_dir, config_file)
         
-        assert "checks" in str(exc_info.value).lower()
+        # Should have 2 check groups
+        assert len(config.check_groups) == 2
+        # First is an active check group
+        assert config.check_groups[0].pattern == "*.cpp"
+        assert config.check_groups[0].checks == ["Check for errors"]
+        # Second is an ignore pattern (empty checks)
+        assert config.check_groups[1].pattern == "*.md, *.txt"
+        assert config.check_groups[1].checks == []
 
     def test_new_format_missing_pattern_uses_default(self, temp_dir: Path):
         """Test that missing pattern defaults to '*'."""

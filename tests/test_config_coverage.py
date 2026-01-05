@@ -240,12 +240,16 @@ context_limit = 16384
         
         assert "'pattern' must be a non-empty string" in str(exc_info.value)
 
-    def test_new_format_empty_rules_raises(self, tmp_path):
-        """Test that empty checks list raises error."""
+    def test_new_format_empty_rules_creates_ignore_pattern(self, tmp_path):
+        """Test that empty checks list creates an ignore pattern (not an error)."""
         config_file = tmp_path / "config.toml"
         config_file.write_text('''
 [[checks]]
 pattern = "*.py"
+checks = ["Check for bugs"]
+
+[[checks]]
+pattern = "*.md"
 checks = []
 
 [llm]
@@ -255,13 +259,15 @@ port = 1234
 context_limit = 16384
 ''')
         
-        with pytest.raises(ConfigError) as exc_info:
-            load_config(
-                target_directory=tmp_path,
-                config_file=config_file,
-            )
+        config = load_config(
+            target_directory=tmp_path,
+            config_file=config_file,
+        )
         
-        assert "'checks' must be a non-empty list" in str(exc_info.value)
+        # Should have 2 check groups - one active, one ignore pattern
+        assert len(config.check_groups) == 2
+        assert config.check_groups[0].checks == ["Check for bugs"]
+        assert config.check_groups[1].checks == []  # Ignore pattern
 
     def test_new_format_empty_rule_string_raises(self, tmp_path):
         """Test that empty string rule raises error."""
@@ -468,3 +474,63 @@ context_limit = 16384
         )
         
         assert config.commit_hash is None
+
+
+class TestLLMConfigBaseUrl:
+    """Tests for LLMConfig.base_url property."""
+
+    def test_base_url_lmstudio(self):
+        """Test base_url for LM Studio backend."""
+        config = LLMConfig(
+            backend="lm-studio",
+            host="localhost",
+            port=1234,
+            context_limit=16384,
+        )
+        assert config.base_url == "http://localhost:1234/v1"
+
+    def test_base_url_ollama(self):
+        """Test base_url for Ollama backend."""
+        config = LLMConfig(
+            backend="ollama",
+            host="localhost",
+            port=11434,
+            model="qwen3:4b",
+            context_limit=16384,
+        )
+        assert config.base_url == "http://localhost:11434"
+
+    def test_base_url_custom_host_port(self):
+        """Test base_url with custom host and port."""
+        config = LLMConfig(
+            backend="lm-studio",
+            host="192.168.1.100",
+            port=8080,
+            context_limit=16384,
+        )
+        assert config.base_url == "http://192.168.1.100:8080/v1"
+
+    def test_invalid_backend_raises_error(self):
+        """Test that invalid backend raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            LLMConfig(
+                backend="invalid-backend",
+                host="localhost",
+                port=1234,
+                context_limit=16384,
+            )
+        assert "Invalid backend" in str(exc_info.value)
+        assert "lm-studio" in str(exc_info.value)
+        assert "ollama" in str(exc_info.value)
+
+    def test_ollama_without_model_raises_error(self):
+        """Test that Ollama backend requires model parameter."""
+        with pytest.raises(ValueError) as exc_info:
+            LLMConfig(
+                backend="ollama",
+                host="localhost",
+                port=11434,
+                context_limit=16384,
+            )
+        assert "model" in str(exc_info.value)
+        assert "Ollama" in str(exc_info.value)

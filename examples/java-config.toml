@@ -87,3 +87,13 @@ checks = [
     "Check that configuration changes have safe, sensible defaults.",
     "Check that feature flags are named consistently and reflect their purpose.",
 ]
+
+# ==============================================================================
+# Ignore Patterns (files to skip during scanning)
+# ==============================================================================
+# Files matching these patterns with empty checks will be ignored.
+# Add or modify patterns as needed for your project.
+
+[[checks]]
+pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml"
+checks = []

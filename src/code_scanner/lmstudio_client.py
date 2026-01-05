@@ -195,6 +195,7 @@ class LMStudioClient(BaseLLMClient):
         system_prompt: str,
         user_prompt: str,
         max_retries: int = 3,
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         """Send a query to the LLM and get JSON response.
 
@@ -202,12 +203,15 @@ class LMStudioClient(BaseLLMClient):
             system_prompt: System instructions for the LLM.
             user_prompt: User message with code context.
             max_retries: Maximum number of retries for malformed responses.
+            tools: Optional list of tool definitions for function calling.
 
         Returns:
-            Parsed JSON response from the LLM.
+            Parsed JSON response from the LLM. If tools are provided and LLM
+            requests tool calls, response includes 'tool_calls' key.
 
         Raises:
             LLMClientError: If query fails after all retries.
+            ContextOverflowError: If context limit is exceeded.
         """
         if self._client is None:
             raise LLMClientError("Not connected")
@@ -232,11 +236,28 @@ class LMStudioClient(BaseLLMClient):
                 # This is supported by LM Studio and some other providers
                 request_params["reasoning_effort"] = "high"
 
-                # Only add response_format if supported
-                if self._supports_json_format:
+                # Add tools if provided (function calling)
+                if tools:
+                    request_params["tools"] = tools
+                    request_params["tool_choice"] = "auto"
+
+                # Only add response_format if supported and no tools
+                # (some models don't support both simultaneously)
+                if self._supports_json_format and not tools:
                     request_params["response_format"] = {"type": "json_object"}
 
                 response = self._client.chat.completions.create(**request_params)
+
+                # Check if LLM wants to call tools
+                if tools and response.choices[0].message.tool_calls:
+                    tool_calls = []
+                    for tool_call in response.choices[0].message.tool_calls:
+                        tool_calls.append({
+                            "tool_name": tool_call.function.name,
+                            "arguments": json.loads(tool_call.function.arguments),
+                        })
+                    logger.info(f"LLM requested {len(tool_calls)} tool call(s)")
+                    return {"tool_calls": tool_calls}
 
                 content = response.choices[0].message.content
                 if not content:

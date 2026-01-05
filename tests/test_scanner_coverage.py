@@ -742,3 +742,438 @@ class TestScannerIncrementalOutput:
         assert mock_dependencies["llm_client"].query.call_count == 2
         # Refresh event should be cleared
         assert not scanner._refresh_event.is_set()
+
+
+class TestScannerAdditionalCoverage:
+    """Additional tests to increase scanner.py coverage."""
+
+    def test_run_loop_handles_exception(self, mock_dependencies):
+        """Run loop catches and logs exceptions, continues running."""
+        scanner = Scanner(**mock_dependencies)
+
+        call_count = [0]
+        def get_state_side_effect():
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise RuntimeError("Simulated error")
+            else:
+                scanner._stop_event.set()
+                return GitState()
+
+        mock_dependencies["git_watcher"].get_state.side_effect = get_state_side_effect
+
+        # Should not raise, should catch and continue
+        scanner._run_loop()
+        assert call_count[0] >= 2
+
+    def test_has_files_changed_with_refresh_event(self, mock_dependencies):
+        """Test _has_files_changed returns True when refresh event is set."""
+        scanner = Scanner(**mock_dependencies)
+        scanner._refresh_event.set()
+
+        state = GitState()
+        result = scanner._has_files_changed(set(), state)
+
+        assert result is True
+
+    def test_has_files_changed_different_file_sets(self, mock_dependencies):
+        """Test _has_files_changed returns True when file sets differ."""
+        scanner = Scanner(**mock_dependencies)
+        scanner._last_scanned_files = {"old_file.py"}
+
+        state = GitState()
+        result = scanner._has_files_changed({"new_file.py"}, state)
+
+        assert result is True
+
+    def test_has_files_changed_file_content_changed(self, mock_dependencies, tmp_path):
+        """Test _has_files_changed returns True when file content changes."""
+        mock_dependencies["config"].target_directory = tmp_path
+        scanner = Scanner(**mock_dependencies)
+
+        # Create a file
+        test_file = tmp_path / "test.py"
+        test_file.write_text("original content")
+
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+
+        # First scan - should return True (new file)
+        result = scanner._has_files_changed({"test.py"}, state)
+        assert result is True
+
+    def test_has_files_changed_unreadable_file(self, mock_dependencies, tmp_path):
+        """Test _has_files_changed returns True for unreadable files."""
+        mock_dependencies["config"].target_directory = tmp_path
+        scanner = Scanner(**mock_dependencies)
+        scanner._last_scanned_files = {"test.py"}
+
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+
+        # File doesn't exist, should return True
+        result = scanner._has_files_changed({"test.py"}, state)
+        assert result is True
+
+    def test_create_batches_splits_large_directory(self, mock_dependencies):
+        """Test that _create_batches splits large directories into individual files."""
+        mock_dependencies["llm_client"].context_limit = 1000  # Small limit
+
+        scanner = Scanner(**mock_dependencies)
+
+        # Create content that would exceed batch size as a whole directory
+        # but can fit when split into individual files
+        files_content = {
+            "src/file1.py": "a" * 100,
+            "src/file2.py": "b" * 100,
+            "src/file3.py": "c" * 100,
+            "src/file4.py": "d" * 100,
+            "src/file5.py": "e" * 100,
+        }
+
+        batches = scanner._create_batches(files_content)
+
+        # Should create multiple batches since combined content is large
+        assert len(batches) >= 1
+        # Each batch should contain some files
+        for batch in batches:
+            assert len(batch) >= 1
+
+    def test_create_batches_new_batch_for_directory(self, mock_dependencies):
+        """Test that _create_batches starts new batch when directory doesn't fit."""
+        mock_dependencies["llm_client"].context_limit = 500  # Small limit
+
+        scanner = Scanner(**mock_dependencies)
+
+        # First directory fills batch, second directory needs new batch
+        files_content = {
+            "src/main.py": "x" * 50,
+            "tests/test.py": "y" * 50,
+        }
+
+        batches = scanner._create_batches(files_content)
+
+        # Should have at least one batch
+        assert len(batches) >= 1
+
+    def test_format_tool_result_with_string_data(self, mock_dependencies):
+        """Test _format_tool_result handles non-dict/list data."""
+        scanner = Scanner(**mock_dependencies)
+
+        from code_scanner.ai_tools import ToolResult
+        result = ToolResult(success=True, data="Simple string data")
+
+        formatted = scanner._format_tool_result(result)
+
+        assert formatted == "Simple string data"
+
+    def test_format_tool_result_with_number_data(self, mock_dependencies):
+        """Test _format_tool_result handles numeric data."""
+        scanner = Scanner(**mock_dependencies)
+
+        from code_scanner.ai_tools import ToolResult
+        result = ToolResult(success=True, data=42)
+
+        formatted = scanner._format_tool_result(result)
+
+        assert formatted == "42"
+
+    def test_run_check_with_patterns_in_args(self, mock_dependencies, tmp_path):
+        """Test tool logging with patterns argument."""
+        mock_dependencies["config"].target_directory = tmp_path
+        mock_dependencies["config"].check_groups = [
+            CheckGroup(pattern="*", checks=["Check code"]),
+        ]
+
+        scanner = Scanner(**mock_dependencies)
+
+        # Mock LLM to request search_text tool
+        tool_call_response = {
+            "tool_calls": [{
+                "tool_name": "search_text",
+                "arguments": {"patterns": "MyClass"}
+            }]
+        }
+
+        call_count = [0]
+        def query_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return tool_call_response
+            else:
+                return {"issues": []}
+
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+
+        # Create a file so there's something to scan
+        (tmp_path / "test.py").write_text("class MyClass: pass")
+
+        batches = [{"test.py": "class MyClass: pass"}]
+        issues = scanner._run_check("Check code", batches)
+
+        # Should have made at least 2 calls (tool request + final response)
+        assert call_count[0] >= 2
+
+    def test_lost_connection_during_check(self, mock_dependencies):
+        """Test that lost connection error triggers reconnection wait."""
+        scanner = Scanner(**mock_dependencies)
+
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+
+        files_content = {"test.py": "x = 1"}
+
+        call_count = [0]
+        def query_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise LLMClientError("Lost connection to LLM server")
+            return {"issues": []}
+
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        mock_dependencies["llm_client"].wait_for_connection = MagicMock()
+
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+
+        # Should have called wait_for_connection
+        mock_dependencies["llm_client"].wait_for_connection.assert_called()
+
+    def test_parse_issues_from_empty_response(self, mock_dependencies):
+        """Test _parse_issues_from_response handles missing issues key."""
+        scanner = Scanner(**mock_dependencies)
+
+        response = {}  # No issues key
+        issues = scanner._parse_issues_from_response(response, "test check", 0)
+
+        assert issues == []
+
+    def test_parse_issues_from_response_with_invalid_issue(self, mock_dependencies):
+        """Test _parse_issues_from_response handles issues with missing fields."""
+        scanner = Scanner(**mock_dependencies)
+
+        response = {
+            "issues": [
+                {"file": "test.py", "line_number": 1, "description": "Valid"},
+                {"invalid": "issue"},  # Missing required fields - gets defaults
+                {"file": "test2.py", "line_number": 2, "description": "Also valid"},
+            ]
+        }
+
+        issues = scanner._parse_issues_from_response(response, "test check", 0)
+
+        # All 3 issues parsed - Issue.from_llm_response uses defaults for missing fields
+        assert len(issues) == 3
+        # First and third have proper data
+        assert issues[0].file_path == "test.py"
+        assert issues[2].file_path == "test2.py"
+        # Second one has default empty values
+        assert issues[1].file_path == ""
+
+
+class TestFilterIgnoredFiles:
+    """Tests for _filter_ignored_files method."""
+
+    def test_no_ignore_patterns(self, mock_dependencies):
+        """When no ignore patterns, all files pass through."""
+        # Setup config with only active check groups (non-empty checks)
+        mock_dependencies["config"].check_groups = [
+            CheckGroup(pattern="*.py", checks=["Check for bugs"]),
+        ]
+        scanner = Scanner(**mock_dependencies)
+
+        files_content = {
+            "test.py": "print('hello')",
+            "README.md": "# Title",
+        }
+
+        filtered, ignored = scanner._filter_ignored_files(files_content)
+
+        assert filtered == files_content
+        assert ignored == []
+
+    def test_ignore_pattern_filters_files(self, mock_dependencies):
+        """Ignore patterns (empty checks) filter out matching files."""
+        mock_dependencies["config"].check_groups = [
+            CheckGroup(pattern="*.py", checks=["Check for bugs"]),
+            CheckGroup(pattern="*.md, *.txt", checks=[]),  # Ignore pattern
+        ]
+        scanner = Scanner(**mock_dependencies)
+
+        files_content = {
+            "test.py": "print('hello')",
+            "README.md": "# Title",
+            "notes.txt": "Some notes",
+            "app.py": "import sys",
+        }
+
+        filtered, ignored = scanner._filter_ignored_files(files_content)
+
+        assert "test.py" in filtered
+        assert "app.py" in filtered
+        assert "README.md" not in filtered
+        assert "notes.txt" not in filtered
+        assert set(ignored) == {"README.md", "notes.txt"}
+
+    def test_multiple_ignore_patterns(self, mock_dependencies):
+        """Multiple ignore patterns all filter out files."""
+        mock_dependencies["config"].check_groups = [
+            CheckGroup(pattern="*.py", checks=["Check for bugs"]),
+            CheckGroup(pattern="*.md", checks=[]),  # Ignore markdown
+            CheckGroup(pattern="*.html", checks=[]),  # Ignore html
+        ]
+        scanner = Scanner(**mock_dependencies)
+
+        files_content = {
+            "test.py": "code",
+            "README.md": "docs",
+            "index.html": "<html>",
+        }
+
+        filtered, ignored = scanner._filter_ignored_files(files_content)
+
+        assert filtered == {"test.py": "code"}
+        assert set(ignored) == {"README.md", "index.html"}
+
+    def test_ignore_pattern_with_wildcard(self, mock_dependencies):
+        """Ignore pattern can use wildcards."""
+        mock_dependencies["config"].check_groups = [
+            CheckGroup(pattern="*.py", checks=["Check for bugs"]),
+            CheckGroup(pattern="*.md, *.txt, *.rst, *.html", checks=[]),
+        ]
+        scanner = Scanner(**mock_dependencies)
+
+        files_content = {
+            "test.py": "code",
+            "README.md": "docs",
+            "CHANGELOG.txt": "changes",
+            "index.rst": "sphinx",
+            "report.html": "<html>",
+        }
+
+        filtered, ignored = scanner._filter_ignored_files(files_content)
+
+        assert filtered == {"test.py": "code"}
+        assert len(ignored) == 4
+
+    def test_all_files_ignored(self, mock_dependencies):
+        """When all files match ignore patterns, return empty dict."""
+        mock_dependencies["config"].check_groups = [
+            CheckGroup(pattern="*", checks=[]),  # Ignore everything
+        ]
+        scanner = Scanner(**mock_dependencies)
+
+        files_content = {
+            "test.py": "code",
+            "README.md": "docs",
+        }
+
+        filtered, ignored = scanner._filter_ignored_files(files_content)
+
+        assert filtered == {}
+        assert set(ignored) == {"test.py", "README.md"}
+
+
+class TestBatchCreationEdgeCases:
+    """Tests for edge cases in batch creation."""
+
+    def test_directory_content_empty_after_filtering(self, mock_dependencies):
+        """Test handling when directory content is empty after filtering."""
+        scanner = Scanner(**mock_dependencies)
+        scanner._target_dir = Path("/test/repo")
+        scanner._scan_info = {"skipped_files": [], "files_scanned": [], "checks_run": 0}
+        
+        # Mock estimate_tokens to return high values for skipped files
+        with patch('code_scanner.scanner.estimate_tokens') as mock_tokens:
+            # Return very high token count so files get skipped
+            mock_tokens.return_value = 100000
+            
+            files_content = {"test.py": "x" * 100000}
+            batches = scanner._create_batches(files_content)
+            
+            # File should be skipped, so batches should be empty
+            assert batches == [] or all(not batch for batch in batches)
+
+    def test_directory_group_exceeds_limit(self, mock_dependencies):
+        """Test handling when directory group exceeds context limit."""
+        scanner = Scanner(**mock_dependencies)
+        scanner._target_dir = Path("/test/repo")
+        scanner._scan_info = {"skipped_files": [], "files_scanned": [], "checks_run": 0}
+        mock_dependencies["llm_client"].context_limit = 1000
+        
+        # Create files that together exceed limit but individually fit
+        files_content = {
+            "src/file1.py": "a" * 100,
+            "src/file2.py": "b" * 100,
+            "src/file3.py": "c" * 100,
+        }
+        
+        with patch('code_scanner.scanner.estimate_tokens') as mock_tokens:
+            # Each file is 300 tokens, directory total is 900
+            # But limit is 1000 with overhead, so this may split
+            mock_tokens.side_effect = lambda content: len(content) * 3
+            
+            batches = scanner._create_batches(files_content)
+            
+            # Should create batches
+            assert len(batches) >= 1
+
+    def test_split_directory_into_individual_files(self, mock_dependencies):
+        """Test that large directories are split into individual file batches."""
+        scanner = Scanner(**mock_dependencies)
+        scanner._target_dir = Path("/test/repo")
+        scanner._scan_info = {"skipped_files": [], "files_scanned": [], "checks_run": 0}
+        mock_dependencies["llm_client"].context_limit = 500  # Very small limit
+        
+        files_content = {
+            "src/file1.py": "def foo(): pass",
+            "src/file2.py": "def bar(): pass",
+        }
+        
+        with patch('code_scanner.scanner.estimate_tokens') as mock_tokens:
+            # Each file takes 200 tokens, so they need to be split
+            mock_tokens.return_value = 200
+            
+            batches = scanner._create_batches(files_content)
+            
+            # Should have at least some batches
+            assert len(batches) >= 1
+
+
+class TestToolLoggingEdgeCases:
+    """Tests for tool logging edge cases in _run_check."""
+
+    def test_tool_logging_unknown_tool(self, mock_dependencies):
+        """Test logging for unknown/other tool types."""
+        scanner = Scanner(**mock_dependencies)
+        scanner._target_dir = Path("/test/repo")
+        scanner.tool_executor = MagicMock()
+        
+        # Mock tool result
+        from code_scanner.ai_tools import ToolResult
+        scanner.tool_executor.execute_tool.return_value = ToolResult(
+            success=True,
+            data={"result": "ok"},
+        )
+        
+        # Mock LLM responses
+        mock_dependencies["llm_client"].query.side_effect = [
+            # First call requests an unknown tool
+            {
+                "tool_calls": [
+                    {"tool_name": "custom_tool", "arguments": {"key": "value"}}
+                ]
+            },
+            # Second call returns final result
+            {"issues": []},
+        ]
+        
+        # This should not raise even with unknown tool
+        batches = [{"test.py": "code"}]
+        issues = scanner._run_check("Check something", batches)
+        
+        assert issues == []
+

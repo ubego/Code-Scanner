@@ -37,6 +37,12 @@ checks = [
     "Check that feature flags are named consistently and reflect their purpose.",
 ]
 
+# Ignore patterns - files matching these patterns will be skipped
+# (check groups with empty checks list act as ignore patterns)
+[[checks]]
+pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml"
+checks = []
+
 [llm]
 # LM Studio (default)
 backend = "lm-studio"

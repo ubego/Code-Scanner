@@ -397,10 +397,13 @@ class TestBatchProcessing:
         config = MagicMock(spec=Config)
         config.target_directory = temp_repo_with_qt
         
+        llm_client = MagicMock()
+        llm_client.context_limit = 8192  # Add context_limit for AIToolExecutor
+        
         scanner = Scanner(
             config=config,
             git_watcher=MagicMock(),
-            llm_client=MagicMock(),
+            llm_client=llm_client,
             issue_tracker=MagicMock(),
             output_generator=MagicMock(),
         )

@@ -44,6 +44,7 @@ context_limit = 16384
         # This tests the constructor signature
         git_watcher = MagicMock()
         llm_client = MagicMock()
+        llm_client.context_limit = 8192  # Need a real value for AIToolExecutor
         issue_tracker = MagicMock()
         output_generator = MagicMock()
         

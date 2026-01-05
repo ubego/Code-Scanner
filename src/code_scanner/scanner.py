@@ -19,6 +19,7 @@ from .utils import (
     is_binary_file,
     group_files_by_directory,
 )
+from .ai_tools import AIToolExecutor, AI_TOOLS_SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,12 @@ class Scanner:
         self.llm_client = llm_client
         self.issue_tracker = issue_tracker
         self.output_generator = output_generator
+
+        # Initialize AI tool executor for context expansion
+        self.tool_executor = AIToolExecutor(
+            target_directory=config.target_directory,
+            context_limit=llm_client.context_limit,
+        )
 
         # Threading controls
         self._stop_event = threading.Event()
@@ -184,10 +191,19 @@ class Scanner:
             logger.info("No scannable files found")
             return
 
+        # Filter out files matching ignore patterns (check groups with empty checks)
+        files_content, ignored_files = self._filter_ignored_files(files_content)
+        if ignored_files:
+            logger.info(f"Ignoring {len(ignored_files)} file(s) matching ignore patterns: {ignored_files}")
+        
+        if not files_content:
+            logger.info("No files to scan after applying ignore patterns")
+            return
+
         scanned_files = list(files_content.keys())
         self._scan_info = {
             "files_scanned": scanned_files,
-            "skipped_files": [],
+            "skipped_files": ignored_files,
             "checks_run": 0,
         }
 
@@ -197,12 +213,19 @@ class Scanner:
 
         # Process all check groups
         all_issues: list[Issue] = []
-        total_checks = sum(len(g.checks) for g in self.config.check_groups)
+        # Only count groups with actual checks (not ignore patterns)
+        active_groups = [g for g in self.config.check_groups if g.checks]
+        total_checks = sum(len(g.checks) for g in active_groups)
         current_check_index = 0
 
         for group_idx, check_group in enumerate(self.config.check_groups):
             if self._stop_event.is_set():
                 break
+
+            # Skip ignore patterns (groups with empty checks list)
+            if not check_group.checks:
+                logger.debug(f"Ignore pattern '{check_group.pattern}' - files matching this pattern will be skipped")
+                continue
 
             # Filter batches to only include files matching this group's pattern
             filtered_batches = self._filter_batches_by_pattern(batches, check_group)
@@ -354,6 +377,49 @@ class Scanner:
 
         return files_content
 
+    def _filter_ignored_files(
+        self,
+        files_content: dict[str, str],
+    ) -> tuple[dict[str, str], list[str]]:
+        """Filter out files matching ignore patterns.
+
+        Ignore patterns are check groups with empty checks list.
+        Files matching these patterns will be skipped from scanning.
+
+        Args:
+            files_content: Dictionary mapping file paths to content.
+
+        Returns:
+            Tuple of (filtered files_content, list of ignored file paths).
+        """
+        # Get ignore patterns (check groups with empty checks)
+        ignore_patterns = [
+            group for group in self.config.check_groups
+            if not group.checks
+        ]
+
+        if not ignore_patterns:
+            return files_content, []
+
+        filtered_content: dict[str, str] = {}
+        ignored_files: list[str] = []
+
+        for file_path, content in files_content.items():
+            # Check if file matches any ignore pattern
+            should_ignore = False
+            for pattern_group in ignore_patterns:
+                if pattern_group.matches_file(file_path):
+                    should_ignore = True
+                    logger.debug(f"File '{file_path}' matches ignore pattern '{pattern_group.pattern}'")
+                    break
+
+            if should_ignore:
+                ignored_files.append(file_path)
+            else:
+                filtered_content[file_path] = content
+
+        return filtered_content, ignored_files
+
     def _create_batches(
         self,
         files_content: dict[str, str],
@@ -481,10 +547,11 @@ class Scanner:
         check_query: str,
         batches: list[dict[str, str]],
     ) -> list[Issue]:
-        """Run a single check against all batches.
+        """Run a single check against all batches with AI tool support.
 
-        Issues are added to tracker and output is updated after each batch
-        for immediate feedback, rather than waiting for all batches to complete.
+        The LLM can request additional context via tools (find_code_usage,
+        read_file, list_directory). This method handles iterative tool calling
+        until the LLM provides a final answer.
 
         Args:
             check_query: The check query to run.
@@ -501,37 +568,156 @@ class Scanner:
 
             logger.debug(f"Processing batch {batch_idx + 1}/{len(batches)}")
 
-            # Build prompt
-            user_prompt = build_user_prompt(check_query, batch)
-            logger.info(f"Sending query to LLM: {check_query}")
-            logger.debug(f"User prompt length: {len(user_prompt)} chars")
+            # Run check with tool support (may involve multiple rounds)
+            batch_issues = self._run_check_with_tools(
+                check_query=check_query,
+                batch=batch,
+                batch_idx=batch_idx,
+            )
+            all_issues.extend(batch_issues)
 
-            # Query LLM
+            # Immediately add batch issues to tracker and update output
+            if batch_issues:
+                new_count = self.issue_tracker.add_issues(batch_issues)
+                if new_count > 0:
+                    logger.info(f"Added {new_count} new issue(s) from batch {batch_idx + 1}")
+
+            # Update output after each batch for immediate feedback
+            self.output_generator.write(self.issue_tracker, self._scan_info)
+            logger.info(f"Output updated after batch {batch_idx + 1}/{len(batches)}")
+
+        return all_issues
+
+    def _run_check_with_tools(
+        self,
+        check_query: str,
+        batch: dict[str, str],
+        batch_idx: int,
+    ) -> list[Issue]:
+        """Run a check with iterative tool calling support.
+
+        This method handles the conversation loop:
+        1. Send initial query with tools available
+        2. If LLM requests tools, execute them
+        3. Send tool results back to LLM
+        4. Repeat until LLM provides final answer
+
+        Args:
+            check_query: The check query to run.
+            batch: File batch content.
+            batch_idx: Batch index for logging.
+
+        Returns:
+            List of issues found.
+        """
+        # Build initial user prompt
+        user_prompt = build_user_prompt(check_query, batch)
+        logger.info(f"Sending query to LLM: {check_query}")
+        logger.debug(f"User prompt length: {len(user_prompt)} chars")
+
+        # Conversation history for multi-turn interactions
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        max_tool_iterations = 10  # Prevent infinite loops
+        iteration = 0
+
+        while iteration < max_tool_iterations:
+            iteration += 1
+
             try:
+                # Query LLM with tools available
                 response = self.llm_client.query(
-                    system_prompt=SYSTEM_PROMPT_TEMPLATE,
-                    user_prompt=user_prompt,
+                    system_prompt=messages[0]["content"],
+                    user_prompt=messages[-1]["content"],
                     max_retries=self.config.max_llm_retries,
+                    tools=AI_TOOLS_SCHEMA,
                 )
 
-                # Parse issues from response
-                batch_issues = self._parse_issues_from_response(
-                    response, check_query, batch_idx
-                )
-                all_issues.extend(batch_issues)
+                # Check if LLM wants to use tools
+                if "tool_calls" in response:
+                    tool_calls = response["tool_calls"]
+                    tool_names = [tc["tool_name"] for tc in tool_calls]
+                    logger.info(f"LLM requested {len(tool_calls)} tool call(s): {', '.join(tool_names)} (iteration {iteration})")
 
-                # Immediately add batch issues to tracker and update output
-                if batch_issues:
-                    new_count = self.issue_tracker.add_issues(batch_issues)
-                    if new_count > 0:
-                        logger.info(f"Added {new_count} new issue(s) from batch {batch_idx + 1}")
+                    # Execute all requested tools
+                    tool_results = []
+                    for tool_call in tool_calls:
+                        tool_name = tool_call["tool_name"]
+                        arguments = tool_call["arguments"]
 
-                # Update output after each batch for immediate feedback
-                self.output_generator.write(self.issue_tracker, self._scan_info)
-                logger.info(f"Output updated after batch {batch_idx + 1}/{len(batches)}")
+                        # Log tool execution with relevant argument details
+                        if tool_name == "find_code_usage":
+                            logger.info(f"  → {tool_name}: searching for '{arguments.get('entity_name', '?')}' ({arguments.get('entity_type', 'any')})")
+                        elif tool_name == "read_file":
+                            file_path = arguments.get('file_path', '?')
+                            start = arguments.get('start_line')
+                            end = arguments.get('end_line')
+                            if start and end:
+                                logger.info(f"  → {tool_name}: {file_path} (lines {start}-{end})")
+                            else:
+                                logger.info(f"  → {tool_name}: {file_path}")
+                        elif tool_name == "list_directory":
+                            logger.info(f"  → {tool_name}: {arguments.get('directory_path', '?')}")
+                        else:
+                            logger.info(f"  → {tool_name}: {arguments}")
+
+                        logger.debug(f"Executing tool: {tool_name} with args: {arguments}")
+                        result = self.tool_executor.execute_tool(tool_name, arguments)
+
+                        # Format tool result for LLM
+                        if result.success:
+                            result_msg = f"Tool {tool_name} succeeded:\n{self._format_tool_result(result)}"
+                            if result.warning:
+                                logger.info(f"  ✓ {tool_name} completed with warning: {result.warning[:100]}...")
+                                result_msg = f"{result.warning}\n\n{result_msg}"
+                            else:
+                                logger.info(f"  ✓ {tool_name} completed successfully")
+                        else:
+                            logger.info(f"  ✗ {tool_name} failed: {result.error}")
+                            result_msg = f"Tool {tool_name} failed: {result.error}"
+
+                        tool_results.append(result_msg)
+
+                    # Add tool results to conversation
+                    tool_results_message = "\n\n".join(tool_results)
+                    messages.append({
+                        "role": "user",
+                        "content": f"Tool results:\n\n{tool_results_message}\n\nNow provide your final analysis with any issues found.",
+                    })
+
+                    # Continue loop to get LLM's response after tool execution
+                    continue
+
+                else:
+                    # LLM provided final answer (no more tool calls)
+                    logger.debug(f"LLM provided final answer after {iteration} iteration(s)")
+                    return self._parse_issues_from_response(response, check_query, batch_idx)
 
             except LLMClientError as e:
                 logger.error(f"Check failed after retries: {e}")
                 raise
 
-        return all_issues
+        # Max iterations reached
+        logger.warning(f"Max tool iterations ({max_tool_iterations}) reached, using last response")
+        return []
+
+    def _format_tool_result(self, result) -> str:
+        """Format a tool result for presentation to the LLM.
+
+        Args:
+            result: ToolResult object.
+
+        Returns:
+            Formatted string representation.
+        """
+        import json
+
+        if isinstance(result.data, dict):
+            return json.dumps(result.data, indent=2)
+        elif isinstance(result.data, list):
+            return json.dumps(result.data, indent=2)
+        else:
+            return str(result.data)

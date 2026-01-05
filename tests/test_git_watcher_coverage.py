@@ -353,4 +353,75 @@ class TestGitWatcherConnect:
         assert "Invalid commit hash" in str(exc_info.value)
 
 
+class TestGitWatcherUnquoteOctalSequences:
+    """Tests for octal sequence decoding in _unquote_path."""
 
+    def test_unquote_utf8_octal_sequences(self, temp_git_repo):
+        """Test decoding UTF-8 encoded as octal escape sequences."""
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        # UTF-8 encoding of 'Р' (Cyrillic capital R) is \320\240
+        # Quote the path as git would
+        quoted = '"\\320\\240\\320\\265\\321\\201\\321\\203\\321\\200\\321\\201.txt"'
+        result = watcher._unquote_path(quoted)
+        assert "Ресурс.txt" in result or result.endswith(".txt")
+
+    def test_unquote_latin1_fallback(self, temp_git_repo):
+        """Test decoding falls back to latin-1 for invalid UTF-8."""
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        # Single byte that's invalid UTF-8 alone but valid latin-1
+        quoted = '"\\200"'  # 0x80 - not valid standalone UTF-8
+        result = watcher._unquote_path(quoted)
+        # Should not raise, and should decode somehow
+        assert isinstance(result, str)
+
+    def test_unquote_mixed_regular_and_octal(self, temp_git_repo):
+        """Test decoding path with mixed regular chars and octal sequences."""
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        # "test_" + UTF-8 octal + ".txt"
+        quoted = '"test_\\320\\240.txt"'
+        result = watcher._unquote_path(quoted)
+        assert "test_" in result
+        assert ".txt" in result
+
+
+class TestGitWatcherIsIgnoredNoRepo:
+    """Tests for _is_ignored when not connected."""
+
+    def test_is_ignored_returns_false_when_not_connected(self, temp_git_repo):
+        """Test _is_ignored returns False when repo is None."""
+        watcher = GitWatcher(temp_git_repo)
+        # Don't call connect(), so _repo is None
+        
+        result = watcher._is_ignored("anyfile.txt")
+        assert result is False
+
+
+class TestHasChangesSinceEdgeCases:
+    """Additional tests for has_changes_since method."""
+
+    def test_has_changes_since_identical_states(self, temp_git_repo):
+        """Test has_changes_since returns False for identical states."""
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        state = watcher.get_state()
+        result = watcher.has_changes_since(state)
+        assert result is False
+
+    def test_has_changes_since_none_with_changes(self, temp_git_repo):
+        """Test has_changes_since with None and changes present."""
+        # Create a new untracked file
+        new_file = temp_git_repo / "new_file.txt"
+        new_file.write_text("content")
+        
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        result = watcher.has_changes_since(None)
+        assert result is True

@@ -5,7 +5,7 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
-*   **Quality Assurance:** The codebase maintains **87% test coverage** with 484 unit tests ensuring reliability and maintainability.
+*   **Quality Assurance:** The codebase maintains **91% test coverage** with 562 unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
@@ -56,6 +56,10 @@ The primary objective of this project is to implement a software program that **
     *   **Pattern:** Glob pattern to match files (e.g., `"*.cpp, *.h"` for C++ files, `"*"` for all files).
     *   **Checks:** List of prompt strings to run against matching files.
     *   **Legacy Support:** Simple list of strings format is still supported (converted to single group with `"*"` pattern).
+*   **Ignore Patterns:** Check groups with an **empty checks list** define ignore patterns. Files matching these patterns are **excluded from all scanning**:
+    *   Example: `[[checks]]\npattern = "*.md, *.txt, *.json"\nchecks = []`
+    *   Files matching ignore patterns are silently skipped, reducing noise and improving performance.
+    *   Useful for excluding documentation, configuration files, and other non-code files.
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
 *   **Pattern-Based Filtering:** For each check group, only files matching the group's pattern are included in the analysis batches.
 *   **Aggregated Context:** Each query is sent to the AI with the **entire content of all matching modified files** as context, not file-by-file.
@@ -173,18 +177,87 @@ The primary objective of this project is to implement a software program that **
     *   A **configuration file path** as an optional CLI argument (defaults to scanner's script directory).
     *   An optional **Git commit hash** to scan changes relative to a specific commit.
 
-### 3.3 Execution Workflow
+### 3.3 AI Tooling for Context Expansion
+The scanner provides **AI Tools** (function calling) that allow the LLM to interactively request additional information from the broader codebase beyond the modified files. This enables sophisticated architectural checks and cross-file analysis.
+
+**Available AI Tools:**
+
+1.  **search_text(patterns, match_whole_word, case_sensitive, file_pattern, offset):**
+    *   Searches the entire repository for text patterns (strings, function names, class names, variables, etc.).
+    *   `patterns`: Single string or array of strings to search for.
+    *   `match_whole_word`: Boolean (default: true) - match only whole words.
+    *   `case_sensitive`: Boolean (default: false) - case-sensitive matching.
+    *   `file_pattern`: Optional glob pattern to filter files (e.g., "*.py").
+    *   Returns file paths, line numbers, and code snippets for all matches.
+    *   **Pagination:** Results are paginated (50 matches per page). Use `offset` parameter to fetch additional pages when `has_more` is `true`.
+    *   Response includes: `total_matches`, `returned_count`, `offset`, `has_more`, `next_offset`, `matches_by_pattern`.
+    *   Use case: Verify symbol definitions, find all usages, check naming patterns, search for specific code constructs.
+    *   **Legacy support:** `find_code_usage(entity_name, offset)` is still supported and redirects to `search_text`.
+
+2.  **read_file(file_path, start_line, end_line):**
+    *   Reads the content of any file in the repository, even if it has no uncommitted changes.
+    *   Supports line-range parameters for reading specific sections.
+    *   Large files are automatically chunked (≤4000 tokens per chunk by default).
+    *   **Pagination:** Response includes `has_more` and `next_start_line` fields to guide subsequent read requests.
+    *   **Helpful Hints:** Response includes hints to guide the LLM:
+        *   For complete files: "This is the COMPLETE file (N lines). No need to read it again."
+        *   For files mostly read: "You now have 85% of this file. Consider proceeding with analysis."
+    *   Use case: Check related files for context, verify patterns in other modules, read configuration files.
+
+3.  **list_directory(directory_path, recursive, offset):**
+    *   Lists all files and subdirectories in a specified directory.
+    *   Supports recursive listing to explore entire directory trees.
+    *   **File Size Information:** Each file includes line count for text files, allowing the LLM to plan which files to read and whether chunking may be needed. Format: `{"path": "src/file.py", "lines": 150}`.
+    *   **Pagination:** Results are paginated (100 items per page). Use `offset` parameter to fetch additional pages when `has_more` is `true`.
+    *   Response includes: `total_items`, `returned_count`, `offset`, `has_more`, `next_offset`.
+    *   Hidden directories (starting with `.`) and common build directories (`node_modules`, `__pycache__`, etc.) are automatically filtered.
+    *   Use case: Explore project structure, discover available modules, plan file reading strategy.
+
+**Pagination Pattern:**
+
+All tools use a consistent pagination pattern to enable the LLM to fetch more results when needed:
+*   `offset`: Starting index (0-based). Default is 0.
+*   `has_more`: Boolean indicating whether more results exist beyond current page.
+*   `next_offset`: If `has_more` is `true`, the value to use for next request.
+*   Warning messages explicitly instruct the LLM how to fetch more results.
+
+**Tool Execution Workflow:**
+
+1.  Scanner sends initial query with tool definitions to LLM.
+2.  If LLM requests tools, scanner executes them and returns results.
+3.  LLM receives tool results and can either:
+    *   Request additional tools for more context.
+    *   Provide final analysis with detected issues.
+4.  Process repeats iteratively (max 10 iterations to prevent infinite loops).
+5.  All tool results include success/error status and optional warnings for partial content.
+
+**Security and Safety:**
+
+*   All file paths are validated to be within the target repository (prevents directory traversal attacks).
+*   Binary files are automatically detected and rejected.
+*   Partial content warnings ensure LLM is aware when it's not seeing complete information.
+*   Tool execution failures are communicated to the LLM as error messages.
+
+**Integration with Existing Architecture:**
+
+*   Tools are integrated into `LMStudioClient` and `OllamaClient` via the `tools` parameter in the `query()` method.
+*   Both backends support OpenAI-compatible function calling API.
+*   System prompt is enhanced to inform the LLM about available tools and usage guidelines.
+*   The `reasoning_effort = "high"` parameter continues to be set for deep analysis.
+
+### 3.4 Execution Workflow
 1.  **Check for lock file.** If exists and PID is running, fail with error. If stale (PID not running), remove and continue. Create lock file with current PID.
 2.  **Backup existing output file.** If `code_scanner_results.md` exists, append to `.bak` with timestamp. Print lock/log file paths.
 3.  Initialize by reading the **TOML config file**.
 4.  Start the **Git watcher thread** to monitor for changes every 30 seconds.
-5.  Start the **AI scanner thread**.
+5.  Start the **AI scanner thread** with **AI tool executor** initialized.
 6.  **Wait Loop:** If no uncommitted changes (relative to HEAD or specified commit) exist, the scanner **must idle/wait**.
 7.  **Scanning:** When changes are found, identify the **entire content** of the modified files.
     *   *Context Check:* If combined files exceed context limit, apply **context overflow strategy** (group by directory, then file-by-file).
     *   *Skip oversized:* If a single file exceeds context limit, skip and warn.
-8.  Trigger the **LLM query loop**, processing check prompts sequentially.
-    9.  Communicate with the **LM Studio local server** via its API.
+8.  Trigger the **LLM query loop with tool support**, processing check prompts sequentially:
+    9.  Communicate with the **LM Studio or Ollama local server** via their APIs with tool definitions.
+        *   *Tool Execution:* If LLM requests tools, execute them and send results back in a conversation loop.
         *   *Retry on failure:* If LLM returns malformed JSON, retry immediately (max 3 retries).
     10. **Graceful Interrupts:** If a Git change is detected during a query, the scanner must **finish the current query** before restarting the loop.
     11. **Update Output (Incremental):** After *each* completed query:
@@ -194,7 +267,7 @@ The primary objective of this project is to implement a software program that **
 13. If the Git watcher detects new changes during scanning, the scanner **continues from the current check** with refreshed file contents (preserving progress rather than restarting).
 14. On **SIGINT**, immediately exit and remove lock file.
 
-### 3.4 Service Installation
+### 3.5 Service Installation
 The scanner can be installed as a system service to start automatically on boot. Autostart scripts are provided in the `scripts/` directory:
 
 *   **Linux:** `scripts/autostart-linux.sh` - Creates a systemd user service. See [docs/autostart-linux.md](docs/autostart-linux.md).
@@ -207,7 +280,7 @@ All scripts include:
 *   **Legacy service detection** and removal.
 *   **Interactive prompts** for project paths and config files.
 
-### 3.5 Sample Configuration Checks
+### 3.6 Sample Configuration Checks
 The following checks are provided as **examples only** and can be completely customized or replaced by the user in the TOML configuration file. Checks are organized into **groups by file pattern**:
 
 **C++/Qt-specific checks (pattern: `"*.cpp, *.h, *.cxx, *.hpp"`):**
@@ -218,6 +291,11 @@ The following checks are provided as **examples only** and can be completely cus
 *   Check that string literals used multiple times are stored in named `QStringView` constants instead of being repeated.
 *   Check that comments provide meaningful context or rationale and avoid restating obvious code behavior.
 *   Check that functions are implemented in `.cpp` files rather than `.h` files.
+
+**Architectural checks leveraging AI tools (pattern: `"*"`):**
+*   Check for architectural violations (e.g., MVC pattern breakage) using `search_text` to verify layer separation.
+*   Check for inconsistent naming patterns across the codebase using `list_directory` and `read_file`.
+*   Check for duplicate or similar function implementations using `search_text`.
 
 **General checks for all files (pattern: `"*"`):**
 *   Check for any detectable errors and suggest code simplifications where possible.
@@ -242,7 +320,8 @@ checks = [
 [[checks]]
 pattern = "*"
 checks = [
-    "Check for unused code"
+    "Check for unused code",
+    "Check for architectural violations in MVC pattern"
 ]
 ```
 
@@ -259,11 +338,14 @@ context_limit = 16384  # Minimum 16384 recommended
 pattern = "*.py"
 checks = [
     "Check for type hints",
-    "Check for docstrings"
+    "Check for docstrings",
+    "Check for duplicate function names across modules"
 ]
 ```
 
 ***
 
 **Analogy for Understanding:** 
-Think of this code scanner as a **diligent proofreader** sitting over a writer's shoulder. Instead of waiting for the writer to finish the whole book, the proofreader only looks at the sentences the writer just typed (the uncommitted changes). The proofreader uses a specialized guidebook (the config file) to check for specific mistakes, and if they find one, they point to the exact line and offer a sticky note with a suggested correction—all while keeping their notes in a private journal (the log file).
+Think of this code scanner as a **diligent proofreader** sitting over a writer's shoulder. Instead of waiting for the writer to finish the whole book, the proofreader only looks at the sentences the writer just typed (the uncommitted changes). The proofreader uses a specialized guidebook (the config file) to check for specific mistakes. 
+
+**With AI Tooling**, the proofreader now has a **library card**. Instead of just looking at the new sentences, the proofreader can get up, go to the bookshelf (the codebase), and pull out an old chapter (another file) to make sure a character's name is still spelled correctly or that a plot point remains consistent. The proofreader can even browse the table of contents (directory listings) to understand the book's structure before making recommendations.

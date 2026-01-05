@@ -213,6 +213,7 @@ class OllamaClient(BaseLLMClient):
         system_prompt: str,
         user_prompt: str,
         max_retries: int = 3,
+        tools: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, Any]:
         """Send a query to Ollama and get JSON response.
 
@@ -220,9 +221,11 @@ class OllamaClient(BaseLLMClient):
             system_prompt: System instructions for the LLM.
             user_prompt: User message with code context.
             max_retries: Maximum number of retries for malformed responses.
+            tools: Optional list of tool definitions for function calling.
 
         Returns:
-            Parsed JSON response from the LLM.
+            Parsed JSON response from the LLM. If tools are provided and LLM
+            requests tool calls, response includes 'tool_calls' key.
 
         Raises:
             LLMClientError: If query fails after all retries.
@@ -254,6 +257,10 @@ class OllamaClient(BaseLLMClient):
                 if self._context_limit:
                     request_data["options"]["num_ctx"] = self._context_limit
 
+                # Add tools if provided (Ollama supports native function calling)
+                if tools:
+                    request_data["tools"] = tools
+
                 url = f"{self.config.base_url}/api/chat"
                 req = urllib.request.Request(
                     url,
@@ -265,7 +272,19 @@ class OllamaClient(BaseLLMClient):
                 with urllib.request.urlopen(req, timeout=self.config.timeout) as response:
                     data = json.loads(response.read().decode())
 
-                content = data.get("message", {}).get("content", "")
+                # Check if Ollama wants to call tools
+                message = data.get("message", {})
+                if tools and message.get("tool_calls"):
+                    tool_calls = []
+                    for tool_call in message["tool_calls"]:
+                        tool_calls.append({
+                            "tool_name": tool_call["function"]["name"],
+                            "arguments": tool_call["function"]["arguments"],
+                        })
+                    logger.info(f"Ollama requested {len(tool_calls)} tool call(s)")
+                    return {"tool_calls": tool_calls}
+
+                content = message.get("content", "")
                 if not content:
                     logger.warning(
                         f"Empty response from Ollama (attempt {attempt + 1}/{max_retries}). "

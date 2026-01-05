@@ -10,6 +10,7 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 - 🖥️ **Hardware Efficient**: Designed for small local models. Runs comfortably on consumer GPUs like **NVIDIA RTX 3060**.
 - 💰 **Cost Effective**: Zero token costs. Use your local resources instead of expensive API subscriptions.
 - 🔍 **Language-agnostic**: Works with any programming language.
+- 🧰 **AI Tools for Context Expansion**: LLM can interactively request additional codebase information (find usages, read files, list directories) for sophisticated architectural checks.
 - ⚡ **Continuous Monitoring**: Runs in background mode, monitoring Git changes every 30 seconds and scanning indefinitely until stopped.
 - 🔄 **Smart Change Detection**: When changes are detected mid-scan, continues from current check with refreshed file contents (preserves progress).
 - 🔧 **Configurable Checks**: Define checks in plain English via TOML configuration with file pattern support.
@@ -94,6 +95,9 @@ For detailed platform-specific setup instructions:
 - **[macOS Setup](docs/macos-setup.md)** | **[Autostart](docs/autostart-macos.md)**
 - **[Windows Setup](docs/windows-setup.md)** | **[Autostart](docs/autostart-windows.md)**
 
+**Advanced Features:**
+- **[AI Tools for Context Expansion](docs/ai-tools.md)** - How the AI can request additional codebase information for sophisticated checks
+
 ## Supported LLM Backends
 
 | Backend | Best For | Installation |
@@ -152,6 +156,19 @@ checks = [
 pattern = "*"
 checks = [
     "Check for unused files or dead code.",
+    "Check for architectural violations (e.g., layers accessing each other incorrectly).",
+]
+```
+
+**Advanced checks using AI Tools:**
+```toml
+# Checks that leverage AI's ability to explore the codebase
+[[checks]]
+pattern = "*.py"
+checks = [
+    "Find duplicate or very similar function implementations that could be refactored.",
+    "Verify all database queries use parameterized statements (check all files).",
+    "Check for inconsistent naming conventions across modules.",
 ]
 ```
 
@@ -159,6 +176,19 @@ checks = [
 - `"*.cpp, *.h"` - Match multiple extensions (comma-separated)
 - `"*"` - Match all files
 - `"src/*.py"` - Match files in specific directories
+
+### Ignore Patterns
+
+Files matching patterns with an **empty checks list** will be ignored during scanning. This is useful for excluding documentation files, configuration files, or other non-code files:
+
+```toml
+# Ignore documentation and config files
+[[checks]]
+pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml"
+checks = []
+```
+
+The scanner will skip files matching these patterns entirely, reducing noise and improving performance.
 
 ### Context Limit (Required)
 
@@ -250,7 +280,7 @@ uv run pytest --cov=code_scanner --cov-report=term-missing
 uv run pytest --cov=code_scanner --cov-report=html  # Open htmlcov/index.html
 ```
 
-**Current Coverage:** 87% with 484 tests.
+**Current Coverage:** 91% with 562 tests (555 unit tests + 7 integration tests requiring running LLM backends).
 
 ### Project Structure
 
@@ -261,11 +291,13 @@ src/code_scanner/
 ├── base_client.py   # Abstract base class for LLM clients
 ├── lmstudio_client.py # LM Studio client
 ├── ollama_client.py # Ollama client
+├── ai_tools.py      # AI tool executor for function calling
 ├── git_watcher.py   # Git repository monitoring
 ├── issue_tracker.py # Issue lifecycle management
 ├── output.py        # Markdown report generation
 ├── scanner.py       # AI scanning logic
 ├── cli.py           # CLI and application coordinator
+├── utils.py         # Utility functions
 └── __main__.py      # Entry point
 ```
 

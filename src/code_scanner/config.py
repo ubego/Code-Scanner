@@ -178,9 +178,10 @@ def load_config(
                 if not isinstance(pattern, str) or not pattern.strip():
                     raise ConfigError(f"Check group at index {i}: 'pattern' must be a non-empty string")
 
-                if not isinstance(checks, list) or not checks:
-                    raise ConfigError(f"Check group at index {i}: 'checks' must be a non-empty list")
+                if not isinstance(checks, list):
+                    raise ConfigError(f"Check group at index {i}: 'checks' must be a list")
 
+                # Empty checks list means "ignore files matching this pattern"
                 for j, check in enumerate(checks):
                     if not isinstance(check, str) or not check.strip():
                         raise ConfigError(f"Check group {i}, check {j}: must be a non-empty string")
