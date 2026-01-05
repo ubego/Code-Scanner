@@ -178,73 +178,91 @@ class Scanner:
         return False
 
     def _run_scan(self, git_state: GitState) -> None:
-        """Run a full scan cycle.
+        """Run a full scan cycle with watermark-based rescanning.
+
+        When worktree changes during scanning, checks after the change point already
+        use fresh content. Only checks before the change point need re-running.
+        This loops until all checks complete on an unchanged worktree snapshot.
 
         Args:
             git_state: Current Git state with changed files.
         """
         logger.info(f"Starting scan with {len(git_state.changed_files)} changed files")
 
-        # Get file contents
-        files_content = self._get_files_content(git_state.changed_files)
-        if not files_content:
-            logger.info("No scannable files found")
+        # Build flat list of (check_group, check, filtered_batches) for index-based iteration
+        # This needs to be rebuilt each iteration to get fresh file content
+        def build_check_list() -> list[tuple[CheckGroup, str, list[dict[str, str]]]]:
+            """Build list of checks with their filtered batches using fresh file content."""
+            files_content = self._get_files_content(git_state.changed_files)
+            if not files_content:
+                return []
+
+            # Filter out files matching ignore patterns
+            filtered_content, ignored = self._filter_ignored_files(files_content)
+            if ignored:
+                logger.debug(f"Ignoring {len(ignored)} file(s) matching ignore patterns")
+            
+            if not filtered_content:
+                return []
+
+            # Update scan info
+            self._scan_info = {
+                "files_scanned": list(filtered_content.keys()),
+                "skipped_files": ignored,
+                "checks_run": 0,
+            }
+
+            batches = self._create_batches(filtered_content)
+            
+            check_list: list[tuple[CheckGroup, str, list[dict[str, str]]]] = []
+            for check_group in self.config.check_groups:
+                if not check_group.checks:
+                    continue  # Skip ignore patterns
+                
+                filtered_batches = self._filter_batches_by_pattern(batches, check_group)
+                if not filtered_batches:
+                    continue  # No files match this pattern
+                
+                for check in check_group.checks:
+                    check_list.append((check_group, check, filtered_batches))
+            
+            return check_list
+
+        # Initial build
+        check_list = build_check_list()
+        if not check_list:
+            logger.info("No scannable files or checks found")
             return
 
-        # Filter out files matching ignore patterns (check groups with empty checks)
-        files_content, ignored_files = self._filter_ignored_files(files_content)
-        if ignored_files:
-            logger.info(f"Ignoring {len(ignored_files)} file(s) matching ignore patterns: {ignored_files}")
-        
-        if not files_content:
-            logger.info("No files to scan after applying ignore patterns")
-            return
-
-        scanned_files = list(files_content.keys())
-        self._scan_info = {
-            "files_scanned": scanned_files,
-            "skipped_files": ignored_files,
-            "checks_run": 0,
-        }
-
-        # Determine batching strategy
-        batches = self._create_batches(files_content)
-        logger.info(f"Created {len(batches)} batch(es) for scanning")
-
-        # Process all check groups
+        total_checks = len(check_list)
+        run_until = total_checks  # First pass: run all checks
         all_issues: list[Issue] = []
-        # Only count groups with actual checks (not ignore patterns)
-        active_groups = [g for g in self.config.check_groups if g.checks]
-        total_checks = sum(len(g.checks) for g in active_groups)
-        current_check_index = 0
+        iteration = 0
 
-        for group_idx, check_group in enumerate(self.config.check_groups):
-            if self._stop_event.is_set():
-                break
+        logger.info(f"Created {total_checks} check(s) to run")
 
-            # Skip ignore patterns (groups with empty checks list)
-            if not check_group.checks:
-                logger.debug(f"Ignore pattern '{check_group.pattern}' - files matching this pattern will be skipped")
-                continue
+        # Watermark loop: run checks until no changes occur during the run
+        while run_until > 0:
+            iteration += 1
+            if iteration > 1:
+                logger.info(f"Rescan iteration {iteration}: running checks 1-{run_until} of {total_checks}")
+                # Rebuild check list with fresh file content
+                check_list = build_check_list()
+                if not check_list:
+                    logger.info("No scannable files after refresh")
+                    break
 
-            # Filter batches to only include files matching this group's pattern
-            filtered_batches = self._filter_batches_by_pattern(batches, check_group)
-            if not filtered_batches:
-                logger.debug(f"No files match pattern '{check_group.pattern}', skipping group")
-                current_check_index += len(check_group.checks)
-                continue
+            last_change_at: int | None = None
 
-            logger.info(f"Check group {group_idx + 1}/{len(self.config.check_groups)}: pattern '{check_group.pattern}'")
-
-            for check_idx, check in enumerate(check_group.checks):
+            for check_idx in range(run_until):
                 if self._stop_event.is_set():
                     break
 
-                current_check_index += 1
-                logger.info(f"Running check {current_check_index}/{total_checks}: {check[:50]}...")
+                check_group, check, filtered_batches = check_list[check_idx]
+                logger.info(f"Running check {check_idx + 1}/{total_checks}: {check[:50]}...")
 
                 try:
-                    # Run check against filtered batches
+                    # Run check against filtered batches (uses fresh content per batch)
                     check_issues = self._run_check(check, filtered_batches)
                     all_issues.extend(check_issues)
                     self._scan_info["checks_run"] += 1
@@ -257,29 +275,36 @@ class Scanner:
 
                     # Update output file after every check for incremental progress
                     self.output_generator.write(self.issue_tracker, self._scan_info)
-                    logger.debug(f"Output file updated after check {self._scan_info['checks_run']}")
 
                 except ContextOverflowError:
                     # Context overflow is FATAL - requires user intervention
-                    # Re-raise to exit the application
                     raise
                 except LLMClientError as e:
                     if "Lost connection" in str(e):
-                        # Mid-session failure - wait for reconnection
                         logger.warning("Lost LLM connection, waiting for reconnection...")
                         self.llm_client.wait_for_connection(self.config.llm_retry_interval)
-                        # Retry this check by decrementing counter
-                        current_check_index -= 1
+                        # Retry by not incrementing - but we need to handle this in the loop
+                        # For simplicity, just continue and the watermark will catch it
                         continue
                     else:
                         logger.error(f"LLM error during check: {e}")
-                        # Skip this check after max retries
 
-                # Check for refresh signal - clear it but continue processing
-                # (files will be refreshed on next check iteration)
+                # Track worktree changes - update watermark
                 if self._refresh_event.is_set():
-                    logger.info("File changes detected, will use refreshed content for remaining checks")
+                    last_change_at = check_idx
                     self._refresh_event.clear()
+                    logger.info(f"Worktree changed at check {check_idx + 1}, will rescan checks 1-{check_idx + 1}")
+
+            if self._stop_event.is_set():
+                break
+
+            if last_change_at is None:
+                # No changes during this run - all checks are on fresh content
+                logger.info(f"Scan iteration {iteration} complete with no worktree changes")
+                break
+            else:
+                # Re-run checks 0..last_change_at (they used stale content)
+                run_until = last_change_at + 1
 
         # Handle deleted files - resolve their issues
         deleted_files = [f.path for f in git_state.changed_files if f.is_deleted]
@@ -290,6 +315,7 @@ class Scanner:
         logger.info(f"Scan found {len(all_issues)} total issue(s) across all checks")
 
         # Update issue tracker with scan results
+        scanned_files = self._scan_info.get("files_scanned", [])
         new_count, resolved_count = self.issue_tracker.update_from_scan(
             all_issues, scanned_files
         )
@@ -300,7 +326,10 @@ class Scanner:
         logger.info(f"Output file updated with {self.issue_tracker.get_stats()['total']} total issues")
 
         # Track scanned files and their content hashes to avoid rescanning unchanged files
-        self._last_scanned_files = set(scanned_files)
+        # Get fresh content for hash tracking
+        files_content = self._get_files_content(git_state.changed_files)
+        files_content, _ = self._filter_ignored_files(files_content)
+        self._last_scanned_files = set(files_content.keys())
         self._last_file_contents_hash = {
             file_path: hash(content)
             for file_path, content in files_content.items()

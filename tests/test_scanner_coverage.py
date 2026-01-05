@@ -716,7 +716,7 @@ class TestScannerIncrementalOutput:
         assert write_calls_scan_info[-1] == 2
 
     def test_refresh_signal_continues_processing(self, mock_dependencies):
-        """Refresh signal clears and continues processing (preserves progress)."""
+        """Refresh signal triggers rescan of earlier checks (watermark algorithm)."""
         scanner = Scanner(**mock_dependencies)
         
         state = GitState(
@@ -738,8 +738,11 @@ class TestScannerIncrementalOutput:
         with patch.object(scanner, "_get_files_content", return_value=files_content):
             scanner._run_scan(state)
         
-        # Should call query for all checks (2 checks in config) - continues processing
-        assert mock_dependencies["llm_client"].query.call_count == 2
+        # With watermark algorithm: refresh after check 1 means check 0 was stale
+        # Initial run: check 1 (refresh), check 2 = 2 calls
+        # Rescan: check 1 (re-run stale check) = 1 call
+        # Total = 3 calls
+        assert mock_dependencies["llm_client"].query.call_count == 3
         # Refresh event should be cleared
         assert not scanner._refresh_event.is_set()
 
@@ -1177,3 +1180,186 @@ class TestToolLoggingEdgeCases:
         
         assert issues == []
 
+
+class TestWatermarkRescan:
+    """Tests for the watermark-based rescan algorithm."""
+
+    def test_rescan_triggered_when_refresh_during_scan(self, mock_dependencies):
+        """Verify that a rescan iteration occurs when refresh event fires during scan."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1"}
+        
+        # Track iteration count by counting _get_files_content calls
+        get_content_calls = [0]
+        def get_content_side_effect(changed_files):
+            get_content_calls[0] += 1
+            return files_content
+        
+        # Set refresh on first query, then no more refreshes
+        query_count = [0]
+        def query_side_effect(*args, **kwargs):
+            query_count[0] += 1
+            if query_count[0] == 1:
+                scanner._refresh_event.set()
+            return {"issues": []}
+        
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        
+        with patch.object(scanner, "_get_files_content", side_effect=get_content_side_effect):
+            scanner._run_scan(state)
+        
+        # Should have called _get_files_content at least twice (initial + rescan)
+        assert get_content_calls[0] >= 2
+
+    def test_rescan_only_reruns_stale_checks(self, mock_dependencies):
+        """Verify that only checks 0..N are re-run when change occurs at check N."""
+        # Configure 3 checks
+        mock_dependencies["config"].check_groups = [
+            CheckGroup(pattern="*.py", checks=["Check 1", "Check 2", "Check 3"]),
+        ]
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1"}
+        
+        # Refresh fires after check 1 (index 0), so checks 0 needs rescan
+        query_count = [0]
+        def query_side_effect(*args, **kwargs):
+            query_count[0] += 1
+            if query_count[0] == 1:
+                scanner._refresh_event.set()
+            return {"issues": []}
+        
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        # Initial run: 3 checks, then rescan: 1 check (only check 0)
+        # Total: 4 queries
+        assert mock_dependencies["llm_client"].query.call_count == 4
+
+    def test_rescan_stops_when_no_changes(self, mock_dependencies):
+        """Verify that the rescan loop exits when no refresh events occur."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1"}
+        
+        # No refresh events - should complete in one iteration
+        mock_dependencies["llm_client"].query.return_value = {"issues": []}
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        # Should have exactly 2 queries (one per check in default config for *.py)
+        assert mock_dependencies["llm_client"].query.call_count == 2
+
+    def test_multiple_rescan_iterations(self, mock_dependencies):
+        """Verify multiple rescan rounds when changes keep happening."""
+        mock_dependencies["config"].check_groups = [
+            CheckGroup(pattern="*.py", checks=["Check 1", "Check 2"]),
+        ]
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1"}
+        
+        # Refresh on iterations 1 and 2, then stop
+        query_count = [0]
+        def query_side_effect(*args, **kwargs):
+            query_count[0] += 1
+            # Refresh after first check on iteration 1 (call 1) and iteration 2 (call 3)
+            if query_count[0] in [1, 3]:
+                scanner._refresh_event.set()
+            return {"issues": []}
+        
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        # Iteration 1: 2 checks (refresh at 1)
+        # Iteration 2: 1 check (rescan check 0, refresh at 1)
+        # Iteration 3: 1 check (rescan check 0, no refresh)
+        # Total: 4 queries
+        assert mock_dependencies["llm_client"].query.call_count == 4
+
+    def test_rescan_refreshes_file_content(self, mock_dependencies):
+        """Verify that rescan iteration rebuilds check list with fresh content."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        # Different content on each call
+        content_versions = [{"test.py": "version1"}, {"test.py": "version2"}, {"test.py": "version3"}]
+        content_idx = [0]
+        def get_content_side_effect(changed_files):
+            result = content_versions[min(content_idx[0], len(content_versions) - 1)]
+            content_idx[0] += 1
+            return result
+        
+        # Refresh on first query
+        query_count = [0]
+        def query_side_effect(*args, **kwargs):
+            query_count[0] += 1
+            if query_count[0] == 1:
+                scanner._refresh_event.set()
+            return {"issues": []}
+        
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        
+        with patch.object(scanner, "_get_files_content", side_effect=get_content_side_effect):
+            scanner._run_scan(state)
+        
+        # Content was fetched multiple times (rebuild on rescan)
+        assert content_idx[0] >= 2
+
+    def test_rescan_with_empty_files_after_refresh(self, mock_dependencies):
+        """Test early exit when no scannable files remain after refresh (line 251-253)."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        # First call returns files, second call (rescan) returns empty
+        call_count = [0]
+        def get_content_side_effect(changed_files):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return {"test.py": "content"}
+            return {}  # No files after refresh
+        
+        # Refresh on first query to trigger rescan
+        query_count = [0]
+        def query_side_effect(*args, **kwargs):
+            query_count[0] += 1
+            if query_count[0] == 1:
+                scanner._refresh_event.set()
+            return {"issues": []}
+        
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        
+        with patch.object(scanner, "_get_files_content", side_effect=get_content_side_effect):
+            scanner._run_scan(state)
+        
+        # Should have exited early on rescan iteration due to empty file list
+        # Only 2 queries from first iteration (for 2 checks in *.py group)
+        assert mock_dependencies["llm_client"].query.call_count == 2

@@ -37,8 +37,13 @@ The primary objective of this project is to implement a software program that **
 *   **Specific Commit Analysis:** Users must have the option to scan changes **relative to a specific commit hash** (similar to `git reset --soft <hash>`). This allows scanning cumulative changes against a parent branch. After the initial scan, the application continues to monitor for new changes relative to that base.
     *   **Untracked Files:** Untracked files are **still included** in commit-relative mode, regardless of the specified commit.
 *   **Rebase/Merge Conflict Handling:** If a rebase or merge with conflict resolution is in progress (detected via `.git/MERGE_HEAD`, `.git/REBASE_HEAD`, or similar), the scanner must **wait for completion** before launching new scans. Poll for resolution status during the wait state.
-*   **Monitoring Loop:** The application will run in a continuous loop. If changes are detected via Git, the scanner will **continue from the last completed check** rather than restarting from the beginning—this ensures progress is preserved and avoids redundant re-scanning. If no changes occur, the application will **poll every 30 seconds** for new updates.
-*   **Scan Completion Behavior:** After completing all checks in a scan cycle, the scanner **waits for new file changes** before starting another scan. It tracks file content hashes to detect actual changes—simply having uncommitted files is not enough to trigger a rescan. This prevents endless scanning loops when files haven't been modified.
+*   **Monitoring Loop:** The application will run in a continuous loop, polling every **30 seconds** for new updates when idle. When files change during a scan, the scanner uses a **watermark algorithm** for efficient rescanning:
+    1.  Each check is executed with the **latest file content** fetched at scan time.
+    2.  If files change at check index N, checks N+1 onwards already used fresh content.
+    3.  After completing the cycle, only checks 0..N (the "stale" checks) are re-run.
+    4.  This repeats until a full cycle completes with no file changes.
+    5.  This ensures **all checks run on a consistent worktree snapshot** without redundant work.
+*   **Scan Completion Behavior:** After completing all checks in a scan cycle with no mid-scan changes, the scanner **waits for new file changes** before starting another scan. It tracks file content hashes to detect actual changes—simply having uncommitted files is not enough to trigger a rescan. This prevents endless scanning loops when files haven't been modified.
 *   **Startup Behavior:** If no uncommitted changes exist at startup, the application must **enter the wait state immediately** and poll for changes. It should not exit.
 *   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
 
@@ -264,7 +269,7 @@ All tools use a consistent pagination pattern to enable the LLM to fetch more re
         *   Update the internal model with new findings.
         *   **immediately rewrite the output Markdown file** to provide real-time feedback.
 12. Upon completing all checks, **loop back** to the first check and continue.
-13. If the Git watcher detects new changes during scanning, the scanner **continues from the current check** with refreshed file contents (preserving progress rather than restarting).
+13. If the Git watcher detects new changes during scanning, the scanner uses the **watermark algorithm**: complete the current cycle, then rescan only the checks that ran before the change point (checks 0..N where N is the index where the change was detected). This repeats until no changes occur during a cycle.
 14. On **SIGINT**, immediately exit and remove lock file.
 
 ### 3.5 Service Installation
