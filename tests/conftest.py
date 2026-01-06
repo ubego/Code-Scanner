@@ -12,6 +12,7 @@ import pytest
 from code_scanner.config import Config
 from code_scanner.models import LLMConfig, Issue, IssueStatus
 from code_scanner.issue_tracker import IssueTracker
+from code_scanner.ctags_index import CtagsIndex, Symbol
 from datetime import datetime
 
 
@@ -157,6 +158,121 @@ def mock_llm_client():
 def sample_qt_project_path() -> Path:
     """Get path to the sample Qt project."""
     return Path(__file__).parent / "sample_qt_project"
+
+
+@pytest.fixture
+def mock_ctags_index():
+    """Create a mock CtagsIndex for testing without requiring ctags installed."""
+    mock_index = MagicMock(spec=CtagsIndex)
+    mock_index.target_directory = Path("/tmp/mock_repo")
+    
+    # Default behaviors - use correct method names from CtagsIndex
+    mock_index.find_symbol.return_value = []
+    mock_index.find_definitions.return_value = []
+    mock_index.find_symbols_by_pattern.return_value = []
+    mock_index.get_symbols_in_file.return_value = []
+    mock_index.get_class_members.return_value = []
+    mock_index.get_file_structure.return_value = {
+        "file": "/tmp/mock_repo/test.py",
+        "language": "Python",
+        "symbols": [],
+        "structure_summary": "",
+    }
+    mock_index.get_stats.return_value = {
+        "total_symbols": 0,
+        "files_indexed": 0,
+        "symbols_by_kind": {},
+        "languages": [],
+    }
+    
+    return mock_index
+
+
+@pytest.fixture
+def mock_ctags_index_with_data(temp_repo):
+    """Create a mock CtagsIndex with sample data matching temp_repo structure."""
+    mock_index = MagicMock(spec=CtagsIndex)
+    mock_index.target_directory = temp_repo
+    
+    # Sample entries matching temp_repo fixture structure
+    sample_entries = {
+        "main": [Symbol(
+            name="main",
+            file_path=str(temp_repo / "src" / "main.py"),
+            line=1,
+            kind="function",
+            language="Python",
+            scope=None,
+            signature="()",
+        )],
+        "calculate_total": [Symbol(
+            name="calculate_total",
+            file_path=str(temp_repo / "src" / "utils" / "math.py"),
+            line=1,
+            kind="function",
+            language="Python",
+            scope=None,
+            signature="(items)",
+        )],
+        "calculate_average": [Symbol(
+            name="calculate_average",
+            file_path=str(temp_repo / "src" / "utils" / "math.py"),
+            line=4,
+            kind="function",
+            language="Python",
+            scope=None,
+            signature="(items)",
+        )],
+        "Helper": [Symbol(
+            name="Helper",
+            file_path=str(temp_repo / "src" / "utils" / "helpers.py"),
+            line=1,
+            kind="class",
+            language="Python",
+            scope=None,
+            signature=None,
+        )],
+    }
+    
+    mock_index.tags = sample_entries
+    
+    def find_symbol(name, kind=None):
+        entries = sample_entries.get(name, [])
+        if kind:
+            entries = [e for e in entries if e.kind == kind]
+        return entries
+    
+    mock_index.find_symbol.side_effect = find_symbol
+    mock_index.find_definitions.return_value = []
+    mock_index.find_symbols_by_pattern.return_value = []
+    
+    def get_symbols_in_file(file_path, kind=None):
+        result = []
+        for entries in sample_entries.values():
+            for e in entries:
+                if e.file_path == str(file_path):
+                    if kind is None or e.kind == kind:
+                        result.append(e)
+        return result
+    
+    mock_index.get_symbols_in_file.side_effect = get_symbols_in_file
+    mock_index.get_class_members.return_value = []
+    mock_index.get_file_structure.return_value = {
+        "file": str(temp_repo / "test.py"),
+        "language": "Python",
+        "symbols": [],
+        "structure_summary": "",
+    }
+    mock_index.get_stats.return_value = {
+        "total_symbols": 4,
+        "files_indexed": 3,
+        "symbols_by_kind": {"function": 3, "class": 1},
+        "languages": ["Python"],
+    }
+    
+    return mock_index
+    
+    return mock_index
 
 
 @pytest.fixture

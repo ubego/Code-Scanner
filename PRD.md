@@ -5,7 +5,7 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
-*   **Quality Assurance:** The codebase maintains **91% test coverage** with 562 unit tests ensuring reliability and maintainability.
+*   **Quality Assurance:** The codebase maintains **90% test coverage** with 670+ unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
@@ -43,7 +43,7 @@ The primary objective of this project is to implement a software program that **
     3.  After completing the cycle, only checks 0..N (the "stale" checks) are re-run.
     4.  This repeats until a full cycle completes with no file changes.
     5.  This ensures **all checks run on a consistent worktree snapshot** without redundant work.
-*   **Scan Completion Behavior:** After completing all checks in a scan cycle with no mid-scan changes, the scanner **waits for new file changes** before starting another scan. It tracks file content hashes to detect actual changes—simply having uncommitted files is not enough to trigger a rescan. This prevents endless scanning loops when files haven't been modified.
+*   **Scan Completion Behavior:** After completing all checks in a scan cycle with no mid-scan changes, the scanner **waits for new file changes** before starting another scan. It tracks file modification times and content hashes to detect actual changes—simply having uncommitted files or touched timestamps is not enough to trigger a rescan if content remains identical. This prevents endless scanning loops.
 *   **Startup Behavior:** If no uncommitted changes exist at startup, the application must **enter the wait state immediately** and poll for changes. It should not exit.
 *   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
 
@@ -107,7 +107,13 @@ The primary objective of this project is to implement a software program that **
     *   Common causes: model timeout, context overflow, or model returning explanation text instead of JSON.
 *   **LM Studio Connection Handling:**
     *   **Startup Failure:** If the LLM backend (LM Studio or Ollama) is not running or unreachable at startup, **fail immediately** with a clear error message.
-    *   **Mid-Session Failure:** If the LLM backend becomes unavailable during scanning, **pause and retry every 10 seconds** until connection is restored.
+    *   **Mid-Session Failure:** If the LLM backend becomes unavailable during scanning, **pause and retry every 10 seconds** until connection is restored. The scanner handles various connection-related errors including:
+        *   Lost connection
+        *   Connection refused
+        *   Connection reset
+        *   Network errors
+        *   Timeout errors
+    *   **Non-Connection Errors:** Other LLM errors (e.g., malformed JSON after retries) are logged and the scanner continues to the next check.
 
 ### 2.3 Output and Reporting
 *   **Log Generation:** The system must produce a **Markdown log file** named `code_scanner_results.md` as its primary and only User Interface.
@@ -185,19 +191,23 @@ The primary objective of this project is to implement a software program that **
 ### 3.3 AI Tooling for Context Expansion
 The scanner provides **AI Tools** (function calling) that allow the LLM to interactively request additional information from the broader codebase beyond the modified files. This enables sophisticated architectural checks and cross-file analysis.
 
-**Available AI Tools:**
+**Prerequisites:**
+*   **Universal Ctags** must be installed for symbol indexing. The ctags-based tools (find_definition, list_symbols, find_symbols, get_class_members, get_index_stats) require Universal Ctags to be available in the system PATH.
 
-1.  **search_text(patterns, match_whole_word, case_sensitive, file_pattern, offset):**
+**Available AI Tools (11 tools):**
+
+1.  **search_text(patterns, is_regex, match_whole_word, case_sensitive, file_pattern, offset):**
     *   Searches the entire repository for text patterns (strings, function names, class names, variables, etc.).
     *   `patterns`: Single string or array of strings to search for.
-    *   `match_whole_word`: Boolean (default: true) - match only whole words.
+    *   `is_regex`: Boolean (default: false) - treat patterns as regular expressions.
+    *   `match_whole_word`: Boolean (default: true) - match only whole words (ignored when is_regex is true).
     *   `case_sensitive`: Boolean (default: false) - case-sensitive matching.
     *   `file_pattern`: Optional glob pattern to filter files (e.g., "*.py").
     *   Returns file paths, line numbers, and code snippets for all matches.
+    *   **Smart Ordering:** Definitions are prioritized before usages in results.
     *   **Pagination:** Results are paginated (50 matches per page). Use `offset` parameter to fetch additional pages when `has_more` is `true`.
     *   Response includes: `total_matches`, `returned_count`, `offset`, `has_more`, `next_offset`, `matches_by_pattern`.
     *   Use case: Verify symbol definitions, find all usages, check naming patterns, search for specific code constructs.
-    *   **Legacy support:** `find_code_usage(entity_name, offset)` is still supported and redirects to `search_text`.
 
 2.  **read_file(file_path, start_line, end_line):**
     *   Reads the content of any file in the repository, even if it has no uncommitted changes.
@@ -217,6 +227,56 @@ The scanner provides **AI Tools** (function calling) that allow the LLM to inter
     *   Response includes: `total_items`, `returned_count`, `offset`, `has_more`, `next_offset`.
     *   Hidden directories (starting with `.`) and common build directories (`node_modules`, `__pycache__`, etc.) are automatically filtered.
     *   Use case: Explore project structure, discover available modules, plan file reading strategy.
+
+4.  **get_file_diff(file_path, context_lines):**
+    *   Gets the git diff for a specific file relative to HEAD.
+    *   Returns only changed lines in unified diff format—more token-efficient than read_file.
+    *   `context_lines`: Number of unchanged lines around each change (default: 3, max: 10).
+    *   Use case: Understand what was modified without reading entire file.
+
+5.  **get_file_summary(file_path):**
+    *   Gets structural summary of a file using ctags index without reading all content.
+    *   Returns classes, functions, variables, imports with line numbers.
+    *   Much more token-efficient than read_file when only file structure is needed.
+    *   Use case: Understand file organization before deciding what to read in detail.
+
+6.  **symbol_exists(symbol, symbol_type):**
+    *   Quick O(1) lookup using ctags index to check if a symbol exists in the repository.
+    *   `symbol_type`: Optional filter (function, class, variable, constant, type, interface).
+    *   Returns location if found, with up to 10 locations.
+    *   **Critical:** Use this BEFORE reporting "undefined symbol" issues to avoid false positives.
+    *   Use case: Verify a symbol exists before flagging it as undefined.
+
+7.  **find_definition(symbol, kind):**
+    *   Find where a symbol is defined (Go to Definition functionality).
+    *   Uses ctags index for instant lookup.
+    *   `kind`: Optional filter by symbol kind (function, class, method, etc.).
+    *   Returns file path, line number, and code pattern.
+    *   Use case: Navigate directly to symbol definitions for cross-file analysis.
+
+8.  **list_symbols(file_path, kind, include_details):**
+    *   List all symbols defined in a specific file.
+    *   `kind`: Optional filter (function, class, variable, etc.).
+    *   `include_details`: Include signature and scope information (default: true).
+    *   Use case: Get overview of what a file defines without reading it.
+
+9.  **find_symbols(pattern, kind, case_sensitive):**
+    *   Search for symbols matching a pattern across the entire repository.
+    *   Supports wildcards: `*` (any chars), `?` (single char).
+    *   `kind`: Optional filter by symbol kind.
+    *   `case_sensitive`: Default false for flexible matching.
+    *   Use case: Find symbols by naming convention (e.g., `test_*`, `*Handler`).
+
+10. **get_class_members(class_name, member_kind):**
+    *   Get all members of a specific class.
+    *   `member_kind`: Optional filter (method, field, property, etc.).
+    *   Returns methods, fields, properties with their signatures.
+    *   Use case: Analyze class structure, check for required methods.
+
+11. **get_index_stats():**
+    *   Get statistics about the ctags index.
+    *   Returns total symbols, files indexed, breakdown by kind and language.
+    *   Use case: Understand codebase composition before analysis.
 
 **Pagination Pattern:**
 

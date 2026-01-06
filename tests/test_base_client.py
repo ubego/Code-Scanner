@@ -202,10 +202,45 @@ class TestBuildUserPrompt:
         assert "Check" in prompt
 
     def test_formats_as_markdown(self):
-        """Test that files are formatted with markdown code blocks."""
+        """Test that files are formatted with boundary markers."""
         prompt = build_user_prompt(
             check_query="Check",
             files_content={"test.py": "code"},
         )
         
-        assert "```" in prompt  # Markdown code fence
+        # File boundary markers
+        assert "<<<FILE_START>>>" in prompt
+        assert "<<<FILE_END>>>" in prompt
+        # Line numbers
+        assert "L1:" in prompt
+
+    def test_multiline_content_numbered_correctly(self):
+        """Test that multiline content gets correct line numbers."""
+        prompt = build_user_prompt(
+            check_query="Check",
+            files_content={"test.py": "line1\nline2\nline3"},
+        )
+        
+        assert "L1: line1" in prompt
+        assert "L2: line2" in prompt
+        assert "L3: line3" in prompt
+
+    def test_includes_total_line_count(self):
+        """Test that prompt includes total line count metadata."""
+        prompt = build_user_prompt(
+            check_query="Check",
+            files_content={"test.py": "a\nb\nc\nd\ne"},
+        )
+        
+        assert "total: 5" in prompt
+
+    def test_preserves_empty_lines(self):
+        """Test that empty lines in content are preserved with numbers."""
+        prompt = build_user_prompt(
+            check_query="Check",
+            files_content={"test.py": "line1\n\nline3"},
+        )
+        
+        assert "L1: line1" in prompt
+        assert "L2: " in prompt  # Empty line still gets number
+        assert "L3: line3" in prompt

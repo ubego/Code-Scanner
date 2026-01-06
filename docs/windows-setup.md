@@ -47,6 +47,48 @@ If Git isn't already installed:
 2. Run the installer
 3. Use default options (Git Bash is recommended)
 
+Verify installation:
+
+```powershell
+git --version
+```
+
+## Universal Ctags Installation
+
+Universal Ctags is required for symbol indexing, which enables AI tools to efficiently navigate your codebase.
+
+### Option 1: Using Chocolatey (Recommended)
+
+If you have [Chocolatey](https://chocolatey.org/) installed:
+
+```powershell
+# Open PowerShell as Administrator
+choco install universal-ctags
+
+# Verify installation
+ctags --version
+```
+
+### Option 2: Using Scoop
+
+If you have [Scoop](https://scoop.sh/) installed:
+
+```powershell
+scoop install universal-ctags
+ctags --version
+```
+
+### Option 3: Manual Installation
+
+1. Download from [Universal Ctags GitHub releases](https://github.com/universal-ctags/ctags-win32/releases)
+2. Extract to a folder (e.g., `C:\Program Files\ctags`)
+3. Add the folder to your PATH:
+   - Open System Properties → Advanced → Environment Variables
+   - Edit PATH and add the ctags folder
+4. Restart PowerShell and verify: `ctags --version`
+
+> **Note**: Make sure it shows "Universal Ctags" (not "Exuberant Ctags").
+
 ## Code Scanner Installation
 
 Open PowerShell or Git Bash:

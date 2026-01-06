@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 from code_scanner.scanner import Scanner
 from code_scanner.config import Config, LLMConfig, CheckGroup
 from code_scanner.models import Issue, GitState, ChangedFile, IssueStatus
+from code_scanner.ctags_index import CtagsIndex
 
 
 @pytest.fixture
@@ -27,7 +28,32 @@ def mock_config():
 
 
 @pytest.fixture
-def mock_dependencies(mock_config):
+def mock_ctags_index():
+    """Create a mock CtagsIndex."""
+    mock_index = MagicMock(spec=CtagsIndex)
+    mock_index.target_directory = Path("/test/repo")
+    mock_index.find_symbol.return_value = []
+    mock_index.find_symbols_by_pattern.return_value = []
+    mock_index.find_definitions.return_value = []
+    mock_index.get_symbols_in_file.return_value = []
+    mock_index.get_class_members.return_value = []
+    mock_index.get_file_structure.return_value = {
+        "file": "/test/repo/test.py",
+        "language": "Python",
+        "symbols": [],
+        "structure_summary": "",
+    }
+    mock_index.get_stats.return_value = {
+        "total_symbols": 0,
+        "files_indexed": 0,
+        "symbols_by_kind": {},
+        "languages": [],
+    }
+    return mock_index
+
+
+@pytest.fixture
+def mock_dependencies(mock_config, mock_ctags_index):
     """Create mock dependencies for Scanner."""
     git_watcher = MagicMock()
     llm_client = MagicMock()
@@ -42,6 +68,7 @@ def mock_dependencies(mock_config):
         "llm_client": llm_client,
         "issue_tracker": issue_tracker,
         "output_generator": output_generator,
+        "ctags_index": mock_ctags_index,
     }
 
 
@@ -352,6 +379,39 @@ class TestIssueFromLLMResponseEdgeCases:
         }
         
         issue = Issue.from_llm_response(data, "check", datetime.now())
+        assert issue.code_snippet == ""
+
+    def test_none_values_in_llm_response(self):
+        """None values in LLM response are handled gracefully."""
+        data = {
+            "file_path": None,
+            "file": "fallback.py",
+            "line_number": None,
+            "line": 5,
+            "description": None,
+            "suggested_fix": None,
+            "code_snippet": None,
+        }
+        
+        issue = Issue.from_llm_response(data, "check", datetime.now())
+        assert issue.file_path == "fallback.py"
+        assert issue.line_number == 5
+        assert issue.description == ""
+        assert issue.suggested_fix == ""
+        assert issue.code_snippet == ""
+
+    def test_all_keys_none_in_llm_response(self):
+        """All keys being None or missing is handled gracefully."""
+        data = {
+            "file_path": None,
+            "line_number": None,
+        }
+        
+        issue = Issue.from_llm_response(data, "check", datetime.now())
+        assert issue.file_path == ""
+        assert issue.line_number == 0
+        assert issue.description == ""
+        assert issue.suggested_fix == ""
         assert issue.code_snippet == ""
 
 

@@ -11,6 +11,7 @@ from code_scanner.scanner import Scanner
 from code_scanner.config import Config, LLMConfig, CheckGroup
 from code_scanner.models import Issue, GitState, ChangedFile, IssueStatus
 from code_scanner.lmstudio_client import LLMClientError
+from code_scanner.ctags_index import CtagsIndex
 
 
 @pytest.fixture
@@ -31,7 +32,32 @@ def mock_config():
 
 
 @pytest.fixture
-def mock_dependencies(mock_config):
+def mock_ctags_index():
+    """Create a mock CtagsIndex."""
+    mock_index = MagicMock(spec=CtagsIndex)
+    mock_index.target_directory = Path("/test/repo")
+    mock_index.find_symbol.return_value = []
+    mock_index.find_symbols_by_pattern.return_value = []
+    mock_index.find_definitions.return_value = []
+    mock_index.get_symbols_in_file.return_value = []
+    mock_index.get_class_members.return_value = []
+    mock_index.get_file_structure.return_value = {
+        "file": "/test/repo/test.py",
+        "language": "Python",
+        "symbols": [],
+        "structure_summary": "",
+    }
+    mock_index.get_stats.return_value = {
+        "total_symbols": 0,
+        "files_indexed": 0,
+        "symbols_by_kind": {},
+        "languages": [],
+    }
+    return mock_index
+
+
+@pytest.fixture
+def mock_dependencies(mock_config, mock_ctags_index):
     """Create mock dependencies for Scanner."""
     git_watcher = MagicMock()
     llm_client = MagicMock()
@@ -48,6 +74,7 @@ def mock_dependencies(mock_config):
         "llm_client": llm_client,
         "issue_tracker": issue_tracker,
         "output_generator": output_generator,
+        "ctags_index": mock_ctags_index,
     }
 
 
@@ -258,6 +285,93 @@ class TestScannerRunScan:
         )
         
         files_content = {"test.py": "x = 1"}
+        
+        call_count = [0]
+        def query_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise LLMClientError("Lost connection to LM Studio")
+            return {"issues": []}
+        
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        mock_dependencies["llm_client"].wait_for_connection = MagicMock()
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        mock_dependencies["llm_client"].wait_for_connection.assert_called()
+
+    def test_run_scan_handles_connection_refused_error(self, mock_dependencies):
+        """Run scan handles connection refused error."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1"}
+        
+        call_count = [0]
+        def query_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise LLMClientError("Connection refused by server")
+            return {"issues": []}
+        
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        mock_dependencies["llm_client"].wait_for_connection = MagicMock()
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        mock_dependencies["llm_client"].wait_for_connection.assert_called()
+
+    def test_run_scan_handles_timeout_error(self, mock_dependencies):
+        """Run scan handles timeout error."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1"}
+        
+        call_count = [0]
+        def query_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise LLMClientError("Connection timed out")
+            return {"issues": []}
+        
+        mock_dependencies["llm_client"].query.side_effect = query_side_effect
+        mock_dependencies["llm_client"].wait_for_connection = MagicMock()
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        mock_dependencies["llm_client"].wait_for_connection.assert_called()
+
+    def test_run_scan_handles_non_connection_error(self, mock_dependencies):
+        """Run scan logs non-connection LLM errors and continues."""
+        scanner = Scanner(**mock_dependencies)
+        
+        state = GitState(
+            changed_files=[ChangedFile(path="test.py", status="unstaged")]
+        )
+        
+        files_content = {"test.py": "x = 1"}
+        
+        # Simulate a non-connection error (e.g., JSON parse failure)
+        mock_dependencies["llm_client"].query.side_effect = LLMClientError(
+            "Failed to get valid JSON response after 3 attempts"
+        )
+        mock_dependencies["llm_client"].wait_for_connection = MagicMock()
+        
+        with patch.object(scanner, "_get_files_content", return_value=files_content):
+            scanner._run_scan(state)
+        
+        # wait_for_connection should NOT be called for non-connection errors
+        mock_dependencies["llm_client"].wait_for_connection.assert_not_called()
         
         call_count = [0]
         def query_side_effect(*args, **kwargs):
@@ -769,15 +883,21 @@ class TestScannerAdditionalCoverage:
         scanner._run_loop()
         assert call_count[0] >= 2
 
-    def test_has_files_changed_with_refresh_event(self, mock_dependencies):
-        """Test _has_files_changed returns True when refresh event is set."""
+    def test_has_files_changed_with_refresh_event_no_longer_triggers_rescan(self, mock_dependencies):
+        """Test _has_files_changed doesn't trigger rescan just because refresh event is set.
+        
+        This was changed to fix infinite scan loop. The refresh event only wakes
+        up the scanner, but actual file changes are determined by content/path comparison.
+        """
         scanner = Scanner(**mock_dependencies)
         scanner._refresh_event.set()
+        scanner._last_scanned_files = set()  # Empty set matches current_files
 
         state = GitState()
         result = scanner._has_files_changed(set(), state)
 
-        assert result is True
+        # With no actual changes (same file sets, no content changes), should return False
+        assert result is False
 
     def test_has_files_changed_different_file_sets(self, mock_dependencies):
         """Test _has_files_changed returns True when file sets differ."""

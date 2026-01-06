@@ -1,7 +1,7 @@
 """Data models for the code scanner."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -53,14 +53,16 @@ class Issue:
         timestamp: Optional[datetime] = None,
     ) -> "Issue":
         """Create an Issue from LLM response data."""
+        # Handle None values from LLM - use 'or' to fall back when key exists but value is None
+        line_num = data.get("line_number") or data.get("line") or 0
         return cls(
-            file_path=data.get("file", data.get("file_path", "")),
-            line_number=int(data.get("line_number", data.get("line", 0))),
-            description=data.get("description", ""),
-            suggested_fix=data.get("suggested_fix", data.get("fix", "")),
+            file_path=data.get("file") or data.get("file_path") or "",
+            line_number=int(line_num),
+            description=data.get("description") or "",
+            suggested_fix=data.get("suggested_fix") or data.get("fix") or "",
             check_query=check_query,
-            timestamp=timestamp or datetime.now(),
-            code_snippet=data.get("code_snippet", ""),
+            timestamp=timestamp or datetime.now(timezone.utc),
+            code_snippet=data.get("code_snippet") or "",
         )
 
 

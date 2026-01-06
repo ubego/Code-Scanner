@@ -12,6 +12,7 @@ from code_scanner.issue_tracker import IssueTracker
 from code_scanner.output import OutputGenerator
 from code_scanner.models import GitState, ChangedFile, CheckGroup
 from code_scanner.base_client import BaseLLMClient
+from code_scanner.ctags_index import CtagsIndex
 
 
 @pytest.fixture
@@ -39,7 +40,32 @@ def mock_llm_client():
 
 
 @pytest.fixture
-def mock_components(tmp_path, mock_config, mock_llm_client):
+def mock_ctags_index(tmp_path):
+    """Create a mock CtagsIndex."""
+    mock_index = MagicMock(spec=CtagsIndex)
+    mock_index.target_directory = tmp_path
+    mock_index.find_symbol.return_value = []
+    mock_index.find_symbols_by_pattern.return_value = []
+    mock_index.find_definitions.return_value = []
+    mock_index.get_symbols_in_file.return_value = []
+    mock_index.get_class_members.return_value = []
+    mock_index.get_file_structure.return_value = {
+        "file": str(tmp_path / "test.py"),
+        "language": "Python",
+        "symbols": [],
+        "structure_summary": "",
+    }
+    mock_index.get_stats.return_value = {
+        "total_symbols": 0,
+        "files_indexed": 0,
+        "symbols_by_kind": {},
+        "languages": [],
+    }
+    return mock_index
+
+
+@pytest.fixture
+def mock_components(tmp_path, mock_config, mock_llm_client, mock_ctags_index):
     """Create all scanner components."""
     git_watcher = Mock(spec=GitWatcher)
     issue_tracker = Mock(spec=IssueTracker)
@@ -51,6 +77,7 @@ def mock_components(tmp_path, mock_config, mock_llm_client):
         llm_client=mock_llm_client,
         issue_tracker=issue_tracker,
         output_generator=output_generator,
+        ctags_index=mock_ctags_index,
     )
 
     return {
@@ -460,4 +487,5 @@ class TestToolExecutorInScanner:
         # Check that tools were provided to LLM
         call_kwargs = llm_client.query.call_args[1]
         assert "tools" in call_kwargs
-        assert len(call_kwargs["tools"]) == 3  # 3 tools available
+        assert len(call_kwargs["tools"]) == 11  # 11 tools available (6 base + 5 ctags)
+

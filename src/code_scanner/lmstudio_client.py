@@ -220,7 +220,11 @@ class LMStudioClient(BaseLLMClient):
 
         for attempt in range(max_retries):
             try:
-                logger.debug(f"Sending query (attempt {attempt + 1}/{max_retries})")
+                logger.debug(
+                    f"Sending query (attempt {attempt + 1}/{max_retries})\n"
+                    f"--- SYSTEM PROMPT ---\n{system_prompt}\n--- END SYSTEM PROMPT ---\n"
+                    f"--- USER PROMPT ---\n{user_prompt}\n--- END USER PROMPT ---"
+                )
 
                 # Build request parameters
                 request_params = {
@@ -247,6 +251,11 @@ class LMStudioClient(BaseLLMClient):
                     request_params["response_format"] = {"type": "json_object"}
 
                 response = self._client.chat.completions.create(**request_params)
+
+                # Validate response structure
+                if not response.choices:
+                    logger.warning(f"Empty choices in LLM response (attempt {attempt + 1}/{max_retries}). Will retry.")
+                    continue
 
                 # Check if LLM wants to call tools
                 if tools and response.choices[0].message.tool_calls:

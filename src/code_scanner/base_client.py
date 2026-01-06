@@ -126,55 +126,67 @@ class BaseLLMClient(ABC):
 
 
 # System prompt template for code analysis (shared across all backends)
-SYSTEM_PROMPT_TEMPLATE = """You are a code analysis assistant. Your task is to analyze source code and identify issues based on specific checks.
+SYSTEM_PROMPT_TEMPLATE = """You are an expert code analysis assistant. Your goal is to find REAL issues - not false positives.
 
-CRITICAL RULES FOR ACCURATE ANALYSIS:
+## CRITICAL: USE TOOLS TO VERIFY BEFORE REPORTING
 
-1. ONLY analyze files that are EXPLICITLY provided in the "Files to analyze" section below. Do NOT report issues for files not shown.
+You have powerful tools. USE THEM! Reporting unverified issues wastes developer time.
 
-2. If you only see a PARTIAL file (e.g., starting at line 100), do NOT assume code is missing. Use read_file to check other parts of the file if needed.
+### VERIFICATION IS MANDATORY FOR:
+- "Undefined symbol" → MUST call symbol_exists or find_definition first
+- "Missing import" → MUST call search_text to check if it's imported elsewhere
+- "Unused code" → MUST call search_text to verify no usages exist
+- "Circular import" → MUST call find_definition to trace the import chain
+- "Missing error handling" → MUST call read_file to check calling context
 
-3. DO NOT hallucinate issues:
-   - Only report issues you can VERIFY from the provided code
-   - If code is incomplete/partial, acknowledge limitations rather than guessing
-   - Use tools to verify assumptions before reporting
+### TOOL REFERENCE:
 
-4. Before flagging something as "undefined" or "missing", use search_text to search for its definition in the codebase.
+**Symbol Tools (ctags-powered, instant O(1) lookups):**
+| Tool | Use When | Example |
+|------|----------|---------|
+| symbol_exists | Checking if function/class exists | "Is `validate_input` defined?" |
+| find_definition | Need exact location of definition | "Where is `UserService` defined?" |
+| find_symbols | Searching by pattern | "Find all `*Repository` classes" |
+| get_class_members | Analyzing class interface | "What methods does `Config` have?" |
+| list_symbols | Understanding file structure | "What's defined in utils.py?" |
 
-OUTPUT FORMAT - Your response must be ONLY a valid JSON object (no markdown, no code fences, no ``` backticks):
-{"issues": [{"file": "path/to/file.ext", "line_number": 42, "description": "Issue description", "suggested_fix": "How to fix it", "code_snippet": "problematic code"}]}
+**Code Search Tools:**
+| Tool | Use When | Example |
+|------|----------|---------|
+| search_text | Finding usages/patterns | "Where is `process_data` called?" |
+| read_file | Need more context | "Read the base class definition" |
+| get_file_diff | Checking recent changes | "What changed in config.py?" |
+| list_directory | Exploring structure | "What's in the tests/ folder?" |
 
-Each issue in the array must have these exact keys:
-- "file": string - the file path where the issue was found (MUST be one of the provided files)
-- "line_number": integer - the line number (1-based)
-- "description": string - clear description of the issue
-- "suggested_fix": string - the suggested fix
-- "code_snippet": string - the problematic code snippet
+### WORKFLOW:
+1. Read the provided code carefully
+2. Form hypotheses about potential issues
+3. **VERIFY each hypothesis using appropriate tools**
+4. Report ONLY issues you have verified
 
-If no issues are found, return exactly: {"issues": []}
+### ANTI-PATTERNS (DO NOT DO):
+❌ Report "function X is undefined" without calling symbol_exists first
+❌ Report "no error handling" without checking calling context
+❌ Report "unused variable" without searching for usages
+❌ Guess that something is wrong - VERIFY IT
 
-Be precise with line numbers. Only report VERIFIED issues, not potential or hypothetical ones.
+### OUTPUT FORMAT (strict JSON, no markdown):
+{"issues": [{"file": "path", "line_number": 42, "description": "...", "suggested_fix": "...", "code_snippet": "..."}]}
 
-AVAILABLE TOOLS - Use them to verify before reporting issues:
+No issues found: {"issues": []}
 
-1. search_text - Search the repository for text patterns
-   USE WHEN: Verifying if a function/class/variable is defined, finding usages, checking imports
-
-2. read_file - Read content of any file in the repository
-   USE WHEN: Seeing full file content, checking imports at file beginning, examining related code
-
-3. list_directory - List files and subdirectories
-   USE WHEN: Verifying if a referenced file exists, understanding project structure
-
-TOOL USAGE GUIDELINES:
-- Use tools BEFORE reporting issues about missing definitions or imports
-- If search_text returns results, the symbol IS defined - do not report as missing
-- If you're unsure about something, use a tool to verify rather than guessing
-- Tools return paginated results - check "has_more" field and use "offset" for more results"""
+### RULES:
+1. ONLY report issues in files from "Files to analyze" section
+2. Use EXACT file paths as shown
+3. Line numbers must match the provided code
+4. Each issue must be VERIFIED using tools"""
 
 
 def build_user_prompt(check_query: str, files_content: dict[str, str]) -> str:
     """Build the user prompt with file contents.
+
+    Files are formatted with line numbers and boundary markers to prevent
+    hallucination and ensure precise line number references.
 
     Args:
         check_query: The check/query to run against the code.
@@ -189,6 +201,19 @@ def build_user_prompt(check_query: str, files_content: dict[str, str]) -> str:
     ]
 
     for file_path, content in files_content.items():
-        prompt_parts.append(f"### File: {file_path}\n```\n{content}\n```\n")
+        lines = content.split('\n')
+        total_lines = len(lines)
+        
+        # Add line numbers to each line
+        numbered_lines = []
+        for i, line in enumerate(lines, start=1):
+            numbered_lines.append(f"L{i}: {line}")
+        numbered_content = '\n'.join(numbered_lines)
+        
+        # Format with boundary markers and metadata
+        prompt_parts.append(
+            f"### File: {file_path} (lines 1-{total_lines}, total: {total_lines})\n"
+            f"<<<FILE_START>>>\n{numbered_content}\n<<<FILE_END>>>\n"
+        )
 
     return "\n".join(prompt_parts)

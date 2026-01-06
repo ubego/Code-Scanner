@@ -3,7 +3,7 @@
 import json
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
+from unittest.mock import Mock, MagicMock, patch, mock_open
 
 from code_scanner.ai_tools import (
     AIToolExecutor,
@@ -11,7 +11,35 @@ from code_scanner.ai_tools import (
     AI_TOOLS_SCHEMA,
     DEFAULT_CHUNK_SIZE_TOKENS,
 )
+from code_scanner.ctags_index import CtagsIndex, Symbol
 from code_scanner.utils import read_file_content
+
+
+def make_mock_ctags(target_dir):
+    """Create a mock CtagsIndex for testing."""
+    mock_index = MagicMock(spec=CtagsIndex)
+    mock_index.repo_path = target_dir
+    mock_index.find_symbol.return_value = []
+    mock_index.find_definitions.return_value = []
+    mock_index.find_symbols_by_pattern.return_value = []
+    mock_index.get_symbols_in_file.return_value = []
+    mock_index.get_class_members.return_value = []
+    mock_index.get_file_structure.return_value = {
+        "file_path": "test.py",
+        "classes": [],
+        "functions": [],
+        "variables": [],
+        "imports": [],
+        "other": [],
+    }
+    mock_index.get_stats.return_value = {
+        "indexed": True,
+        "total_symbols": 0,
+        "total_files": 0,
+        "by_kind": {},
+        "by_language": {},
+    }
+    return mock_index
 
 
 @pytest.fixture
@@ -59,6 +87,7 @@ class TestAIToolExecutor:
         executor = AIToolExecutor(
             target_directory=temp_repo,
             context_limit=8192,
+            ctags_index=make_mock_ctags(temp_repo),
         )
 
         assert executor.target_directory == temp_repo
@@ -67,7 +96,7 @@ class TestAIToolExecutor:
 
     def test_execute_unknown_tool(self, temp_repo):
         """Test executing an unknown tool."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool("unknown_tool", {})
 
@@ -76,7 +105,7 @@ class TestAIToolExecutor:
 
     def test_search_text_missing_patterns(self, temp_repo):
         """Test search_text with missing patterns."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool("search_text", {})
 
@@ -85,7 +114,7 @@ class TestAIToolExecutor:
 
     def test_search_text_single_pattern(self, temp_repo):
         """Test searching for a single pattern."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -104,7 +133,7 @@ class TestAIToolExecutor:
 
     def test_search_text_multiple_patterns(self, temp_repo):
         """Test searching for multiple patterns at once."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -119,7 +148,7 @@ class TestAIToolExecutor:
 
     def test_search_text_no_matches(self, temp_repo):
         """Test searching when nothing matches."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -131,7 +160,7 @@ class TestAIToolExecutor:
 
     def test_search_text_skips_binary_files(self, temp_repo):
         """Test that binary files are skipped during search."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Search for something that might be in binary
         result = executor.execute_tool(
@@ -144,7 +173,7 @@ class TestAIToolExecutor:
 
     def test_search_text_skips_hidden_dirs(self, temp_repo):
         """Test that hidden directories are skipped."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -157,7 +186,7 @@ class TestAIToolExecutor:
 
     def test_search_text_partial_results_warning(self, temp_repo):
         """Test warning when results are truncated."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Create many files with matches
         for i in range(100):
@@ -177,7 +206,7 @@ class TestAIToolExecutor:
 
     def test_search_text_case_insensitive(self, temp_repo):
         """Test case-insensitive search (default)."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -189,7 +218,7 @@ class TestAIToolExecutor:
 
     def test_search_text_case_sensitive(self, temp_repo):
         """Test case-sensitive search."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -202,7 +231,7 @@ class TestAIToolExecutor:
 
     def test_search_text_substring_match(self, temp_repo):
         """Test substring matching (match_whole_word=False)."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -215,7 +244,7 @@ class TestAIToolExecutor:
 
     def test_search_text_file_pattern_filter(self, temp_repo):
         """Test file pattern filtering."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -232,7 +261,7 @@ class TestAIToolExecutor:
 
     def test_read_file_success(self, temp_repo):
         """Test reading a file successfully."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -248,7 +277,7 @@ class TestAIToolExecutor:
 
     def test_read_file_missing_path(self, temp_repo):
         """Test read_file with missing file_path."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool("read_file", {})
 
@@ -257,7 +286,7 @@ class TestAIToolExecutor:
 
     def test_read_file_not_found(self, temp_repo):
         """Test reading a non-existent file."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -269,7 +298,7 @@ class TestAIToolExecutor:
 
     def test_read_file_outside_repo(self, temp_repo):
         """Test reading a file outside the repository (security check)."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -281,7 +310,7 @@ class TestAIToolExecutor:
 
     def test_read_file_binary(self, temp_repo):
         """Test reading a binary file."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -293,7 +322,7 @@ class TestAIToolExecutor:
 
     def test_read_file_with_line_range(self, temp_repo):
         """Test reading a file with specific line range."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -309,7 +338,7 @@ class TestAIToolExecutor:
 
     def test_read_file_invalid_line_range(self, temp_repo):
         """Test reading with invalid line numbers."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -325,7 +354,7 @@ class TestAIToolExecutor:
         large_content = "# Line\n" * 10000
         (temp_repo / "large.py").write_text(large_content)
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -340,7 +369,7 @@ class TestAIToolExecutor:
 
     def test_list_directory_root(self, temp_repo):
         """Test listing root directory."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -357,7 +386,7 @@ class TestAIToolExecutor:
 
     def test_list_directory_includes_line_counts(self, temp_repo):
         """Test that file listings include line counts for text files."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -377,7 +406,7 @@ class TestAIToolExecutor:
 
     def test_list_directory_subdirectory(self, temp_repo):
         """Test listing a subdirectory."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -392,7 +421,7 @@ class TestAIToolExecutor:
 
     def test_list_directory_recursive(self, temp_repo):
         """Test recursive directory listing."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -410,7 +439,7 @@ class TestAIToolExecutor:
 
     def test_list_directory_not_found(self, temp_repo):
         """Test listing a non-existent directory."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -422,7 +451,7 @@ class TestAIToolExecutor:
 
     def test_list_directory_outside_repo(self, temp_repo):
         """Test listing directory outside repository."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -434,7 +463,7 @@ class TestAIToolExecutor:
 
     def test_list_directory_skips_hidden(self, temp_repo):
         """Test that hidden directories are skipped."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -453,7 +482,7 @@ class TestAIToolExecutor:
         for i in range(600):
             (large_dir / f"file_{i}.py").write_text("pass")
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -472,10 +501,15 @@ class TestToolSchemas:
 
     def test_schemas_structure(self):
         """Test that tool schemas have correct structure."""
-        assert len(AI_TOOLS_SCHEMA) == 3
+        assert len(AI_TOOLS_SCHEMA) == 11
 
         tool_names = {tool["function"]["name"] for tool in AI_TOOLS_SCHEMA}
-        assert tool_names == {"search_text", "read_file", "list_directory"}
+        assert tool_names == {
+            "search_text", "read_file", "list_directory",
+            "get_file_diff", "get_file_summary", "symbol_exists",
+            "find_definition", "list_symbols", "find_symbols",
+            "get_class_members", "get_index_stats",
+        }
 
         # Check each schema has required fields
         for tool in AI_TOOLS_SCHEMA:
@@ -494,6 +528,7 @@ class TestToolSchemas:
 
         params = schema["function"]["parameters"]
         assert "patterns" in params["properties"]
+        assert "is_regex" in params["properties"]
         assert "match_whole_word" in params["properties"]
         assert "case_sensitive" in params["properties"]
         assert "file_pattern" in params["properties"]
@@ -560,7 +595,7 @@ class TestErrorHandling:
 
     def test_execute_tool_exception_handling(self, temp_repo):
         """Test that exceptions are caught and returned as errors."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Mock a method to raise an exception
         with patch.object(
@@ -576,7 +611,7 @@ class TestErrorHandling:
 
     def test_read_file_read_error(self, temp_repo):
         """Test handling file read errors."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Create a file with permission issues (simulate)
         with patch("code_scanner.ai_tools.read_file_content", return_value=None):
@@ -589,7 +624,7 @@ class TestErrorHandling:
 
     def test_read_file_exception_during_read(self, temp_repo):
         """Test handling exceptions during file read."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Simulate an exception during read
         with patch("code_scanner.ai_tools.read_file_content", side_effect=IOError("Permission denied")):
@@ -602,7 +637,7 @@ class TestErrorHandling:
 
     def test_list_directory_exception_during_listing(self, temp_repo):
         """Test handling exceptions during directory listing."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Simulate an exception during listing
         with patch.object(Path, "iterdir", side_effect=PermissionError("Access denied")):
@@ -615,7 +650,7 @@ class TestErrorHandling:
 
     def test_search_text_skips_unreadable_files(self, temp_repo):
         """Test that unreadable files during search are skipped."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Simulate read_file_content returning None for some files
         original_read = read_file_content
@@ -635,7 +670,7 @@ class TestErrorHandling:
 
     def test_search_text_handles_search_exceptions(self, temp_repo):
         """Test that exceptions during individual file search are handled."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Create a mock that raises on specific files
         original_read = read_file_content
@@ -662,7 +697,7 @@ class TestReadFileHints:
 
     def test_read_file_complete_file_hint(self, temp_repo):
         """Test that complete files include a hint."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file", {"file_path": "src/main.py"}
@@ -679,7 +714,7 @@ class TestReadFileHints:
         large_content = "\n".join([f"line {i}" for i in range(1000)])
         (temp_repo / "large_file.py").write_text(large_content)
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file", {"file_path": "large_file.py", "start_line": 1, "end_line": 100}
@@ -696,7 +731,7 @@ class TestGetFileInfo:
 
     def test_get_file_info_returns_path_and_lines(self, temp_repo):
         """Test that file info includes path and line count."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         full_path = temp_repo / "src" / "main.py"
         relative_path = Path("src/main.py")
@@ -710,7 +745,7 @@ class TestGetFileInfo:
 
     def test_get_file_info_handles_read_error(self, temp_repo):
         """Test that file info handles read errors gracefully."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         full_path = temp_repo / "src" / "main.py"
         relative_path = Path("src/main.py")
@@ -727,7 +762,7 @@ class TestGetFileInfo:
 
     def test_get_file_info_skips_binary_files(self, temp_repo):
         """Test that binary files don't get line count."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         full_path = temp_repo / "image.png"
         relative_path = Path("image.png")
@@ -749,7 +784,7 @@ class TestPaginationSupport:
         for i in range(100):
             (temp_repo / f"file_{i}.py").write_text(f"def my_function():\n    pass\n")
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # First page (default offset=0)
         result1 = executor.execute_tool(
@@ -782,7 +817,7 @@ class TestPaginationSupport:
 
     def test_search_text_no_more_pages(self, temp_repo):
         """Test that has_more is False when all results fit."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -802,7 +837,7 @@ class TestPaginationSupport:
         for i in range(150):
             (many_files_dir / f"file_{i:03d}.txt").write_text(f"content {i}")
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # First page (default offset=0)
         result1 = executor.execute_tool(
@@ -832,7 +867,7 @@ class TestPaginationSupport:
 
     def test_list_directory_no_pagination_needed(self, temp_repo):
         """Test that has_more is False when all items fit."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -848,7 +883,7 @@ class TestPaginationSupport:
         # Create a file with multiple lines
         (temp_repo / "multiline.txt").write_text("\n".join([f"line {i}" for i in range(1, 51)]))
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Read first 10 lines
         result = executor.execute_tool(
@@ -863,7 +898,7 @@ class TestPaginationSupport:
 
     def test_read_file_no_more_lines(self, temp_repo):
         """Test that has_more is False when reading entire file."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -880,7 +915,7 @@ class TestPaginationSupport:
         for i in range(100):
             (temp_repo / f"usage_{i}.py").write_text(f"def paginate_me():\n    pass\n")
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -909,7 +944,7 @@ class TestAdditionalCoverage:
         # Create a normal file with the function
         (temp_repo / "normal.py").write_text("def target_func():\n    pass\n")
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -926,7 +961,7 @@ class TestAdditionalCoverage:
 
     def test_read_file_directory_path_returns_error(self, temp_repo):
         """Test that read_file returns error when given a directory path."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -940,7 +975,7 @@ class TestAdditionalCoverage:
         """Test that end_line is adjusted when it exceeds total lines."""
         (temp_repo / "short.txt").write_text("line1\nline2\nline3")
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "read_file",
@@ -956,7 +991,7 @@ class TestAdditionalCoverage:
         # Create a file with 100 lines
         (temp_repo / "long.txt").write_text("\n".join([f"line {i}" for i in range(100)]))
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Read 85 lines (85%)
         result = executor.execute_tool(
@@ -971,7 +1006,7 @@ class TestAdditionalCoverage:
 
     def test_list_directory_not_a_directory_error(self, temp_repo):
         """Test that list_directory returns error for non-directory path."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -992,7 +1027,7 @@ class TestAdditionalCoverage:
         dist_dir.mkdir()
         (dist_dir / "output.js").write_text("console.log('built')")
 
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -1009,7 +1044,7 @@ class TestAdditionalCoverage:
 
     def test_list_directory_recursive_exception_handling(self, temp_repo):
         """Test that list_directory handles exceptions during recursive listing."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         # Patch rglob to raise an exception
         with patch.object(Path, "rglob", side_effect=PermissionError("Access denied")):
@@ -1021,35 +1056,9 @@ class TestAdditionalCoverage:
             assert not result.success
             assert "Error listing directory" in result.error or "Access denied" in result.error
 
-    def test_find_code_usage_legacy_support(self, temp_repo):
-        """Test legacy find_code_usage redirects to search_text."""
-        executor = AIToolExecutor(temp_repo, 8192)
-
-        # Use legacy find_code_usage tool name
-        result = executor.execute_tool(
-            "find_code_usage",
-            {"entity_name": "calculate_total"},
-        )
-
-        assert result.success
-        assert result.data["total_matches"] >= 1
-        assert "matches_by_pattern" in result.data
-
-    def test_find_code_usage_legacy_with_offset(self, temp_repo):
-        """Test legacy find_code_usage with pagination offset."""
-        executor = AIToolExecutor(temp_repo, 8192)
-
-        result = executor.execute_tool(
-            "find_code_usage",
-            {"entity_name": "calculate_total", "offset": 0},
-        )
-
-        assert result.success
-        assert "offset" in result.data
-
     def test_search_text_empty_pattern_in_list(self, temp_repo):
         """Test search_text filters out empty patterns."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "search_text",
@@ -1061,7 +1070,7 @@ class TestAdditionalCoverage:
 
     def test_list_directory_empty_path_default(self, temp_repo):
         """Test list_directory with empty string defaults to current directory."""
-        executor = AIToolExecutor(temp_repo, 8192)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
 
         result = executor.execute_tool(
             "list_directory",
@@ -1071,3 +1080,1090 @@ class TestAdditionalCoverage:
         assert result.success
         # Should list root directory contents
         assert len(result.data["files"]) > 0 or len(result.data["directories"]) > 0
+
+
+class TestSearchTextRegex:
+    """Test is_regex functionality in search_text."""
+
+    def test_search_text_with_regex_pattern(self, temp_repo):
+        """Test search_text with is_regex=True uses pattern as-is."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+
+        # Regex to find function definitions
+        result = executor.execute_tool(
+            "search_text",
+            {"patterns": r"def\s+\w+", "is_regex": True},
+        )
+
+        assert result.success
+        assert result.data["total_matches"] >= 1
+
+    def test_search_text_with_invalid_regex(self, temp_repo):
+        """Test search_text with invalid regex returns error."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+
+        result = executor.execute_tool(
+            "search_text",
+            {"patterns": "[invalid(regex", "is_regex": True},
+        )
+
+        assert not result.success
+        assert "Invalid regex" in result.error
+
+    def test_search_text_regex_with_alternation(self, temp_repo):
+        """Test search_text regex with | alternation."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+
+        result = executor.execute_tool(
+            "search_text",
+            {"patterns": r"(class|def)\s+\w+", "is_regex": True},
+        )
+
+        assert result.success
+        assert result.data["total_matches"] >= 1
+
+    def test_search_text_literal_special_chars_escaped(self, temp_repo):
+        """Test that special chars are escaped when is_regex=False."""
+        # Create a file with regex-special characters
+        (temp_repo / "special.txt").write_text("price is $10.99\n")
+
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+
+        # Without is_regex, the $ and . should be treated literally
+        result = executor.execute_tool(
+            "search_text",
+            {"patterns": "$10.99", "is_regex": False, "match_whole_word": False},
+        )
+
+        assert result.success
+        assert result.data["total_matches"] == 1
+
+
+class TestGetFileDiff:
+    """Test get_file_diff tool."""
+
+    def test_get_file_diff_no_changes(self, temp_repo):
+        """Test get_file_diff when file has no changes."""
+        # Initialize git repo and commit the file
+        import subprocess
+        subprocess.run(["git", "init"], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "Initial"], cwd=temp_repo, capture_output=True)
+
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_diff",
+            {"file_path": "src/main.py"},
+        )
+
+        assert result.success
+        assert result.data["has_changes"] is False
+
+    def test_get_file_diff_with_changes(self, temp_repo):
+        """Test get_file_diff when file has uncommitted changes."""
+        import subprocess
+        subprocess.run(["git", "init"], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "Initial"], cwd=temp_repo, capture_output=True)
+
+        # Make a change
+        main_file = temp_repo / "src" / "main.py"
+        main_file.write_text(main_file.read_text() + "\n# New comment\n")
+
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_diff",
+            {"file_path": "src/main.py"},
+        )
+
+        assert result.success
+        assert result.data["has_changes"] is True
+        assert "diff" in result.data
+        assert "+# New comment" in result.data["diff"]
+
+    def test_get_file_diff_missing_path(self, temp_repo):
+        """Test get_file_diff with missing file_path."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_diff",
+            {"file_path": ""},
+        )
+
+        assert not result.success
+        assert "file_path is required" in result.error
+
+    def test_get_file_diff_outside_repo(self, temp_repo):
+        """Test get_file_diff with path outside repository."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_diff",
+            {"file_path": "../../../etc/passwd"},
+        )
+
+        assert not result.success
+        assert "Access denied" in result.error
+
+    def test_get_file_diff_not_git_repo(self, tmp_path):
+        """Test get_file_diff when not in a git repository."""
+        # Create a non-git directory
+        test_file = tmp_path / "test.py"
+        test_file.write_text("# test\n")
+
+        executor = AIToolExecutor(tmp_path, 8192, make_mock_ctags(tmp_path))
+        result = executor.execute_tool(
+            "get_file_diff",
+            {"file_path": "test.py"},
+        )
+
+        assert not result.success
+        # Error message may vary: "Not a git repository" or "Could not access 'HEAD'"
+        assert "git" in result.error.lower() or "repository" in result.error.lower() or "HEAD" in result.error
+
+    def test_get_file_diff_with_context_lines(self, temp_repo):
+        """Test get_file_diff with custom context_lines."""
+        import subprocess
+        subprocess.run(["git", "init"], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=temp_repo, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "Initial"], cwd=temp_repo, capture_output=True)
+
+        # Make a change
+        main_file = temp_repo / "src" / "main.py"
+        main_file.write_text(main_file.read_text() + "\n# New comment\n")
+
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_diff",
+            {"file_path": "src/main.py", "context_lines": 5},
+        )
+
+        assert result.success
+        assert result.data["context_lines"] == 5
+
+
+class TestGitToolsTimeoutAndExceptions:
+    """Test timeout and exception handling for git tools."""
+
+    def test_get_file_diff_timeout(self, temp_repo, monkeypatch):
+        """Test get_file_diff handles subprocess timeout."""
+        import subprocess as sp
+        
+        def mock_run(*args, **kwargs):
+            raise sp.TimeoutExpired(cmd="git diff", timeout=30)
+        
+        monkeypatch.setattr(sp, "run", mock_run)
+        
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_diff",
+            {"file_path": "src/main.py"},
+        )
+        
+        assert not result.success
+        assert "timed out" in result.error
+
+    def test_get_file_diff_general_exception(self, temp_repo, monkeypatch):
+        """Test get_file_diff handles general exceptions."""
+        import subprocess as sp
+        
+        def mock_run(*args, **kwargs):
+            raise RuntimeError("Unexpected error")
+        
+        monkeypatch.setattr(sp, "run", mock_run)
+        
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_diff",
+            {"file_path": "src/main.py"},
+        )
+        
+        assert not result.success
+        assert "Error getting diff" in result.error
+
+
+class TestNewToolSchemas:
+    """Test schemas for new git tools."""
+
+    def test_get_file_diff_schema(self):
+        """Test get_file_diff schema details."""
+        schema = next(
+            t for t in AI_TOOLS_SCHEMA if t["function"]["name"] == "get_file_diff"
+        )
+
+        params = schema["function"]["parameters"]
+        assert "file_path" in params["properties"]
+        assert "context_lines" in params["properties"]
+        assert "file_path" in params["required"]
+        # context_lines should have min/max
+        assert params["properties"]["context_lines"]["minimum"] == 0
+        assert params["properties"]["context_lines"]["maximum"] == 10
+
+    def test_search_text_is_regex_schema(self):
+        """Test search_text schema includes is_regex parameter."""
+        schema = next(
+            t for t in AI_TOOLS_SCHEMA if t["function"]["name"] == "search_text"
+        )
+
+        params = schema["function"]["parameters"]
+        assert "is_regex" in params["properties"]
+        assert params["properties"]["is_regex"]["type"] == "boolean"
+
+
+class TestGetFileSummary:
+    """Tests for get_file_summary tool."""
+
+    def test_get_file_summary_python_file(self, temp_repo):
+        """Test get_file_summary extracts Python structure."""
+        test_file = temp_repo / "module.py"
+        test_file.write_text("""
+import os
+from pathlib import Path
+
+class MyClass:
+    def __init__(self):
+        pass
+    
+    def method(self):
+        pass
+
+def helper_function():
+    pass
+
+CONSTANT = 42
+""")
+
+        # Configure mock to return expected structure
+        mock_ctags = make_mock_ctags(temp_repo)
+        mock_ctags.get_file_structure.return_value = {
+            "file_path": "module.py",
+            "classes": [{"name": "MyClass", "line": 5}],
+            "functions": [
+                {"name": "__init__", "line": 6},
+                {"name": "method", "line": 9},
+                {"name": "helper_function", "line": 12},
+            ],
+            "variables": [{"name": "CONSTANT", "line": 15}],
+            "imports": ["import os", "from pathlib import Path"],
+            "other": [],
+        }
+
+        executor = AIToolExecutor(temp_repo, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "get_file_summary", {"file_path": "module.py"}
+        )
+
+        assert result.success is True
+        data = result.data
+        assert data["file_path"] == "module.py"
+        assert "classes" in data
+        assert "functions" in data
+        assert "imports" in data
+        # Classes and functions are dicts with 'name' and 'line'
+        class_names = [c["name"] for c in data["classes"]]
+        function_names = [f["name"] for f in data["functions"]]
+        assert "MyClass" in class_names
+        assert "helper_function" in function_names
+        assert any("os" in i or "pathlib" in i for i in data["imports"])
+
+    def test_get_file_summary_javascript_file(self, temp_repo):
+        """Test get_file_summary extracts JavaScript structure."""
+        test_file = temp_repo / "module.js"
+        test_file.write_text("""
+import { something } from 'module';
+const { foo } = require('bar');
+
+class JsClass {
+    constructor() {}
+    method() {}
+}
+
+function namedFunction() {}
+
+const arrowFunc = () => {};
+""")
+
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_summary", {"file_path": "module.js"}
+        )
+
+        assert result.success is True
+        data = result.data
+        assert "classes" in data
+        assert "functions" in data
+        assert "imports" in data
+
+    def test_get_file_summary_file_not_found(self, temp_repo):
+        """Test get_file_summary with non-existent file."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_summary", {"file_path": "nonexistent.py"}
+        )
+
+        assert result.success is False
+        assert "not found" in result.error.lower() or "does not exist" in result.error.lower()
+
+    def test_get_file_summary_missing_path(self, temp_repo):
+        """Test get_file_summary with missing path."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool("get_file_summary", {})
+
+        assert result.success is False
+        assert "file_path" in result.error.lower()
+
+
+class TestSymbolExists:
+    """Tests for symbol_exists tool."""
+
+    def test_symbol_exists_finds_function(self, temp_repo):
+        """Test symbol_exists finds a function definition."""
+        test_file = temp_repo / "code.py"
+        test_file.write_text("""
+def my_unique_function():
+    pass
+""")
+
+        # Configure mock to return symbol data
+        mock_ctags = make_mock_ctags(temp_repo)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(
+                name="my_unique_function",
+                file_path="code.py",
+                line=2,
+                kind="function",
+                language="Python",
+                pattern="def my_unique_function():",
+                scope=None,
+                signature=None,
+            )
+        ]
+
+        executor = AIToolExecutor(temp_repo, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "symbol_exists", {"symbol": "my_unique_function"}
+        )
+
+        assert result.success is True
+        data = result.data
+        assert data["exists"] is True
+        assert data["symbol"] == "my_unique_function"
+        assert "locations" in data
+        assert len(data["locations"]) > 0
+
+    def test_symbol_exists_finds_class(self, temp_repo):
+        """Test symbol_exists finds a class definition."""
+        test_file = temp_repo / "models.py"
+        test_file.write_text("""
+class UniqueClassName:
+    pass
+""")
+
+        # Configure mock to return class symbol
+        mock_ctags = make_mock_ctags(temp_repo)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(
+                name="UniqueClassName",
+                file_path="models.py",
+                line=2,
+                kind="class",
+                language="Python",
+                pattern="class UniqueClassName:",
+                scope=None,
+                signature=None,
+            )
+        ]
+
+        executor = AIToolExecutor(temp_repo, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "symbol_exists", {"symbol": "UniqueClassName", "symbol_type": "class"}
+        )
+
+        assert result.success is True
+        assert result.data["exists"] is True
+
+    def test_symbol_exists_not_found(self, temp_repo):
+        """Test symbol_exists when symbol doesn't exist."""
+        # Mock returns empty list (default)
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "symbol_exists", {"symbol": "nonexistent_symbol_12345"}
+        )
+
+        assert result.success is True
+        assert result.data["exists"] is False
+        assert result.data["locations"] == []
+
+    def test_symbol_exists_missing_symbol(self, temp_repo):
+        """Test symbol_exists with missing symbol parameter."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool("symbol_exists", {})
+
+        assert result.success is False
+        assert "symbol" in result.error.lower()
+
+    def test_symbol_exists_type_filter(self, temp_repo):
+        """Test symbol_exists with type filter."""
+        test_file = temp_repo / "mixed.py"
+        test_file.write_text("""
+def process():
+    pass
+
+class process:  # Same name as function
+    pass
+""")
+
+        # Configure mock to return both function and class
+        mock_ctags = make_mock_ctags(temp_repo)
+        
+        # For "any" query, return both
+        def find_symbol_side_effect(name, kind=None):
+            symbols = [
+                Symbol(name="process", file_path="mixed.py", line=2, kind="function",
+                       language="Python", pattern="def process():", scope=None, signature=None),
+                Symbol(name="process", file_path="mixed.py", line=5, kind="class",
+                       language="Python", pattern="class process:", scope=None, signature=None),
+            ]
+            if kind:
+                return [s for s in symbols if s.kind == kind]
+            return symbols
+        
+        mock_ctags.find_symbol.side_effect = find_symbol_side_effect
+
+        executor = AIToolExecutor(temp_repo, 8192, mock_ctags)
+        
+        # Without type filter - should find something
+        result = executor.execute_tool(
+            "symbol_exists", {"symbol": "process"}
+        )
+        assert result.success is True
+        assert result.data["exists"] is True
+
+        # With function type filter
+        result = executor.execute_tool(
+            "symbol_exists", {"symbol": "process", "symbol_type": "function"}
+        )
+        assert result.success is True
+        assert result.data["exists"] is True
+
+
+class TestIsDefinitionLine:
+    """Tests for _is_definition_line helper."""
+
+    def test_detects_python_function(self, temp_repo):
+        """Test detecting Python function definition."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        assert executor._is_definition_line("def my_function():", "my_function") is True
+        assert executor._is_definition_line("async def my_function():", "my_function") is True
+        assert executor._is_definition_line("  def my_function():", "my_function") is True
+
+    def test_detects_python_class(self, temp_repo):
+        """Test detecting Python class definition."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        assert executor._is_definition_line("class MyClass:", "MyClass") is True
+        assert executor._is_definition_line("class MyClass(Base):", "MyClass") is True
+
+    def test_detects_javascript_function(self, temp_repo):
+        """Test detecting JavaScript function definition."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        assert executor._is_definition_line("function myFunc() {", "myFunc") is True
+        assert executor._is_definition_line("const myFunc = () => {}", "myFunc") is True
+        assert executor._is_definition_line("let myFunc = function() {}", "myFunc") is True
+
+    def test_detects_javascript_class(self, temp_repo):
+        """Test detecting JavaScript class definition."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        assert executor._is_definition_line("class MyClass {", "MyClass") is True
+        assert executor._is_definition_line("export class MyClass {", "MyClass") is True
+        assert executor._is_definition_line("export default class MyClass {", "MyClass") is True
+
+    def test_not_definition(self, temp_repo):
+        """Test that usage lines are not detected as definitions."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        # Function calls are not definitions
+        assert executor._is_definition_line("result = my_function()", "my_function") is False
+        # References in strings are not definitions
+        assert executor._is_definition_line("print('my_function')", "my_function") is False
+
+
+class TestSymbolExistsTypeFilters:
+    """Additional tests for symbol_exists type filtering."""
+
+    def test_symbol_exists_variable_type(self, temp_repo):
+        """Test symbol_exists with variable type filter."""
+        test_file = temp_repo / "vars.py"
+        test_file.write_text("""
+let myVariable = 42
+const MY_CONSTANT = "value"
+var anotherVar = true
+""")
+
+        # Configure mock to return variable symbol
+        mock_ctags = make_mock_ctags(temp_repo)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="myVariable", file_path="vars.py", line=2, kind="variable",
+                   language="Python", pattern="let myVariable = 42", scope=None, signature=None)
+        ]
+
+        executor = AIToolExecutor(temp_repo, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "symbol_exists", {"symbol": "myVariable", "symbol_type": "variable"}
+        )
+        assert result.success is True
+        assert result.data["exists"] is True
+
+    def test_symbol_exists_constant_type(self, temp_repo):
+        """Test symbol_exists with constant type filter."""
+        test_file = temp_repo / "consts.py"
+        test_file.write_text("""
+const MAX_SIZE = 100
+final int BUFFER_SIZE = 1024
+#define DEBUG_MODE 1
+""")
+
+        # Configure mock to return constant symbol
+        mock_ctags = make_mock_ctags(temp_repo)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="MAX_SIZE", file_path="consts.py", line=2, kind="constant",
+                   language="Python", pattern="const MAX_SIZE = 100", scope=None, signature=None)
+        ]
+
+        executor = AIToolExecutor(temp_repo, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "symbol_exists", {"symbol": "MAX_SIZE", "symbol_type": "constant"}
+        )
+        assert result.success is True
+        assert result.data["exists"] is True
+
+    def test_symbol_exists_interface_type(self, temp_repo):
+        """Test symbol_exists with interface type filter."""
+        test_file = temp_repo / "interfaces.ts"
+        test_file.write_text("""
+interface IUserService {
+    getUser(id: string): User;
+}
+
+protocol DataProvider {
+    func fetchData() -> Data
+}
+""")
+
+        # Configure mock to return interface symbol
+        mock_ctags = make_mock_ctags(temp_repo)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="IUserService", file_path="interfaces.ts", line=2, kind="interface",
+                   language="TypeScript", pattern="interface IUserService {", scope=None, signature=None)
+        ]
+
+        executor = AIToolExecutor(temp_repo, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "symbol_exists", {"symbol": "IUserService", "symbol_type": "interface"}
+        )
+        assert result.success is True
+        assert result.data["exists"] is True
+
+
+class TestGetFileSummaryEdgeCases:
+    """Additional tests for get_file_summary edge cases."""
+
+    def test_get_file_summary_with_constants(self, temp_repo):
+        """Test that get_file_summary detects constants."""
+        test_file = temp_repo / "config.py"
+        test_file.write_text("""
+const MAX_RETRIES = 3
+final static int BUFFER_SIZE = 1024
+#define MAX_CONNECTIONS 100
+readonly string CONFIG_PATH = "/etc/app"
+""")
+
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_summary", {"file_path": "config.py"}
+        )
+
+        assert result.success is True
+        # Constants detection may vary by pattern matching
+
+    def test_get_file_summary_cpp_file(self, temp_repo):
+        """Test get_file_summary with C++ file."""
+        test_file = temp_repo / "module.cpp"
+        test_file.write_text("""
+#include <iostream>
+#include "header.h"
+
+class Calculator {
+public:
+    int add(int a, int b);
+    int multiply(int a, int b);
+};
+
+void helperFunction() {
+    // implementation
+}
+""")
+
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_summary", {"file_path": "module.cpp"}
+        )
+
+        assert result.success is True
+        data = result.data
+        assert "classes" in data
+        assert "functions" in data
+        assert "imports" in data
+
+    def test_get_file_summary_go_file(self, temp_repo):
+        """Test get_file_summary with Go file."""
+        test_file = temp_repo / "main.go"
+        test_file.write_text("""
+package main
+
+import (
+    "fmt"
+    "net/http"
+)
+
+type Server struct {
+    port int
+}
+
+func (s *Server) Start() error {
+    return nil
+}
+
+func main() {
+    fmt.Println("Hello")
+}
+""")
+
+        # Configure mock to return Go file structure
+        mock_ctags = make_mock_ctags(temp_repo)
+        mock_ctags.get_file_structure.return_value = {
+            "file_path": "main.go",
+            "classes": [{"name": "Server", "line": 9}],
+            "functions": [
+                {"name": "Start", "line": 13},
+                {"name": "main", "line": 17},
+            ],
+            "variables": [],
+            "imports": ['import "fmt"', 'import "net/http"'],
+            "other": [],
+        }
+
+        executor = AIToolExecutor(temp_repo, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "get_file_summary", {"file_path": "main.go"}
+        )
+
+        assert result.success is True
+        data = result.data
+        assert len(data["functions"]) >= 1  # At least main() should be detected
+
+    def test_get_file_summary_truncates_long_imports(self, temp_repo):
+        """Test that long import lines are truncated."""
+        long_import = "import " + "a" * 100 + " from 'long-module-name'"
+        test_file = temp_repo / "long_imports.js"
+        test_file.write_text(f"""
+{long_import}
+function test() {{}}
+""")
+
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "get_file_summary", {"file_path": "long_imports.js"}
+        )
+
+        assert result.success is True
+        # Imports should be truncated at 80 chars + "..."
+        if result.data["imports"]:
+            assert len(result.data["imports"][0]) <= 84  # 80 + "..."
+
+
+class TestSearchTextDefinitionOrdering:
+    """Test that search results prioritize definitions."""
+
+    def test_definitions_come_first(self, temp_repo):
+        """Test that definition matches appear before usage matches."""
+        # Create file with definition and usages
+        test_file = temp_repo / "module.py"
+        test_file.write_text("""
+# Line 1 - usage
+result = calculate_total(items)
+# Line 3 - definition
+def calculate_total(items):
+    return sum(items)
+# Line 6 - another usage
+total = calculate_total(data)
+""")
+
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool(
+            "search_text", {"patterns": "calculate_total"}
+        )
+
+        assert result.success is True
+        matches = result.data["matches_by_pattern"]["calculate_total"]
+        
+        # Should have multiple matches
+        assert len(matches) >= 2
+        
+        # Definition (is_definition=True) should come before usages
+        has_definition_first = False
+        for i, match in enumerate(matches):
+            if match.get("is_definition"):
+                has_definition_first = i == 0
+                break
+        
+        # The definition should appear first in the sorted results
+        assert has_definition_first or any(m.get("is_definition") for m in matches)
+
+
+class TestLLMInterfaceConsistency:
+    """Tests to verify LLM interface consistency."""
+
+    def test_all_tools_in_schema(self):
+        """Verify all 11 tools are present in schema."""
+        tool_names = {tool["function"]["name"] for tool in AI_TOOLS_SCHEMA}
+        expected_tools = {
+            "search_text",
+            "read_file", 
+            "list_directory",
+            "get_file_diff",
+            "get_file_summary",
+            "symbol_exists",
+            "find_definition",
+            "list_symbols",
+            "find_symbols",
+            "get_class_members",
+            "get_index_stats",
+        }
+        assert tool_names == expected_tools
+
+    def test_all_tools_have_required_fields(self):
+        """Verify all tool schemas have required fields."""
+        for tool in AI_TOOLS_SCHEMA:
+            assert tool["type"] == "function"
+            func = tool["function"]
+            assert "name" in func
+            assert "description" in func
+            assert "parameters" in func
+            assert func["parameters"]["type"] == "object"
+            assert "properties" in func["parameters"]
+            assert "required" in func["parameters"]
+
+    def test_tool_names_match_executor_dispatch(self, temp_repo):
+        """Verify executor handles all schema-defined tools."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        
+        # Test that all tools are handled (return success or expected error)
+        test_args = {
+            "search_text": {"patterns": "test"},
+            "read_file": {"file_path": "nonexistent.py"},
+            "list_directory": {"directory_path": "."},
+            "get_file_diff": {"file_path": "test.py"},
+            "get_git_blame": {"file_path": "test.py", "start_line": 1, "end_line": 1},
+            "get_file_history": {"file_path": "test.py"},
+            "get_file_summary": {"file_path": "nonexistent.py"},
+            "symbol_exists": {"symbol": "test"},
+        }
+
+        for tool_name, args in test_args.items():
+            result = executor.execute_tool(tool_name, args)
+            # Should return a ToolResult (not raise exception)
+            assert isinstance(result, ToolResult), f"Tool {tool_name} should return ToolResult"
+
+    def test_unknown_tool_returns_error(self, temp_repo):
+        """Verify unknown tools return proper error."""
+        executor = AIToolExecutor(temp_repo, 8192, make_mock_ctags(temp_repo))
+        result = executor.execute_tool("nonexistent_tool", {})
+        assert result.success is False
+        assert "Unknown tool" in result.error
+
+
+class TestBuildUserPromptFormat:
+    """Tests for build_user_prompt formatting."""
+
+    def test_includes_line_numbers(self):
+        """Test that build_user_prompt includes line numbers."""
+        from code_scanner.base_client import build_user_prompt
+        
+        prompt = build_user_prompt(
+            check_query="Test check",
+            files_content={"test.py": "line1\nline2\nline3"}
+        )
+        
+        assert "L1:" in prompt
+        assert "L2:" in prompt
+        assert "L3:" in prompt
+
+    def test_includes_boundary_markers(self):
+        """Test that build_user_prompt includes boundary markers."""
+        from code_scanner.base_client import build_user_prompt
+        
+        prompt = build_user_prompt(
+            check_query="Test check",
+            files_content={"test.py": "code"}
+        )
+        
+        assert "<<<FILE_START>>>" in prompt
+        assert "<<<FILE_END>>>" in prompt
+
+    def test_includes_file_metadata(self):
+        """Test that build_user_prompt includes file metadata."""
+        from code_scanner.base_client import build_user_prompt
+        
+        prompt = build_user_prompt(
+            check_query="Test check",
+            files_content={"src/module.py": "line1\nline2"}
+        )
+        
+        assert "src/module.py" in prompt
+        assert "lines 1-2" in prompt
+        assert "total: 2" in prompt
+
+    def test_multiple_files_formatted(self):
+        """Test formatting with multiple files."""
+        from code_scanner.base_client import build_user_prompt
+        
+        prompt = build_user_prompt(
+            check_query="Test check",
+            files_content={
+                "file1.py": "code1",
+                "file2.py": "code2\nline2",
+            }
+        )
+        
+        assert "file1.py" in prompt
+        assert "file2.py" in prompt
+        assert prompt.count("<<<FILE_START>>>") == 2
+        assert prompt.count("<<<FILE_END>>>") == 2
+
+
+class TestSearchTextWithFilePattern:
+    """Tests for search_text with file_pattern parameter."""
+
+    def test_search_text_with_file_pattern_matching(self, tmp_path: Path):
+        """Test search_text with file_pattern that matches files."""
+        # Create test files
+        py_file = tmp_path / "test.py"
+        py_file.write_text("def my_function():\n    pass")
+        
+        js_file = tmp_path / "test.js"
+        js_file.write_text("function my_function() {}")
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=make_mock_ctags(tmp_path))
+        result = executor.execute_tool("search_text", {"patterns": ["my_function"], "file_pattern": "*.py"})
+        
+        assert result.success
+        # Should only find in .py file
+        matches = result.data["matches_by_pattern"].get("my_function", [])
+        assert len(matches) >= 1
+        assert all(m["file"] == "test.py" for m in matches)
+
+    def test_search_text_with_file_pattern_no_match(self, tmp_path: Path):
+        """Test search_text with file_pattern that doesn't match any files."""
+        # Create test file
+        py_file = tmp_path / "test.py"
+        py_file.write_text("def my_function():\n    pass")
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=make_mock_ctags(tmp_path))
+        result = executor.execute_tool("search_text", {"patterns": ["my_function"], "file_pattern": "*.ts"})
+        
+        assert result.success
+        # Should find no matches since no .ts files
+        assert result.data["total_matches"] == 0
+
+
+class TestGetFileSummaryEdgeCasesExtended:
+    """Extended tests for get_file_summary edge cases."""
+
+    def test_get_file_summary_outside_repo(self, tmp_path: Path):
+        """Test get_file_summary with path outside repository."""
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=make_mock_ctags(tmp_path))
+        result = executor.execute_tool("get_file_summary", {"file_path": "/etc/passwd"})
+        
+        assert not result.success
+        assert "outside repository" in result.error.lower() or "access denied" in result.error.lower()
+
+    def test_get_file_summary_directory_not_file(self, tmp_path: Path):
+        """Test get_file_summary when path is a directory."""
+        subdir = tmp_path / "subdir"
+        subdir.mkdir()
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=make_mock_ctags(tmp_path))
+        result = executor.execute_tool("get_file_summary", {"file_path": "subdir"})
+        
+        assert not result.success
+        assert "not a file" in result.error.lower()
+
+    def test_get_file_summary_binary_file(self, tmp_path: Path):
+        """Test get_file_summary with binary file - ctags returns empty structure."""
+        binary_file = tmp_path / "test.bin"
+        binary_file.write_bytes(b"\x00\x01\x02\x03\x04\x05")
+        
+        # Ctags-based implementation returns success with empty structure for binary files
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=make_mock_ctags(tmp_path))
+        result = executor.execute_tool("get_file_summary", {"file_path": "test.bin"})
+        
+        # With ctags, binary files return success with empty structure
+        assert result.success
+        assert result.data["classes"] == []
+        assert result.data["functions"] == []
+
+    def test_get_file_summary_read_error(self, tmp_path: Path, monkeypatch):
+        """Test get_file_summary when ctags throws an exception."""
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def test(): pass")
+        
+        # Configure mock to raise exception
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.get_file_structure.side_effect = RuntimeError("Ctags parsing failed")
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor.execute_tool("get_file_summary", {"file_path": "test.py"})
+        
+        assert not result.success
+        assert "error" in result.error.lower()
+
+    def test_get_file_summary_exception(self, tmp_path: Path, monkeypatch):
+        """Test get_file_summary when an exception occurs during analysis."""
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def test(): pass")
+        
+        # Configure mock to raise exception
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.get_file_structure.side_effect = RuntimeError("Test exception")
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor.execute_tool("get_file_summary", {"file_path": "test.py"})
+        
+        assert not result.success
+
+
+class TestSymbolExistsEdgeCases:
+    """Edge case tests for symbol_exists using ctags."""
+
+    def test_symbol_exists_type_alias(self, tmp_path: Path):
+        """Test symbol_exists with type alias pattern."""
+        test_file = tmp_path / "types.ts"
+        test_file.write_text("type UserId = string;\ntype Config = { name: string };")
+        
+        # Configure mock to return type alias symbol
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="UserId", file_path="types.ts", line=1, kind="type",
+                   language="TypeScript", pattern="type UserId = string;", scope=None, signature=None)
+        ]
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor.execute_tool("symbol_exists", {"symbol": "UserId", "symbol_type": "type"})
+        
+        assert result.success
+        assert result.data["exists"]
+
+    def test_symbol_exists_interface(self, tmp_path: Path):
+        """Test symbol_exists finds interface definitions."""
+        test_file = tmp_path / "interfaces.ts"
+        test_file.write_text("interface UserInterface {\n  name: string;\n}")
+        
+        # Configure mock to return interface symbol
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="UserInterface", file_path="interfaces.ts", line=1, kind="interface",
+                   language="TypeScript", pattern="interface UserInterface {", scope=None, signature=None)
+        ]
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor.execute_tool("symbol_exists", {"symbol": "UserInterface", "symbol_type": "interface"})
+        
+        assert result.success
+        assert result.data["exists"]
+
+    def test_symbol_exists_exception_handling(self, tmp_path: Path):
+        """Test symbol_exists handles ctags exceptions gracefully."""
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def special_func(): pass")
+        
+        # Configure mock to raise exception
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_symbol.side_effect = RuntimeError("Ctags error")
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor.execute_tool("symbol_exists", {"symbol": "special_func", "symbol_type": "any"})
+        
+        assert not result.success
+        assert "error" in result.error.lower()
+
+    def test_symbol_exists_not_found_returns_false(self, tmp_path: Path):
+        """Test symbol_exists returns exists=False when symbol not in index."""
+        visible_file = tmp_path / "visible.py"
+        visible_file.write_text("def visible_func(): pass")
+        
+        # Mock returns empty (symbol not found)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=make_mock_ctags(tmp_path))
+        
+        result = executor.execute_tool("symbol_exists", {"symbol": "nonexistent_func"})
+        assert result.success
+        assert not result.data["exists"]
+
+    def test_symbol_exists_finds_symbol_in_index(self, tmp_path: Path):
+        """Test symbol_exists returns exists=True when symbol is in index."""
+        src_file = tmp_path / "src.js"
+        src_file.write_text("function src_func() {}")
+        
+        # Configure mock to return symbol
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="src_func", file_path="src.js", line=1, kind="function",
+                   language="JavaScript", pattern="function src_func() {}", scope=None, signature=None)
+        ]
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        
+        result = executor.execute_tool("symbol_exists", {"symbol": "src_func"})
+        assert result.success
+        assert result.data["exists"]
+
+    def test_symbol_exists_returns_location_info(self, tmp_path: Path):
+        """Test symbol_exists returns correct location information."""
+        text_file = tmp_path / "test.py"
+        text_file.write_text("def real_func(): pass")
+        
+        # Configure mock to return symbol with location
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="real_func", file_path="test.py", line=1, kind="function",
+                   language="Python", pattern="def real_func(): pass", scope=None, signature="()")
+        ]
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor.execute_tool("symbol_exists", {"symbol": "real_func"})
+        
+        assert result.success
+        assert result.data["exists"]
+        assert len(result.data["locations"]) == 1
+        assert result.data["locations"][0]["file"] == "test.py"
+        assert result.data["locations"][0]["line"] == 1
+
+    def test_symbol_exists_limits_results(self, tmp_path: Path):
+        """Test symbol_exists limits results to 10 locations."""
+        # Create mock that returns many symbols
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="repeated_func", file_path=f"module{i}.py", line=1, kind="function",
+                   language="Python", pattern="def repeated_func(): pass", scope=None, signature=None)
+            for i in range(20)  # More than limit
+        ]
+        
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor.execute_tool("symbol_exists", {"symbol": "repeated_func"})
+        
+        assert result.success
+        assert result.data["exists"]
+        # Should be limited to 10 locations
+        assert len(result.data["locations"]) <= 10

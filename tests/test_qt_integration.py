@@ -6,6 +6,7 @@ These tests verify the full scan cycle without requiring a real LM Studio instan
 import os
 import pytest
 import shutil
+import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ from code_scanner.issue_tracker import IssueTracker
 from code_scanner.output import OutputGenerator
 from code_scanner.scanner import Scanner
 from code_scanner.models import Issue, GitState, ChangedFile
+from code_scanner.ctags_index import CtagsIndex
 
 
 # Path to sample Qt project
@@ -29,13 +31,14 @@ def temp_git_repo():
     """Create a temporary Git repository."""
     temp_dir = tempfile.mkdtemp()
     
-    os.system(f"cd {temp_dir} && git init -q")
-    os.system(f"cd {temp_dir} && git config user.email 'test@test.com'")
-    os.system(f"cd {temp_dir} && git config user.name 'Test'")
+    subprocess.run(["git", "init", "-q"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=temp_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=temp_dir, check=True)
     
     readme = Path(temp_dir) / "README.md"
     readme.write_text("# Test Project\n")
-    os.system(f"cd {temp_dir} && git add . && git commit -m 'Initial' -q")
+    subprocess.run(["git", "add", "."], cwd=temp_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial", "-q"], cwd=temp_dir, check=True)
     
     yield Path(temp_dir)
     
@@ -105,6 +108,31 @@ def mock_llm_client():
     return client
 
 
+@pytest.fixture
+def mock_ctags_index(temp_repo_with_qt):
+    """Create a mock CtagsIndex for testing."""
+    mock_index = MagicMock(spec=CtagsIndex)
+    mock_index.target_directory = temp_repo_with_qt
+    mock_index.find_symbol.return_value = []
+    mock_index.find_symbols_by_pattern.return_value = []
+    mock_index.find_definitions.return_value = []
+    mock_index.get_symbols_in_file.return_value = []
+    mock_index.get_class_members.return_value = []
+    mock_index.get_file_structure.return_value = {
+        "file": str(temp_repo_with_qt / "test.py"),
+        "language": "C++",
+        "symbols": [],
+        "structure_summary": "",
+    }
+    mock_index.get_stats.return_value = {
+        "total_symbols": 0,
+        "files_indexed": 0,
+        "symbols_by_kind": {},
+        "languages": [],
+    }
+    return mock_index
+
+
 class TestSampleQtProjectScan:
     """Tests that scan the sample Qt project with mocked LLM."""
 
@@ -119,7 +147,7 @@ class TestSampleQtProjectScan:
         cpp_files = [f for f in state.changed_files if f.path.endswith(('.cpp', '.h'))]
         assert len(cpp_files) > 0
 
-    def test_scan_qt_project_finds_issues(self, temp_repo_with_qt, mock_llm_client):
+    def test_scan_qt_project_finds_issues(self, temp_repo_with_qt, mock_llm_client, mock_ctags_index):
         """Test full scan cycle with mocked LLM finding issues."""
         # Create config
         config = MagicMock(spec=Config)
@@ -150,6 +178,7 @@ class TestSampleQtProjectScan:
             llm_client=mock_llm_client,
             issue_tracker=issue_tracker,
             output_generator=output_generator,
+            ctags_index=mock_ctags_index,
         )
         
         # Get changed files
@@ -183,7 +212,7 @@ class TestSampleQtProjectScan:
         assert issues[0].file_path == "src/main.cpp"
         assert "memory leak" in issues[0].description.lower()
 
-    def test_full_scan_cycle_generates_output(self, temp_repo_with_qt, mock_llm_client):
+    def test_full_scan_cycle_generates_output(self, temp_repo_with_qt, mock_llm_client, mock_ctags_index):
         """Test that a full scan cycle generates proper output file."""
         config = MagicMock(spec=Config)
         config.target_directory = temp_repo_with_qt
@@ -209,6 +238,7 @@ class TestSampleQtProjectScan:
             llm_client=mock_llm_client,
             issue_tracker=issue_tracker,
             output_generator=output_generator,
+            ctags_index=mock_ctags_index,
         )
         
         # Run scan
@@ -220,7 +250,7 @@ class TestSampleQtProjectScan:
         content = output_path.read_text()
         assert "Code Scanner Results" in content
 
-    def test_multiple_check_groups(self, temp_repo_with_qt, mock_llm_client):
+    def test_multiple_check_groups(self, temp_repo_with_qt, mock_llm_client, mock_ctags_index):
         """Test scanning with multiple check groups."""
         config = MagicMock(spec=Config)
         config.target_directory = temp_repo_with_qt
@@ -247,6 +277,7 @@ class TestSampleQtProjectScan:
             llm_client=mock_llm_client,
             issue_tracker=issue_tracker,
             output_generator=output_generator,
+            ctags_index=mock_ctags_index,
         )
         
         state = git_watcher.get_state()
@@ -259,7 +290,7 @@ class TestSampleQtProjectScan:
 class TestIssueTracking:
     """Tests for issue tracking during scans."""
 
-    def test_issues_are_deduplicated(self, temp_repo_with_qt, mock_llm_client):
+    def test_issues_are_deduplicated(self, temp_repo_with_qt, mock_llm_client, mock_ctags_index):
         """Test that duplicate issues are not added twice."""
         config = MagicMock(spec=Config)
         config.target_directory = temp_repo_with_qt
@@ -284,6 +315,7 @@ class TestIssueTracking:
             llm_client=mock_llm_client,
             issue_tracker=issue_tracker,
             output_generator=output_generator,
+            ctags_index=mock_ctags_index,
         )
         
         state = git_watcher.get_state()
@@ -298,7 +330,7 @@ class TestIssueTracking:
         # Same issues should be deduplicated
         assert final_count == initial_count
 
-    def test_issues_resolved_for_deleted_files(self, temp_repo_with_qt, mock_llm_client):
+    def test_issues_resolved_for_deleted_files(self, temp_repo_with_qt, mock_llm_client, mock_ctags_index):
         """Test that issues are resolved when files are deleted."""
         config = MagicMock(spec=Config)
         config.target_directory = temp_repo_with_qt
@@ -323,6 +355,7 @@ class TestIssueTracking:
             llm_client=mock_llm_client,
             issue_tracker=issue_tracker,
             output_generator=output_generator,
+            ctags_index=mock_ctags_index,
         )
         
         # Add an existing issue for a file
@@ -360,7 +393,7 @@ class TestIssueTracking:
 class TestBatchProcessing:
     """Tests for batch processing logic."""
 
-    def test_large_files_split_into_batches(self, temp_repo_with_qt):
+    def test_large_files_split_into_batches(self, temp_repo_with_qt, mock_ctags_index):
         """Test that large files are split into multiple batches."""
         # Create a mock config with small context limit
         config = MagicMock(spec=Config)
@@ -378,6 +411,7 @@ class TestBatchProcessing:
             llm_client=llm_client,
             issue_tracker=MagicMock(),
             output_generator=MagicMock(),
+            ctags_index=mock_ctags_index,
         )
         scanner._scan_info = {"skipped_files": []}
         
@@ -392,7 +426,7 @@ class TestBatchProcessing:
         # Should create multiple batches due to small context limit
         assert len(batches) >= 1
 
-    def test_pattern_filtering_works_correctly(self, temp_repo_with_qt):
+    def test_pattern_filtering_works_correctly(self, temp_repo_with_qt, mock_ctags_index):
         """Test that pattern filtering correctly separates file types."""
         config = MagicMock(spec=Config)
         config.target_directory = temp_repo_with_qt
@@ -406,6 +440,7 @@ class TestBatchProcessing:
             llm_client=llm_client,
             issue_tracker=MagicMock(),
             output_generator=MagicMock(),
+            ctags_index=mock_ctags_index,
         )
         
         batches = [
@@ -506,7 +541,7 @@ timeout = 120
 class TestErrorHandling:
     """Tests for error handling during scans."""
 
-    def test_scan_continues_after_llm_error(self, temp_repo_with_qt):
+    def test_scan_continues_after_llm_error(self, temp_repo_with_qt, mock_ctags_index):
         """Test that scan handles LLM errors gracefully."""
         config = MagicMock(spec=Config)
         config.target_directory = temp_repo_with_qt
@@ -543,6 +578,7 @@ class TestErrorHandling:
             llm_client=mock_llm,
             issue_tracker=IssueTracker(),
             output_generator=MagicMock(),
+            ctags_index=mock_ctags_index,
         )
         
         state = git_watcher.get_state()
@@ -553,7 +589,7 @@ class TestErrorHandling:
         except LLMClientError:
             pass  # Expected - first query fails
 
-    def test_scan_handles_empty_response(self, temp_repo_with_qt):
+    def test_scan_handles_empty_response(self, temp_repo_with_qt, mock_ctags_index):
         """Test that scan handles empty LLM responses."""
         config = MagicMock(spec=Config)
         config.target_directory = temp_repo_with_qt
@@ -579,6 +615,7 @@ class TestErrorHandling:
             llm_client=mock_llm,
             issue_tracker=IssueTracker(),
             output_generator=MagicMock(),
+            ctags_index=mock_ctags_index,
         )
         
         state = git_watcher.get_state()

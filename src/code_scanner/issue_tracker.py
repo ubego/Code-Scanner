@@ -16,6 +16,9 @@ class IssueTracker:
         """Initialize the issue tracker."""
         self._issues: list[Issue] = []
         self._changed: bool = False
+        # File-based indices for O(1) lookup instead of O(n) iteration
+        self._open_by_file: dict[str, list[Issue]] = {}
+        self._resolved_by_file: dict[str, list[Issue]] = {}
 
     @property
     def issues(self) -> list[Issue]:
@@ -46,9 +49,11 @@ class IssueTracker:
         Returns:
             True if a new issue was added, False if deduplicated.
         """
-        # Check for existing matching issue
-        for existing in self._issues:
-            if existing.status == IssueStatus.OPEN and existing.matches(issue):
+        file_path = issue.file_path
+        
+        # Check for existing matching OPEN issue (O(1) file lookup)
+        for existing in self._open_by_file.get(file_path, []):
+            if existing.matches(issue):
                 # Update line number if different
                 if existing.line_number != issue.line_number:
                     logger.debug(
@@ -60,20 +65,28 @@ class IssueTracker:
                     self._changed = True
                 return False
 
-        # Check if this was a previously resolved issue that reappeared
-        for existing in self._issues:
-            if existing.status == IssueStatus.RESOLVED and existing.matches(issue):
-                # Reopen the issue
+        # Check for existing matching RESOLVED issue (O(1) file lookup)
+        for existing in self._resolved_by_file.get(file_path, []):
+            if existing.matches(issue):
+                # Reopen the issue - move from resolved to open index
                 logger.info(f"Reopening resolved issue: {existing.file_path}")
                 existing.status = IssueStatus.OPEN
                 existing.line_number = issue.line_number
                 existing.timestamp = issue.timestamp
+                self._resolved_by_file[file_path].remove(existing)
+                if file_path not in self._open_by_file:
+                    self._open_by_file[file_path] = []
+                self._open_by_file[file_path].append(existing)
                 self._changed = True
                 return False
 
         # Add new issue
         logger.info(f"New issue: {issue.file_path}:{issue.line_number}")
         self._issues.append(issue)
+        # Add to open index
+        if file_path not in self._open_by_file:
+            self._open_by_file[file_path] = []
+        self._open_by_file[file_path].append(issue)
         self._changed = True
         return True
 
@@ -103,13 +116,22 @@ class IssueTracker:
         Returns:
             Number of issues resolved.
         """
-        resolved_count = 0
-        for issue in self._issues:
-            if issue.file_path == file_path and issue.status == IssueStatus.OPEN:
-                issue.status = IssueStatus.RESOLVED
-                resolved_count += 1
-                self._changed = True
-                logger.info(f"Resolved issue: {file_path}:{issue.line_number}")
+        # O(1) file lookup instead of O(n) full list iteration
+        open_issues = self._open_by_file.get(file_path, [])
+        resolved_count = len(open_issues)
+        
+        for issue in open_issues:
+            issue.status = IssueStatus.RESOLVED
+            self._changed = True
+            logger.info(f"Resolved issue: {file_path}:{issue.line_number}")
+        
+        # Move all issues from open to resolved index
+        if resolved_count > 0:
+            if file_path not in self._resolved_by_file:
+                self._resolved_by_file[file_path] = []
+            self._resolved_by_file[file_path].extend(open_issues)
+            self._open_by_file[file_path] = []
+        
         return resolved_count
 
     def update_from_scan(
@@ -166,20 +188,27 @@ class IssueTracker:
             Number of issues resolved.
         """
         resolved_count = 0
-        for existing in self._issues:
-            if (
-                existing.file_path == file_path
-                and existing.status == IssueStatus.OPEN
-            ):
-                # Check if any current issue matches
-                matches = any(existing.matches(curr) for curr in current_issues)
-                if not matches:
-                    existing.status = IssueStatus.RESOLVED
-                    resolved_count += 1
-                    self._changed = True
-                    logger.info(
-                        f"Resolved (fixed): {file_path}:{existing.line_number}"
-                    )
+        to_resolve: list[Issue] = []
+        
+        # O(1) file lookup instead of O(n) full list iteration
+        for existing in self._open_by_file.get(file_path, []):
+            # Check if any current issue matches
+            matches = any(existing.matches(curr) for curr in current_issues)
+            if not matches:
+                to_resolve.append(existing)
+        
+        # Resolve and move to resolved index
+        for issue in to_resolve:
+            issue.status = IssueStatus.RESOLVED
+            resolved_count += 1
+            self._changed = True
+            logger.info(f"Resolved (fixed): {file_path}:{issue.line_number}")
+            # Move from open to resolved index
+            self._open_by_file[file_path].remove(issue)
+            if file_path not in self._resolved_by_file:
+                self._resolved_by_file[file_path] = []
+            self._resolved_by_file[file_path].append(issue)
+        
         return resolved_count
 
     def get_issues_by_file(self) -> dict[str, list[Issue]]:

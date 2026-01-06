@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .config import Config
+from .ctags_index import CtagsIndex
 from .git_watcher import GitWatcher
 from .issue_tracker import IssueTracker
 from .base_client import BaseLLMClient, LLMClientError, ContextOverflowError, SYSTEM_PROMPT_TEMPLATE, build_user_prompt
@@ -34,6 +35,7 @@ class Scanner:
         llm_client: BaseLLMClient,
         issue_tracker: IssueTracker,
         output_generator: OutputGenerator,
+        ctags_index: CtagsIndex,
     ):
         """Initialize the scanner.
 
@@ -43,17 +45,20 @@ class Scanner:
             llm_client: LLM client instance.
             issue_tracker: Issue tracker instance.
             output_generator: Output generator instance.
+            ctags_index: Ctags index for symbol navigation.
         """
         self.config = config
         self.git_watcher = git_watcher
         self.llm_client = llm_client
         self.issue_tracker = issue_tracker
         self.output_generator = output_generator
+        self.ctags_index = ctags_index
 
         # Initialize AI tool executor for context expansion
         self.tool_executor = AIToolExecutor(
             target_directory=config.target_directory,
             context_limit=llm_client.context_limit,
+            ctags_index=ctags_index,
         )
 
         # Threading controls
@@ -64,6 +69,7 @@ class Scanner:
         # State
         self._last_scanned_files: set[str] = set()  # Files scanned in last cycle
         self._last_file_contents_hash: dict[str, int] = {}  # Hash of file contents
+        self._last_file_mtime: dict[str, float] = {}  # Optimization: mtime cache
         self._scan_info: dict = {}
 
     def start(self) -> None:
@@ -125,6 +131,8 @@ class Scanner:
                 # Check if files have actually changed since last scan
                 current_files = {f.path for f in git_state.changed_files if not f.is_deleted}
                 if self._has_files_changed(current_files, git_state):
+                    # Clear refresh event before scan - any signals during scan will set it again
+                    self._refresh_event.clear()
                     # Run scan
                     self._run_scan(git_state)
                 else:
@@ -149,9 +157,8 @@ class Scanner:
         Returns:
             True if files have changed and need rescanning.
         """
-        # If refresh was signaled, always rescan
-        if self._refresh_event.is_set():
-            return True
+        # Note: _refresh_event being set just means git watcher detected something,
+        # but we still need to check if files ACTUALLY changed content-wise
         
         # If set of files is different, need to scan
         if current_files != self._last_scanned_files:
@@ -164,7 +171,20 @@ class Scanner:
             
             file_path = self.config.target_directory / changed_file.path
             try:
-                content = file_path.read_text(encoding="utf-8")
+                # Optimization: Check mtime_ns first (nanosecond precision) before reading
+                stat = file_path.stat()
+                mtime_ns = stat.st_mtime_ns
+                if mtime_ns == self._last_file_mtime.get(changed_file.path):
+                    continue  # Mtime unchanged, assume content unchanged
+                
+                # Use helper for safe file reading (handles encoding issues)
+                content = read_file_content(file_path)
+                if content is None:
+                    # Binary or unreadable file - check if it's new
+                    if changed_file.path not in self._last_file_contents_hash:
+                        return True
+                    continue
+                
                 content_hash = hash(content)
                 
                 if changed_file.path not in self._last_file_contents_hash:
@@ -280,14 +300,32 @@ class Scanner:
                     # Context overflow is FATAL - requires user intervention
                     raise
                 except LLMClientError as e:
-                    if "Lost connection" in str(e):
-                        logger.warning("Lost LLM connection, waiting for reconnection...")
+                    error_msg = str(e).lower()
+                    # Check for any connection-related error (lost connection, connection refused, etc.)
+                    is_connection_error = any(
+                        phrase in error_msg for phrase in [
+                            "lost connection",
+                            "connection refused",
+                            "connection reset",
+                            "connection error",
+                            "not connected",
+                            "urlopen error",
+                            "network",
+                            "timed out",
+                        ]
+                    )
+                    
+                    if is_connection_error:
+                        logger.warning(f"LLM connection error: {e}")
+                        logger.info("Waiting for LLM connection to be restored...")
                         self.llm_client.wait_for_connection(self.config.llm_retry_interval)
-                        # Retry by not incrementing - but we need to handle this in the loop
-                        # For simplicity, just continue and the watermark will catch it
+                        logger.info("LLM connection restored, retrying check...")
+                        # Retry by not incrementing - watermark ensures check will run again
                         continue
                     else:
-                        logger.error(f"LLM error during check: {e}")
+                        # Non-connection error (e.g., malformed response after retries)
+                        # Log but continue to next check
+                        logger.error(f"LLM error during check (skipping): {e}")
 
                 # Track worktree changes - update watermark
                 if self._refresh_event.is_set():
@@ -326,14 +364,23 @@ class Scanner:
         logger.info(f"Output file updated with {self.issue_tracker.get_stats()['total']} total issues")
 
         # Track scanned files and their content hashes to avoid rescanning unchanged files
-        # Get fresh content for hash tracking
+        # Store ALL changed files (not just filtered ones) so _has_files_changed comparison works
+        all_changed_paths = {f.path for f in git_state.changed_files if not f.is_deleted}
+        self._last_scanned_files = all_changed_paths
+        
+        # Get fresh content for hash tracking (only non-ignored files need hashes)
         files_content = self._get_files_content(git_state.changed_files)
         files_content, _ = self._filter_ignored_files(files_content)
-        self._last_scanned_files = set(files_content.keys())
-        self._last_file_contents_hash = {
-            file_path: hash(content)
-            for file_path, content in files_content.items()
-        }
+        self._last_file_contents_hash = {}
+        self._last_file_mtime = {}
+        for file_path, content in files_content.items():
+            self._last_file_contents_hash[file_path] = hash(content)
+            # Update mtime_ns (nanosecond precision)
+            try:
+                full_path = self.config.target_directory / file_path
+                self._last_file_mtime[file_path] = full_path.stat().st_mtime_ns
+            except OSError:
+                pass
         logger.info("Scan cycle complete. Waiting for new file changes...")
 
     def _filter_batches_by_pattern(
@@ -578,7 +625,7 @@ class Scanner:
     ) -> list[Issue]:
         """Run a single check against all batches with AI tool support.
 
-        The LLM can request additional context via tools (find_code_usage,
+        The LLM can request additional context via tools (search_text,
         read_file, list_directory). This method handles iterative tool calling
         until the LLM provides a final answer.
 
@@ -678,8 +725,9 @@ class Scanner:
                         arguments = tool_call["arguments"]
 
                         # Log tool execution with relevant argument details
-                        if tool_name == "find_code_usage":
-                            logger.info(f"  → {tool_name}: searching for '{arguments.get('entity_name', '?')}' ({arguments.get('entity_type', 'any')})")
+                        if tool_name == "search_text":
+                            patterns = arguments.get('patterns', '?')
+                            logger.info(f"  → {tool_name}: searching for '{patterns}'")
                         elif tool_name == "read_file":
                             file_path = arguments.get('file_path', '?')
                             start = arguments.get('start_line')

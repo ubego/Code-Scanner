@@ -150,6 +150,48 @@ class TestGitWatcher:
         # Now there should be changes
         assert watcher.has_changes_since(state1)
 
+    def test_has_changes_since_mtime_detection(self, git_repo: Path):
+        """Test that has_changes_since detects in-place file modifications via mtime."""
+        # Create a file and stage it
+        test_file = git_repo / "test.txt"
+        test_file.write_text("original content")
+        
+        watcher = GitWatcher(git_repo)
+        watcher.connect()
+        
+        # Get initial state (file is unstaged/untracked)
+        state1 = watcher.get_state()
+        assert len(state1.changed_files) > 0
+        
+        # No changes detected when state is same
+        assert not watcher.has_changes_since(state1)
+        
+        # Wait a tiny bit and modify the file in-place
+        import time
+        time.sleep(0.01)  # Ensure mtime changes
+        test_file.write_text("modified content")
+        
+        # Now mtime-based detection should see changes
+        assert watcher.has_changes_since(state1)
+
+    def test_has_changes_since_same_paths_no_mtime_change(self, git_repo: Path):
+        """Test that has_changes_since returns False when paths same and mtime unchanged."""
+        # Create a file
+        test_file = git_repo / "test.txt"
+        test_file.write_text("content")
+        
+        watcher = GitWatcher(git_repo)
+        watcher.connect()
+        
+        # Get state twice without modifying file
+        state1 = watcher.get_state()
+        state2 = watcher.get_state()
+        
+        # Should not detect changes - paths same and mtime same
+        assert not watcher.has_changes_since(state1)
+        # state2 also works as base
+        assert not watcher.has_changes_since(state2)
+
     def test_merge_in_progress_detected(self, git_repo: Path):
         """Test that merge in progress is detected."""
         # Create MERGE_HEAD to simulate merge

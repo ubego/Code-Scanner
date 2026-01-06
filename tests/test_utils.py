@@ -13,8 +13,7 @@ from code_scanner.utils import (
     is_binary_file,
     estimate_tokens,
     read_file_content,
-    get_line_at,
-    get_context_lines,
+
     setup_logging,
     group_files_by_directory,
     CHARS_PER_TOKEN,
@@ -107,60 +106,6 @@ class TestReadFileContent:
         assert "caf" in result
 
 
-class TestGetLineAt:
-    """Tests for get_line_at function."""
-
-    def test_get_first_line(self):
-        """Get first line."""
-        content = "line1\nline2\nline3"
-        assert get_line_at(content, 1) == "line1"
-
-    def test_get_middle_line(self):
-        """Get middle line."""
-        content = "line1\nline2\nline3"
-        assert get_line_at(content, 2) == "line2"
-
-    def test_get_last_line(self):
-        """Get last line."""
-        content = "line1\nline2\nline3"
-        assert get_line_at(content, 3) == "line3"
-
-    def test_line_number_too_high(self):
-        """Line number out of range returns empty string."""
-        content = "line1\nline2"
-        assert get_line_at(content, 10) == ""
-
-    def test_line_number_zero(self):
-        """Line number zero returns empty string."""
-        content = "line1"
-        assert get_line_at(content, 0) == ""
-
-    def test_negative_line_number(self):
-        """Negative line number returns empty string."""
-        content = "line1"
-        assert get_line_at(content, -1) == ""
-
-
-class TestGetContextLines:
-    """Tests for get_context_lines function."""
-
-    def test_get_context_middle(self):
-        """Get context around middle line."""
-        content = "1\n2\n3\n4\n5\n6\n7"
-        result = get_context_lines(content, 4, context=2)
-        assert result == "2\n3\n4\n5\n6"
-
-    def test_get_context_at_start(self):
-        """Get context at file start."""
-        content = "1\n2\n3\n4\n5"
-        result = get_context_lines(content, 1, context=2)
-        assert result == "1\n2\n3"
-
-    def test_get_context_at_end(self):
-        """Get context at file end."""
-        content = "1\n2\n3\n4\n5"
-        result = get_context_lines(content, 5, context=2)
-        assert result == "3\n4\n5"
 
 
 class TestGroupFilesByDirectory:

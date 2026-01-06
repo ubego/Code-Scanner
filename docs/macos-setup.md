@@ -23,6 +23,38 @@ python3 --version  # Should be 3.10 or higher
 2. Run the installer
 3. Follow the installation prompts
 
+## Git Installation
+
+Git is usually pre-installed on macOS. If not:
+
+```bash
+# Install Git using Homebrew
+brew install git
+
+# Verify installation
+git --version
+```
+
+Or install Xcode Command Line Tools:
+
+```bash
+xcode-select --install
+```
+
+## Universal Ctags Installation
+
+Universal Ctags is required for symbol indexing, which enables AI tools to efficiently navigate your codebase.
+
+```bash
+# Install using Homebrew
+brew install universal-ctags
+
+# Verify installation (should show "Universal Ctags")
+ctags --version
+```
+
+> **Note**: Make sure it's "Universal Ctags" (not "Exuberant Ctags"). The macOS built-in `ctags` is Exuberant, so always use Homebrew's version.
+
 ## UV Installation
 
 ```bash

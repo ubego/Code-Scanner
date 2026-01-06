@@ -238,7 +238,11 @@ class OllamaClient(BaseLLMClient):
 
         for attempt in range(max_retries):
             try:
-                logger.debug(f"Sending query to Ollama (attempt {attempt + 1}/{max_retries})")
+                logger.debug(
+                    f"Sending query to Ollama (attempt {attempt + 1}/{max_retries})\n"
+                    f"--- SYSTEM PROMPT ---\n{system_prompt}\n--- END SYSTEM PROMPT ---\n"
+                    f"--- USER PROMPT ---\n{user_prompt}\n--- END USER PROMPT ---"
+                )
 
                 # Build request for /api/chat
                 request_data = {

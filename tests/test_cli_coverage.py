@@ -71,6 +71,7 @@ class TestApplicationSetup:
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator'), \
+             patch('code_scanner.cli.CtagsIndex'), \
              patch('code_scanner.cli.Scanner'):
             
             MockGitWatcher.return_value.connect = MagicMock()
@@ -98,6 +99,7 @@ class TestApplicationSetup:
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator'), \
+             patch('code_scanner.cli.CtagsIndex'), \
              patch('code_scanner.cli.Scanner'):
             
             app._setup()
@@ -123,6 +125,7 @@ class TestApplicationSetup:
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm) as mock_factory, \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator'), \
+             patch('code_scanner.cli.CtagsIndex'), \
              patch('code_scanner.cli.Scanner'):
             
             MockGitWatcher.return_value.connect = MagicMock()
@@ -148,6 +151,7 @@ class TestApplicationSetup:
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator'), \
+             patch('code_scanner.cli.CtagsIndex'), \
              patch('code_scanner.cli.Scanner'):
             
             MockGitWatcher.return_value.connect = MagicMock()
@@ -172,6 +176,7 @@ class TestApplicationSetup:
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
              patch('code_scanner.cli.IssueTracker'), \
              patch('code_scanner.cli.OutputGenerator') as MockOutputGen, \
+             patch('code_scanner.cli.CtagsIndex'), \
              patch('code_scanner.cli.Scanner'):
             
             MockGitWatcher.return_value.connect = MagicMock()

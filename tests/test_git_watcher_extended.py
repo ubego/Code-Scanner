@@ -32,58 +32,6 @@ def temp_git_repo():
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-class TestGitWatcherUnquotePath:
-    """Tests for _unquote_path method."""
-
-    def test_unquote_simple_path(self, temp_git_repo):
-        """Simple paths pass through unchanged."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        result = watcher._unquote_path("simple/path.txt")
-        assert result == "simple/path.txt"
-
-    def test_unquote_quoted_path(self, temp_git_repo):
-        """Quoted paths are unquoted."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        result = watcher._unquote_path('"path with spaces.txt"')
-        assert result == "path with spaces.txt"
-
-    def test_unquote_escaped_quotes(self, temp_git_repo):
-        """Escaped quotes in path are handled."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        result = watcher._unquote_path('"file\\"name.txt"')
-        assert result == 'file"name.txt'
-
-    def test_unquote_escaped_newlines(self, temp_git_repo):
-        """Escaped newlines are converted."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        result = watcher._unquote_path('"line1\\nline2.txt"')
-        assert result == "line1\nline2.txt"
-
-    def test_unquote_escaped_tabs(self, temp_git_repo):
-        """Escaped tabs are converted."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        result = watcher._unquote_path('"col1\\tcol2.txt"')
-        assert result == "col1\tcol2.txt"
-
-    def test_unquote_escaped_backslashes(self, temp_git_repo):
-        """Escaped backslashes are converted."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        result = watcher._unquote_path('"path\\\\to\\\\file.txt"')
-        assert result == "path\\to\\file.txt"
-
-
 class TestGitWatcherIsIgnored:
     """Tests for _is_ignored method."""
 
@@ -305,3 +253,43 @@ class TestGitWatcherHasChangesSince:
         # Check for changes
         result = watcher.has_changes_since(state1)
         assert result is True
+
+
+class TestGitWatcherUnmerged:
+    """Tests for unmerged file detection (merge conflicts)."""
+
+    def test_unmerged_file_detection(self, temp_git_repo):
+        """Test that unmerged files ('u' status in porcelain v2) are detected."""
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        # We can't easily create a real unmerged state with just git commands in a linear script
+        # without thorough setup (branching, conflicting commits, merge).
+        # So we'll mock the _repo.git.status output to simulate 'u' entries.
+        
+        # Patching watcher._repo.git.status fails due to gitpython internal structure.
+        # Instead, we replace the whole repo object with a mock for this call.
+        original_repo = watcher._repo
+        mock_repo = MagicMock()
+        # Mock output for: u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
+        mock_repo.git.status.return_value = "u UU N... 100644 100644 100644 100644 h1 h2 h3 conflict.txt"
+        
+        # mock check_ignore to raise GitCommandError (meaning NOT ignored)
+        mock_repo.git.check_ignore.side_effect = GitError("Not ignored") # GitWatcher catches GitCommandError?
+        # Wait, git_watcher.py catches GitCommandError.
+        # I need to import GitCommandError or use a generic exception if implementation allows, 
+        # but implementation catches GitCommandError specifically.
+        from git import GitCommandError
+        mock_repo.git.check_ignore.side_effect = GitCommandError("check-ignore", 1)
+        
+        watcher._repo = mock_repo
+        try:
+            changed_files = watcher._get_changed_files()
+        finally:
+            watcher._repo = original_repo
+            
+        assert len(changed_files) == 1
+        assert changed_files[0].path == "conflict.txt"
+        # Status mapping logic:
+        # xy = "UU" -> index="U", work="U" -> status="staged" (because U != . and U != ?)
+        assert changed_files[0].status == "staged"

@@ -31,66 +31,6 @@ def temp_git_repo():
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-class TestGitWatcherUnquotePath:
-    """Tests for _unquote_path method."""
-
-    def test_unquote_regular_path(self, temp_git_repo):
-        """Test unquoting a regular path without special chars."""
-        watcher = GitWatcher(temp_git_repo)
-        
-        result = watcher._unquote_path("normal/path.txt")
-        assert result == "normal/path.txt"
-
-    def test_unquote_quoted_path(self, temp_git_repo):
-        """Test unquoting a quoted path."""
-        watcher = GitWatcher(temp_git_repo)
-        
-        result = watcher._unquote_path('"path with spaces.txt"')
-        assert result == "path with spaces.txt"
-
-    def test_unquote_path_with_newline(self, temp_git_repo):
-        """Test unquoting path with escaped newline."""
-        watcher = GitWatcher(temp_git_repo)
-        
-        result = watcher._unquote_path('"path\\nwith\\nnewlines.txt"')
-        assert result == "path\nwith\nnewlines.txt"
-
-    def test_unquote_path_with_tab(self, temp_git_repo):
-        """Test unquoting path with escaped tab."""
-        watcher = GitWatcher(temp_git_repo)
-        
-        result = watcher._unquote_path('"path\\twith\\ttabs.txt"')
-        assert result == "path\twith\ttabs.txt"
-
-    def test_unquote_path_with_quotes(self, temp_git_repo):
-        """Test unquoting path with escaped quotes."""
-        watcher = GitWatcher(temp_git_repo)
-        
-        result = watcher._unquote_path('"path\\"with\\"quotes.txt"')
-        assert result == 'path"with"quotes.txt'
-
-    def test_unquote_path_with_backslash(self, temp_git_repo):
-        """Test unquoting path with escaped backslash."""
-        watcher = GitWatcher(temp_git_repo)
-        
-        result = watcher._unquote_path('"path\\\\with\\\\backslash.txt"')
-        assert result == "path\\with\\backslash.txt"
-
-    def test_unquote_empty_path(self, temp_git_repo):
-        """Test unquoting empty path."""
-        watcher = GitWatcher(temp_git_repo)
-        
-        result = watcher._unquote_path("")
-        assert result == ""
-
-    def test_unquote_whitespace_path(self, temp_git_repo):
-        """Test unquoting path with leading/trailing whitespace."""
-        watcher = GitWatcher(temp_git_repo)
-        
-        result = watcher._unquote_path("  path.txt  ")
-        assert result == "path.txt"
-
-
 class TestGitWatcherIsIgnored:
     """Tests for _is_ignored method."""
 
@@ -353,43 +293,6 @@ class TestGitWatcherConnect:
         assert "Invalid commit hash" in str(exc_info.value)
 
 
-class TestGitWatcherUnquoteOctalSequences:
-    """Tests for octal sequence decoding in _unquote_path."""
-
-    def test_unquote_utf8_octal_sequences(self, temp_git_repo):
-        """Test decoding UTF-8 encoded as octal escape sequences."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        # UTF-8 encoding of 'Р' (Cyrillic capital R) is \320\240
-        # Quote the path as git would
-        quoted = '"\\320\\240\\320\\265\\321\\201\\321\\203\\321\\200\\321\\201.txt"'
-        result = watcher._unquote_path(quoted)
-        assert "Ресурс.txt" in result or result.endswith(".txt")
-
-    def test_unquote_latin1_fallback(self, temp_git_repo):
-        """Test decoding falls back to latin-1 for invalid UTF-8."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        # Single byte that's invalid UTF-8 alone but valid latin-1
-        quoted = '"\\200"'  # 0x80 - not valid standalone UTF-8
-        result = watcher._unquote_path(quoted)
-        # Should not raise, and should decode somehow
-        assert isinstance(result, str)
-
-    def test_unquote_mixed_regular_and_octal(self, temp_git_repo):
-        """Test decoding path with mixed regular chars and octal sequences."""
-        watcher = GitWatcher(temp_git_repo)
-        watcher.connect()
-        
-        # "test_" + UTF-8 octal + ".txt"
-        quoted = '"test_\\320\\240.txt"'
-        result = watcher._unquote_path(quoted)
-        assert "test_" in result
-        assert ".txt" in result
-
-
 class TestGitWatcherIsIgnoredNoRepo:
     """Tests for _is_ignored when not connected."""
 
@@ -425,3 +328,84 @@ class TestHasChangesSinceEdgeCases:
         
         result = watcher.has_changes_since(None)
         assert result is True
+
+    def test_has_changes_since_oserror_on_stat(self, temp_git_repo):
+        """Test has_changes_since returns True when file stat fails during mtime check."""
+        from unittest.mock import patch, MagicMock
+        
+        # Create a file
+        new_file = temp_git_repo / "test_file.txt"
+        new_file.write_text("content")
+        
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        # Get state with the file (has mtime in content)
+        state = watcher.get_state()
+        assert len(state.changed_files) > 0
+        
+        # Create a fake current_state that will be returned by get_state 
+        # but has a file where stat will fail
+        fake_changed_file = ChangedFile(
+            path="test_file.txt",
+            status="unstaged", 
+            content=str(new_file.stat().st_mtime)
+        )
+        fake_state = GitState(changed_files=[fake_changed_file])
+        
+        # Delete the file so stat will fail during mtime check
+        new_file.unlink()
+        
+        with patch.object(watcher, 'get_state', return_value=fake_state):
+            # has_changes_since should return True due to OSError when trying to stat
+            result = watcher.has_changes_since(state)
+        
+        assert result is True
+
+    def test_has_changes_since_deleted_file_skipped(self, temp_git_repo):
+        """Test has_changes_since skips deleted files in mtime check."""
+        # Create and commit a file
+        test_file = temp_git_repo / "to_delete.txt"
+        test_file.write_text("content")
+        subprocess.run(["git", "add", "to_delete.txt"], cwd=temp_git_repo, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "Add file", "-q"], cwd=temp_git_repo, capture_output=True)
+        
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        # Delete the file and stage the deletion
+        subprocess.run(["git", "rm", "to_delete.txt"], cwd=temp_git_repo, capture_output=True)
+        
+        state1 = watcher.get_state()
+        
+        # Should have a deleted file
+        deleted_files = [f for f in state1.changed_files if f.is_deleted]
+        assert len(deleted_files) >= 1
+        
+        # has_changes_since should work without errors
+        result = watcher.has_changes_since(state1)
+        assert result is False
+
+    def test_has_changes_since_invalid_mtime_content(self, temp_git_repo):
+        """Test has_changes_since handles invalid mtime in content field."""
+        # Create a file
+        new_file = temp_git_repo / "test_file.txt"
+        new_file.write_text("content")
+        
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        # Get initial state
+        state = watcher.get_state()
+        
+        # Manually set invalid mtime content
+        if state.changed_files:
+            state.changed_files[0] = ChangedFile(
+                path=state.changed_files[0].path, 
+                status="unstaged", 
+                content="not_a_number"
+            )
+        
+        # Should not crash and return False (invalid mtime treated as no change)
+        result = watcher.has_changes_since(state)
+        assert result is False

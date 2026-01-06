@@ -4,6 +4,13 @@
 
 AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify issues in your codebase based on configurable checks. **Your code never leaves your machine.**
 
+---
+
+⭐ **Star this project on GitHub to support its development!** [Code-Scanner on GitHub](https://github.com/ubego/Code-Scanner)
+
+---
+
+
 ## Features
 
 - 🏠 **100% Local (Privacy first)**: Uses LM Studio or Ollama with local APIs. All processing happens on your machine, no cloud required.
@@ -26,9 +33,13 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 
 1. **Python 3.10 or higher**
 2. **Git** (for tracking file changes)
-3. **[LM Studio](https://lmstudio.ai)** - Download and install from lmstudio.ai
+3. **Universal Ctags** (for symbol indexing)
+4. **[LM Studio](https://lmstudio.ai)** or **[Ollama](https://ollama.ai)** - Local LLM backend
 
-### Installation
+For detailed platform-specific installation, see:
+- **[Linux Setup](docs/linux-setup.md)** | **[macOS Setup](docs/macos-setup.md)** | **[Windows Setup](docs/windows-setup.md)**
+
+### Quick Installation
 
 ```bash
 # Install UV (if not already installed)
@@ -230,6 +241,20 @@ Options:
 3. For Ollama: `curl http://localhost:11434/api/tags`
 4. For LM Studio: `curl http://localhost:1234/v1/models`
 
+### Connection Lost During Scan
+
+If the LLM backend becomes unavailable during scanning (e.g., LM Studio crashes, network issues, server restart), the scanner will:
+
+1. **Pause immediately** when the connection error is detected
+2. **Retry every 10 seconds** until the connection is restored
+3. **Continue scanning** from where it left off once reconnected
+
+This allows you to restart LM Studio or fix network issues without stopping the scanner. The scanner handles various connection errors including:
+- Lost connection
+- Connection refused
+- Connection timeout
+- Network errors
+
 ### "Model not found" (Ollama)
 
 1. Pull the model: `ollama pull model-name`
@@ -280,7 +305,7 @@ uv run pytest --cov=code_scanner --cov-report=term-missing
 uv run pytest --cov=code_scanner --cov-report=html  # Open htmlcov/index.html
 ```
 
-**Current Coverage:** 91% with 562 tests (555 unit tests + 7 integration tests requiring running LLM backends).
+**Current Coverage:** 93% with 640 tests.
 
 ### Project Structure
 

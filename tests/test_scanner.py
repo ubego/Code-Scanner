@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from code_scanner.scanner import Scanner
 from code_scanner.models import GitState, ChangedFile, Issue, LLMConfig
 from code_scanner.config import Config
+from code_scanner.ctags_index import CtagsIndex
 
 
 class TestScanner:
@@ -38,7 +39,31 @@ context_limit = 16384
         from code_scanner.config import load_config
         return load_config(temp_dir, config_file)
 
-    def test_scanner_requires_dependencies(self, temp_config: Config):
+    @pytest.fixture
+    def mock_ctags_index(self, temp_dir: Path):
+        """Create a mock CtagsIndex."""
+        mock_index = MagicMock(spec=CtagsIndex)
+        mock_index.target_directory = temp_dir
+        mock_index.find_symbol.return_value = []
+        mock_index.find_symbols_by_pattern.return_value = []
+        mock_index.find_definitions.return_value = []
+        mock_index.get_symbols_in_file.return_value = []
+        mock_index.get_class_members.return_value = []
+        mock_index.get_file_structure.return_value = {
+            "file": str(temp_dir / "test.py"),
+            "language": "Python",
+            "symbols": [],
+            "structure_summary": "",
+        }
+        mock_index.get_stats.return_value = {
+            "total_symbols": 0,
+            "files_indexed": 0,
+            "symbols_by_kind": {},
+            "languages": [],
+        }
+        return mock_index
+
+    def test_scanner_requires_dependencies(self, temp_config: Config, mock_ctags_index):
         """Test that scanner requires all dependencies."""
         # Scanner needs git_watcher, llm_client, issue_tracker, output_generator
         # This tests the constructor signature
@@ -54,6 +79,7 @@ context_limit = 16384
             llm_client=llm_client,
             issue_tracker=issue_tracker,
             output_generator=output_generator,
+            ctags_index=mock_ctags_index,
         )
         
         assert scanner.config == temp_config

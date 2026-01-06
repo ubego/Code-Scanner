@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import Config, ConfigError, load_config
+from .ctags_index import CtagsIndex, CtagsNotFoundError, CtagsError
 from .git_watcher import GitWatcher, GitError
 from .issue_tracker import IssueTracker
 from .base_client import BaseLLMClient, LLMClientError
@@ -74,6 +75,7 @@ class Application:
         self._git_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock_acquired = False
+        self.ctags_index: Optional[CtagsIndex] = None
 
     def run(self) -> int:
         """Run the application.
@@ -85,7 +87,7 @@ class Application:
             self._setup()
             self._run_main_loop()
             return 0
-        except (ConfigError, GitError, LLMClientError, LockFileError) as e:
+        except (ConfigError, GitError, LLMClientError, LockFileError, CtagsNotFoundError, CtagsError) as e:
             logger.error(str(e))
             return 1
         except KeyboardInterrupt:
@@ -115,16 +117,18 @@ class Application:
 
         # Set up logging
         setup_logging(self.config.log_path)
-        logger.info("=" * 60)
-        logger.info("Code Scanner starting")
-        logger.info(f"Target directory: {self.config.target_directory}")
-        logger.info(f"Config file: {self.config.config_file}")
-        logger.info(f"Output file: {self.config.output_path}")
-        logger.info(f"Log file: {self.config.log_path}")
-        logger.info(f"Lock file: {self.config.lock_path}")
         total_checks = sum(len(g.checks) for g in self.config.check_groups)
-        logger.info(f"Check groups: {len(self.config.check_groups)}, Total checks: {total_checks}")
-        logger.info("=" * 60)
+        logger.info(
+            f"{'=' * 60}\n"
+            f"Code Scanner starting\n"
+            f"Target directory: {self.config.target_directory}\n"
+            f"Config file: {self.config.config_file}\n"
+            f"Output file: {self.config.output_path}\n"
+            f"Log file: {self.config.log_path}\n"
+            f"Lock file: {self.config.lock_path}\n"
+            f"Check groups: {len(self.config.check_groups)}, Total checks: {total_checks}\n"
+            f"{'=' * 60}"
+        )
 
         # Initialize components
         self.git_watcher = GitWatcher(
@@ -141,6 +145,12 @@ class Application:
         # Set context limit from config (now required)
         self.llm_client.set_context_limit(self.config.llm.context_limit)
 
+        # Initialize ctags index for symbol navigation
+        logger.info("Initializing ctags index...")
+        self.ctags_index = CtagsIndex(self.config.target_directory)
+        symbol_count = self.ctags_index.generate_index()
+        logger.info(f"Ctags index ready: {symbol_count} symbols indexed")
+
         self.issue_tracker = IssueTracker()
         self.output_generator = OutputGenerator(self.config.output_path)
 
@@ -154,6 +164,7 @@ class Application:
             llm_client=self.llm_client,
             issue_tracker=self.issue_tracker,
             output_generator=self.output_generator,
+            ctags_index=self.ctags_index,
         )
 
     def _acquire_lock(self) -> None:

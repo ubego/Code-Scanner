@@ -37,6 +37,58 @@ sudo pacman -S python python-pip
 python --version
 ```
 
+## Git Installation
+
+Git is required for tracking file changes in your repositories.
+
+### Ubuntu/Debian
+
+```bash
+sudo apt install git
+git --version
+```
+
+### Fedora
+
+```bash
+sudo dnf install git
+git --version
+```
+
+### Arch Linux
+
+```bash
+sudo pacman -S git
+git --version
+```
+
+## Universal Ctags Installation
+
+Universal Ctags is required for symbol indexing, which enables AI tools to efficiently navigate your codebase.
+
+### Ubuntu/Debian
+
+```bash
+sudo apt install universal-ctags
+ctags --version  # Should show "Universal Ctags"
+```
+
+### Fedora
+
+```bash
+sudo dnf install ctags
+ctags --version
+```
+
+### Arch Linux
+
+```bash
+sudo pacman -S ctags
+ctags --version
+```
+
+> **Note**: Make sure it's "Universal Ctags" (not "Exuberant Ctags"). Check with `ctags --version`.
+
 ## UV Installation
 
 UV is the recommended package manager:

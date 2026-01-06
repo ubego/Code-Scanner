@@ -213,37 +213,7 @@ def read_file_content(file_path: Path) -> str | None:
         return None
 
 
-def get_line_at(content: str, line_number: int) -> str:
-    """Get a specific line from file content.
 
-    Args:
-        content: The full file content.
-        line_number: 1-based line number.
-
-    Returns:
-        The line content, or empty string if line doesn't exist.
-    """
-    lines = content.splitlines()
-    if 1 <= line_number <= len(lines):
-        return lines[line_number - 1]
-    return ""
-
-
-def get_context_lines(content: str, line_number: int, context: int = 3) -> str:
-    """Get lines around a specific line for context.
-
-    Args:
-        content: The full file content.
-        line_number: 1-based line number.
-        context: Number of lines before and after.
-
-    Returns:
-        The context lines as a string.
-    """
-    lines = content.splitlines()
-    start = max(0, line_number - 1 - context)
-    end = min(len(lines), line_number + context)
-    return "\n".join(lines[start:end])
 
 
 def setup_logging(log_file: Path, console_level: int = logging.INFO) -> None:
@@ -267,6 +237,11 @@ def setup_logging(log_file: Path, console_level: int = logging.INFO) -> None:
 
     # Root logger
     root_logger = logging.getLogger()
+    
+    # Remove existing handlers to prevent duplicates on repeated calls
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
     root_logger.setLevel(logging.DEBUG)
 
     # Console handler (with colors)
@@ -299,12 +274,11 @@ def group_files_by_directory(files: list[str]) -> dict[str, list[str]]:
     Returns:
         Dictionary mapping directory paths to lists of files.
     """
-    groups: dict[str, list[str]] = {}
+    from collections import defaultdict
+    groups: dict[str, list[str]] = defaultdict(list)
 
     for file_path in files:
         parent = str(Path(file_path).parent)
-        if parent not in groups:
-            groups[parent] = []
         groups[parent].append(file_path)
 
     # Sort by depth (deepest first)
