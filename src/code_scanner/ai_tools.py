@@ -32,7 +32,20 @@ AI_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "search_text",
-            "description": "**Use to verify assumptions.** Search repository for text patterns. MANDATORY before reporting: 'unused code' (search for usages), 'missing import' (check if imported elsewhere), 'dead code' (verify no callers). Returns file paths, line numbers, and matching lines. Supports literal text and regex.",
+            "description": """**VERIFICATION TOOL** - Search repository for text patterns.
+
+**MANDATORY VERIFICATION BEFORE REPORTING:**
+- 'unused code/variable' → search_text("variable_name") to find usages
+- 'missing import' → search_text("import module") to check imports elsewhere  
+- 'dead code' → search_text("function_name") to verify no callers
+- 'circular import' → search_text("from X import") to trace import chain
+
+**EXAMPLES:**
+- Find all usages of a function: search_text(patterns="process_data")
+- Check if variable is used: search_text(patterns="myVar", file_pattern="*.cpp")
+- Find regex pattern: search_text(patterns="class.*Service", is_regex=true)
+
+Returns file paths, line numbers, and matching lines. Supports literal text and regex.""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -73,7 +86,19 @@ AI_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read the content of any file in the repository. For large files, content may be returned in chunks. If partial content is returned, use this tool again with start_line parameter to get subsequent chunks.",
+            "description": """**CONTEXT TOOL** - Read file content to understand context.
+
+**MANDATORY VERIFICATION BEFORE REPORTING:**
+- 'missing error handling' → read_file("caller.py") to check calling context
+- 'incorrect implementation' → read_file("base_class.py") to read base class
+- 'missing cleanup' → read_file to check destructor/cleanup code
+
+**EXAMPLES:**
+- Read entire file: read_file(file_path="src/utils.py")
+- Read specific lines: read_file(file_path="main.cpp", start_line=50, end_line=100)
+- Continue reading large file: read_file(file_path="big.py", start_line=200)
+
+For large files, content is returned in chunks. Use start_line to get subsequent chunks.""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -166,7 +191,20 @@ AI_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "symbol_exists",
-            "description": "**MANDATORY before reporting 'undefined symbol' issues.** Quick O(1) lookup to check if a symbol (function, class, variable) is defined anywhere in the repository. Returns definition location(s) if found. ALWAYS call this BEFORE reporting that a symbol is undefined, missing, or not found.",
+            "description": """**MANDATORY VERIFICATION** - Check if symbol exists before reporting undefined.
+
+**ALWAYS call this BEFORE reporting:**
+- 'undefined function X' → symbol_exists("X")
+- 'missing class Y' → symbol_exists("Y", symbol_type="class")
+- 'unknown method Z' → symbol_exists("Z", symbol_type="method")
+
+**EXAMPLES:**
+- Check function exists: symbol_exists(symbol="validate_input")
+- Check class exists: symbol_exists(symbol="UserService", symbol_type="class")
+- Check any symbol: symbol_exists(symbol="MAX_RETRIES")
+
+Quick O(1) ctags lookup. Returns definition location(s) if found.
+NEVER report 'undefined symbol' without calling this first!""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -188,7 +226,18 @@ AI_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "find_definition",
-            "description": "Go to where a symbol is defined (like IDE 'Go to Definition'). Returns exact file and line number. Use when you need to understand how a function/class is implemented, or to verify it exists before reporting issues.",
+            "description": """**NAVIGATION TOOL** - Go to symbol definition (like IDE 'Go to Definition').
+
+**USE FOR VERIFICATION:**
+- 'incorrect override' → find_definition("base_method") to read base implementation
+- 'circular import' → find_definition("imported_class") to trace import chain
+- 'wrong inheritance' → find_definition("BaseClass") to check base class
+
+**EXAMPLES:**
+- Find function: find_definition(symbol="process_data")
+- Find class: find_definition(symbol="UserService", kind="class")
+
+Returns exact file path and line number where symbol is defined.""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -298,6 +347,38 @@ class AIToolExecutor:
         self.ctags_index = ctags_index
         # Reserve some tokens for the tool response structure
         self.chunk_size = min(DEFAULT_CHUNK_SIZE_TOKENS, context_limit // 4)
+
+    def _is_ctags_ready(self) -> bool:
+        """Check if the ctags index is ready for queries."""
+        return self.ctags_index.is_indexed
+
+    def _ctags_not_ready_result(self, tool_name: str) -> ToolResult:
+        """Return a result indicating ctags index is still building."""
+        if self.ctags_index.is_indexing:
+            return ToolResult(
+                success=True,
+                data={
+                    "status": "indexing_in_progress",
+                    "message": f"Symbol index is still being built. The {tool_name} tool results may be incomplete. "
+                               "Use search_text or read_file tools as alternatives, or retry this tool later.",
+                },
+                warning="Ctags index is still being generated in the background",
+            )
+        elif self.ctags_index.index_error:
+            return ToolResult(
+                success=False,
+                data=None,
+                error=f"Symbol indexing failed: {self.ctags_index.index_error}. "
+                      "Use search_text or read_file tools instead.",
+            )
+        else:
+            return ToolResult(
+                success=True,
+                data={
+                    "status": "not_indexed",
+                    "message": f"Symbol index not available. Use search_text or read_file tools instead.",
+                },
+            )
 
     def execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> ToolResult:
         """Execute a tool and return the result.
@@ -1049,30 +1130,51 @@ class AIToolExecutor:
             )
 
         try:
-            # Use ctags index for file structure
-            structure = self.ctags_index.get_file_structure(file_path)
-            
-            # Get total lines from file
+            # Get total lines from file first (always available)
             content = read_file_content(full_path)
             total_lines = len(content.split("\n")) if content else 0
 
+            # Use ctags index for file structure if available
+            if self._is_ctags_ready():
+                structure = self.ctags_index.get_file_structure(file_path)
+            else:
+                # Provide empty structure when ctags isn't ready
+                structure = {
+                    "classes": [],
+                    "functions": [],
+                    "variables": [],
+                    "imports": [],
+                    "other": [],
+                }
+
+            result_data = {
+                "file_path": file_path,
+                "total_lines": total_lines,
+                "classes": structure["classes"],
+                "functions": structure["functions"],
+                "variables": structure["variables"],
+                "imports": structure["imports"],
+                "other": structure["other"],
+                "summary": {
+                    "class_count": len(structure["classes"]),
+                    "function_count": len(structure["functions"]),
+                    "variable_count": len(structure["variables"]),
+                    "import_count": len(structure["imports"]),
+                },
+            }
+
+            # Add warning if ctags not ready
+            warning = None
+            if not self._is_ctags_ready():
+                if self.ctags_index.is_indexing:
+                    warning = "Symbol index still building - structure info incomplete. Use read_file for detailed analysis."
+                else:
+                    warning = "Symbol index not available - structure info incomplete."
+
             return ToolResult(
                 success=True,
-                data={
-                    "file_path": file_path,
-                    "total_lines": total_lines,
-                    "classes": structure["classes"],
-                    "functions": structure["functions"],
-                    "variables": structure["variables"],
-                    "imports": structure["imports"],
-                    "other": structure["other"],
-                    "summary": {
-                        "class_count": len(structure["classes"]),
-                        "function_count": len(structure["functions"]),
-                        "variable_count": len(structure["variables"]),
-                        "import_count": len(structure["imports"]),
-                    },
-                },
+                data=result_data,
+                warning=warning,
             )
 
         except Exception as e:
@@ -1099,6 +1201,10 @@ class AIToolExecutor:
                 data=None,
                 error="symbol is required",
             )
+
+        # Check if ctags index is ready
+        if not self._is_ctags_ready():
+            return self._ctags_not_ready_result("symbol_exists")
 
         try:
             # Use ctags index for O(1) lookup
@@ -1166,6 +1272,10 @@ class AIToolExecutor:
                 error="symbol is required",
             )
 
+        # Check if ctags index is ready
+        if not self._is_ctags_ready():
+            return self._ctags_not_ready_result("find_definition")
+
         try:
             symbols = self.ctags_index.find_definitions(symbol, kind=kind)
 
@@ -1227,6 +1337,10 @@ class AIToolExecutor:
                 error="file_path is required",
             )
 
+        # Check if ctags index is ready
+        if not self._is_ctags_ready():
+            return self._ctags_not_ready_result("list_symbols")
+
         try:
             symbols = self.ctags_index.get_symbols_in_file(file_path, kind=kind)
 
@@ -1286,6 +1400,10 @@ class AIToolExecutor:
                 error="pattern is required",
             )
 
+        # Check if ctags index is ready
+        if not self._is_ctags_ready():
+            return self._ctags_not_ready_result("find_symbols")
+
         try:
             symbols = self.ctags_index.find_symbols_by_pattern(pattern, kind=kind)
 
@@ -1344,6 +1462,10 @@ class AIToolExecutor:
                 data=None,
                 error="class_name is required",
             )
+
+        # Check if ctags index is ready
+        if not self._is_ctags_ready():
+            return self._ctags_not_ready_result("get_class_members")
 
         try:
             # First, find the class definition(s)
@@ -1430,6 +1552,21 @@ class AIToolExecutor:
         Returns:
             ToolResult with index statistics.
         """
+        # Include indexing status in stats even if not ready
+        if self.ctags_index.is_indexing:
+            return ToolResult(
+                success=True,
+                data={
+                    "status": "indexing_in_progress",
+                    "is_indexed": False,
+                    "symbol_count": 0,
+                    "file_count": 0,
+                    "message": "Symbol index is currently being built in the background",
+                },
+            )
+        elif not self._is_ctags_ready():
+            return self._ctags_not_ready_result("get_index_stats")
+
         try:
             stats = self.ctags_index.get_stats()
 

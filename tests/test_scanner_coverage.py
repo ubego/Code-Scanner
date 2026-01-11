@@ -940,6 +940,47 @@ class TestScannerAdditionalCoverage:
         result = scanner._has_files_changed({"test.py"}, state)
         assert result is True
 
+    def test_has_files_changed_skips_ignored_files(self, mock_dependencies, tmp_path):
+        """Test _has_files_changed ignores files matching ignore patterns.
+        
+        This fixes a bug where ignored files (like code_scanner_results.md) would
+        trigger rescans because they weren't in _last_file_contents_hash but
+        were in _last_scanned_files.
+        """
+        mock_dependencies["config"].target_directory = tmp_path
+        # Add an ignore pattern for *.md files
+        mock_dependencies["config"].check_groups = [
+            CheckGroup(pattern="*.py", checks=["Check something"]),
+            CheckGroup(pattern="*.md", checks=[]),  # Ignore pattern
+        ]
+        scanner = Scanner(**mock_dependencies)
+        
+        # Create files
+        test_py = tmp_path / "test.py"
+        test_py.write_text("x = 1")
+        results_md = tmp_path / "results.md"
+        results_md.write_text("# Results")
+        
+        # Set up state as if we've already scanned both files
+        # Note: results.md is in _last_scanned_files but NOT in _last_file_contents_hash
+        # (because it was ignored during the scan)
+        scanner._last_scanned_files = {"test.py", "results.md"}
+        scanner._last_file_contents_hash = {"test.py": hash("x = 1")}
+        scanner._last_file_mtime = {"test.py": test_py.stat().st_mtime_ns}
+        
+        state = GitState(
+            changed_files=[
+                ChangedFile(path="test.py", status="unstaged"),
+                ChangedFile(path="results.md", status="unstaged"),  # This should be ignored
+            ]
+        )
+        
+        # Should return False because:
+        # - test.py hasn't changed (same content hash)
+        # - results.md is ignored
+        result = scanner._has_files_changed({"test.py", "results.md"}, state)
+        assert result is False
+
     def test_create_batches_splits_large_directory(self, mock_dependencies):
         """Test that _create_batches splits large directories into individual files."""
         mock_dependencies["llm_client"].context_limit = 1000  # Small limit
@@ -1273,11 +1314,11 @@ class TestToolLoggingEdgeCases:
         """Test logging for unknown/other tool types."""
         scanner = Scanner(**mock_dependencies)
         scanner._target_dir = Path("/test/repo")
-        scanner.tool_executor = MagicMock()
+        scanner._tool_executor = MagicMock()
         
         # Mock tool result
         from code_scanner.ai_tools import ToolResult
-        scanner.tool_executor.execute_tool.return_value = ToolResult(
+        scanner._tool_executor.execute_tool.return_value = ToolResult(
             success=True,
             data={"result": "ok"},
         )

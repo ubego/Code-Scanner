@@ -49,11 +49,19 @@ def mock_ctags_index(tmp_path):
     mock_index.find_definitions.return_value = []
     mock_index.get_symbols_in_file.return_value = []
     mock_index.get_class_members.return_value = []
+    mock_index.is_indexed = True
+    mock_index.is_indexing = False
+    mock_index.index_error = None
     mock_index.get_file_structure.return_value = {
         "file": str(tmp_path / "test.py"),
         "language": "Python",
         "symbols": [],
         "structure_summary": "",
+        "classes": [],
+        "functions": [],
+        "variables": [],
+        "imports": [],
+        "other": [],
     }
     mock_index.get_stats.return_value = {
         "total_symbols": 0,
@@ -489,3 +497,72 @@ class TestToolExecutorInScanner:
         assert "tools" in call_kwargs
         assert len(call_kwargs["tools"]) == 11  # 11 tools available (6 base + 5 ctags)
 
+
+class TestAsyncCtagsTools:
+    """Test tool behavior when ctags index is still building."""
+
+    def test_symbol_exists_returns_indexing_status(self, mock_components):
+        """Test symbol_exists returns helpful message when ctags is indexing."""
+        scanner = mock_components["scanner"]
+        
+        # Configure mock as if indexing is in progress
+        scanner.ctags_index.is_indexed = False
+        scanner.ctags_index.is_indexing = True
+        scanner.ctags_index.index_error = None
+        
+        # Call the tool directly
+        result = scanner.tool_executor._symbol_exists("SomeClass", "class")
+        
+        assert result.success is True
+        assert "indexing_in_progress" in str(result.data.get("status", ""))
+        assert result.warning is not None
+        assert "ctags" in result.warning.lower() or "index" in result.warning.lower()
+
+    def test_find_definition_returns_indexing_status(self, mock_components):
+        """Test find_definition returns helpful message when ctags is indexing."""
+        scanner = mock_components["scanner"]
+        
+        scanner.ctags_index.is_indexed = False
+        scanner.ctags_index.is_indexing = True
+        scanner.ctags_index.index_error = None
+        
+        result = scanner.tool_executor._find_definition("some_function")
+        
+        assert result.success is True
+        assert "indexing_in_progress" in str(result.data.get("status", ""))
+
+    def test_get_file_summary_works_without_ctags(self, mock_components, tmp_path):
+        """Test get_file_summary still returns basic info when ctags unavailable."""
+        scanner = mock_components["scanner"]
+        
+        # Create a test file (5 lines of code = 6 lines total with trailing newline)
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def foo():\n    pass\n\nclass Bar:\n    pass")  # No trailing newline = 5 lines
+        
+        scanner.ctags_index.is_indexed = False
+        scanner.ctags_index.is_indexing = True
+        scanner.ctags_index.index_error = None
+        
+        result = scanner.tool_executor._get_file_summary("test.py")
+        
+        assert result.success is True
+        assert result.data["total_lines"] == 5
+        # Structure should be empty but no error
+        assert result.data["summary"]["class_count"] == 0
+        assert result.warning is not None
+
+    def test_tools_work_after_indexing_completes(self, mock_components):
+        """Test tools work normally after ctags indexing completes."""
+        scanner = mock_components["scanner"]
+        
+        # Configure as fully indexed
+        scanner.ctags_index.is_indexed = True
+        scanner.ctags_index.is_indexing = False
+        scanner.ctags_index.index_error = None
+        scanner.ctags_index.find_symbol.return_value = []  # No results but works
+        
+        result = scanner.tool_executor._symbol_exists("SomeClass", "class")
+        
+        assert result.success is True
+        assert result.data.get("exists") is False  # Normal "not found" result
+        assert result.warning is None

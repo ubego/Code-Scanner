@@ -132,26 +132,21 @@ class GitWatcher:
                     path = " ".join(parts[8:])
                 
                 elif entry_type == "2":
-                    # Rename: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path> <origPath>
+                    # Rename: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <oldPath><TAB><newPath>
+                    # In porcelain v2, renamed files have paths separated by TAB character
+                    # The format is: oldPath<TAB>newPath - we want the NEW path (destination)
                     xy = parts[1]
-                    # Format is complicated, finding path separator is tricky if spaces involved.
-                    # Since we don't use -z, we'll try to split.
-                    # Usually: ... <score> <path> <origPath>
-                    # It's safer to extract paths from the end, but without -z it's ambiguous.
-                    # For now, simplistic approach assuming no tabs in filenames (git output separator is tab?)
-                    # actually v2 text format separates rename paths with tab? No, space.
-                    # Fallback: take the path before the last field
-                    # Actually standard practice is to use -z for renames to be safe.
-                    # For this implementation, we assume typical filenames.
-                    # Let's extract path based on known index 9
-                    # But wait, python split(" ") with multiple spaces in filename?
-                    # Let's assume standard handling:
-                    path = parts[9] # This is risky. 
-                    # Re-evaluating: Plan said porcelain=v2. It's robust BUT parsing text format renames with spaces is hard.
-                    # However, most files don't have spaces.
-                    # Let's stick to simplest valid parsing for now.
-                    # Actually index 9 is path. 
-                    path = parts[9]
+                    # Get the path portion (everything from index 9 onwards joined by space)
+                    path_portion = " ".join(parts[9:])
+                    # The old and new paths are separated by TAB
+                    # We want the NEW path (destination), which is AFTER the TAB
+                    if "\t" in path_portion:
+                        path = path_portion.split("\t")[1]  # Take the new path (after TAB)
+                    else:
+                        path = path_portion
+                    # Strip quotes if present (git quotes paths with special characters)
+                    if path.startswith('"') and path.endswith('"'):
+                        path = path[1:-1]
                 
                 elif entry_type == "?":
                     # Untracked: ? <path>
@@ -165,6 +160,10 @@ class GitWatcher:
                 
                 else:
                     continue
+
+                # Strip quotes if present (git quotes paths with special characters)
+                if path.startswith('"') and path.endswith('"'):
+                    path = path[1:-1]
 
                 if not path or path in seen_paths:
                     continue

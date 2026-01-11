@@ -55,11 +55,7 @@ class Scanner:
         self.ctags_index = ctags_index
 
         # Initialize AI tool executor for context expansion
-        self.tool_executor = AIToolExecutor(
-            target_directory=config.target_directory,
-            context_limit=llm_client.context_limit,
-            ctags_index=ctags_index,
-        )
+        self._tool_executor = None
 
         # Threading controls
         self._stop_event = threading.Event()
@@ -71,6 +67,21 @@ class Scanner:
         self._last_file_contents_hash: dict[str, int] = {}  # Hash of file contents
         self._last_file_mtime: dict[str, float] = {}  # Optimization: mtime cache
         self._scan_info: dict = {}
+
+    @property
+    def tool_executor(self) -> AIToolExecutor:
+        """Lazy initialization of the tool executor.
+        
+        This prevents accessing llm_client.context_limit before the client
+        is connected (which would raise an error).
+        """
+        if self._tool_executor is None:
+            self._tool_executor = AIToolExecutor(
+                target_directory=self.config.target_directory,
+                context_limit=self.llm_client.context_limit,
+                ctags_index=self.ctags_index,
+            )
+        return self._tool_executor
 
     def start(self) -> None:
         """Start the scanner thread."""
@@ -147,6 +158,22 @@ class Scanner:
 
         logger.info("Scanner loop ended")
 
+    def _is_file_ignored(self, file_path: str) -> bool:
+        """Check if a file matches any ignore pattern.
+        
+        Ignore patterns are check groups with empty checks list.
+        
+        Args:
+            file_path: Relative path to the file.
+            
+        Returns:
+            True if the file should be ignored from scanning.
+        """
+        for pattern_group in self.config.check_groups:
+            if not pattern_group.checks and pattern_group.matches_file(file_path):
+                return True
+        return False
+
     def _has_files_changed(self, current_files: set[str], git_state: GitState) -> bool:
         """Check if files have changed since the last scan.
         
@@ -167,6 +194,10 @@ class Scanner:
         # Check if any file contents have changed by comparing hashes
         for changed_file in git_state.changed_files:
             if changed_file.is_deleted:
+                continue
+            
+            # Skip ignored files - they don't affect scan results
+            if self._is_file_ignored(changed_file.path):
                 continue
             
             file_path = self.config.target_directory / changed_file.path
@@ -296,9 +327,22 @@ class Scanner:
                     # Update output file after every check for incremental progress
                     self.output_generator.write(self.issue_tracker, self._scan_info)
 
-                except ContextOverflowError:
-                    # Context overflow is FATAL - requires user intervention
-                    raise
+                except ContextOverflowError as e:
+                    # Context overflow despite dynamic token tracking - this indicates
+                    # our token estimation or limits are miscalculated. Log as ERROR.
+                    logger.error(
+                        f"UNEXPECTED context overflow during check - limits may be miscalculated! "
+                        f"Check: {check[:50]}, Error: {e}"
+                    )
+                    skipped_key = "skipped_batches_context_overflow"
+                    if skipped_key not in self._scan_info:
+                        self._scan_info[skipped_key] = []
+                    self._scan_info[skipped_key].append({
+                        "check": check[:50],
+                        "batch": batch_idx + 1 if 'batch_idx' in dir() else 0,
+                        "error": "limits_miscalculated",
+                    })
+                    continue  # Skip to next check
                 except LLMClientError as e:
                     error_msg = str(e).lower()
                     # Check for any connection-related error (lost connection, connection refused, etc.)
@@ -501,6 +545,9 @@ class Scanner:
         files_content: dict[str, str],
     ) -> list[dict[str, str]]:
         """Create batches of files based on context limit.
+        
+        Core definition files (models.py, base_client.py) are included in every
+        batch to provide cross-file context and reduce false positives.
 
         Args:
             files_content: Dictionary of file paths to content.
@@ -510,17 +557,35 @@ class Scanner:
         """
         context_limit = self.llm_client.context_limit
 
-        # Reserve tokens for prompt overhead and response
-        available_tokens = int(context_limit * 0.7)  # 70% for content
+        # Reserve tokens for prompt overhead, tool calling, and response
+        # Using 55% for file content leaves 45% for:
+        # - System prompt (~500 tokens)
+        # - Tool call iterations (~2000-5000 tokens per iteration)
+        # - Response generation (~1000 tokens)
+        available_tokens = int(context_limit * 0.55)  # 55% for file content
+        
+        # Identify core definition files to include in every batch
+        core_files = {}
+        core_tokens = 0
+        core_patterns = ["models.py", "base_client.py"]
+        
+        for file_path, content in files_content.items():
+            if any(pattern in file_path for pattern in core_patterns):
+                tokens = estimate_tokens(content)
+                core_files[file_path] = content
+                core_tokens += tokens
+        
+        # Adjust available tokens for non-core files
+        available_for_batch = available_tokens - core_tokens
 
         # Try all files together first
         total_tokens = sum(estimate_tokens(c) for c in files_content.values())
         if total_tokens <= available_tokens:
             return [files_content]
 
-        # Group by directory hierarchy
+        # Group by directory hierarchy (excluding core files already handled)
         batches: list[dict[str, str]] = []
-        groups = group_files_by_directory(list(files_content.keys()))
+        groups = group_files_by_directory([p for p in files_content.keys() if p not in core_files])
 
         current_batch: dict[str, str] = {}
         current_tokens = 0
@@ -534,10 +599,10 @@ class Scanner:
                 tokens = estimate_tokens(content)
 
                 # Skip files that alone exceed the limit
-                if tokens > available_tokens:
+                if tokens > available_for_batch:
                     logger.warning(
                         f"Skipping oversized file: {file_path} "
-                        f"({tokens} tokens > {available_tokens} available)"
+                        f"({tokens} tokens > {available_for_batch} available)"
                     )
                     self._scan_info["skipped_files"].append(file_path)
                     continue
@@ -549,12 +614,12 @@ class Scanner:
                 continue
 
             # Check if directory group fits in current batch
-            if current_tokens + dir_tokens <= available_tokens:
+            if current_tokens + dir_tokens <= available_for_batch:
                 current_batch.update(dir_content)
                 current_tokens += dir_tokens
             else:
                 # Try to fit individual files
-                if dir_tokens <= available_tokens:
+                if dir_tokens <= available_for_batch:
                     # Start new batch with this directory
                     if current_batch:
                         batches.append(current_batch)
@@ -569,7 +634,7 @@ class Scanner:
 
                     for file_path, content in dir_content.items():
                         tokens = estimate_tokens(content)
-                        if current_tokens + tokens <= available_tokens:
+                        if current_tokens + tokens <= available_for_batch:
                             current_batch[file_path] = content
                             current_tokens += tokens
                         else:
@@ -580,8 +645,18 @@ class Scanner:
 
         if current_batch:
             batches.append(current_batch)
-
-        return batches
+        
+        # Add core files to every batch (only if we have actual batches)
+        if core_files and batches:
+            for batch in batches:
+                batch.update(core_files)
+            logger.debug(f"Added {len(core_files)} core file(s) to {len(batches)} batch(es) for cross-file context")
+            return batches
+        elif batches:
+            return batches
+        else:
+            # No batches created (all files filtered or oversized)
+            return []
 
     def _parse_issues_from_response(
         self,
@@ -697,6 +772,18 @@ class Scanner:
             {"role": "user", "content": user_prompt},
         ]
 
+        # Dynamic token tracking to prevent context overflow
+        context_limit = self.llm_client.context_limit
+        context_safety_threshold = 0.85  # Stop tool calls at 85% of limit
+        max_context_tokens = int(context_limit * context_safety_threshold)
+        
+        # Track accumulated tokens
+        accumulated_tokens = (
+            estimate_tokens(SYSTEM_PROMPT_TEMPLATE) + 
+            estimate_tokens(user_prompt)
+        )
+        logger.debug(f"Initial context usage: {accumulated_tokens} tokens ({accumulated_tokens * 100 // context_limit}% of {context_limit})")
+
         max_tool_iterations = 10  # Prevent infinite loops
         iteration = 0
 
@@ -760,10 +847,45 @@ class Scanner:
 
                     # Add tool results to conversation
                     tool_results_message = "\n\n".join(tool_results)
+                    
+                    # Check if adding tool results would exceed context threshold
+                    tool_results_tokens = estimate_tokens(tool_results_message)
+                    new_total = accumulated_tokens + tool_results_tokens
+                    context_usage_pct = new_total * 100 // context_limit
+                    
+                    logger.debug(f"Context usage after tools: {new_total} tokens ({context_usage_pct}% of {context_limit})")
+                    
+                    if new_total > max_context_tokens:
+                        # Approaching context limit - ask LLM to finalize with current info
+                        logger.warning(
+                            f"Context approaching limit ({context_usage_pct}% used, threshold {int(context_safety_threshold * 100)}%). "
+                            f"Requesting LLM to finalize analysis without further tool calls."
+                        )
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                f"Tool results:\n\n{tool_results_message}\n\n"
+                                "IMPORTANT: Context limit reached. Do NOT request more tools. "
+                                "Provide your FINAL analysis now with issues found based on available information."
+                            ),
+                        })
+                        accumulated_tokens = new_total
+                        
+                        # Query without tools to force final answer
+                        response = self.llm_client.query(
+                            system_prompt=messages[0]["content"],
+                            user_prompt=messages[-1]["content"],
+                            max_retries=self.config.max_llm_retries,
+                            tools=None,  # No tools - force final answer
+                        )
+                        return self._parse_issues_from_response(response, check_query, batch_idx)
+                    
+                    # Normal case - continue with tool results
                     messages.append({
                         "role": "user",
                         "content": f"Tool results:\n\n{tool_results_message}\n\nNow provide your final analysis with any issues found.",
                     })
+                    accumulated_tokens = new_total
 
                     # Continue loop to get LLM's response after tool execution
                     continue

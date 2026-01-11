@@ -116,7 +116,7 @@ class Application:
         self._backup_existing_output()
 
         # Set up logging
-        setup_logging(self.config.log_path)
+        setup_logging(self.config.log_path, debug=self.config.debug)
         total_checks = sum(len(g.checks) for g in self.config.check_groups)
         logger.info(
             f"{'=' * 60}\n"
@@ -145,11 +145,11 @@ class Application:
         # Set context limit from config (now required)
         self.llm_client.set_context_limit(self.config.llm.context_limit)
 
-        # Initialize ctags index for symbol navigation
-        logger.info("Initializing ctags index...")
+        # Initialize ctags index for symbol navigation (async for faster startup)
+        logger.info("Starting async ctags index generation...")
         self.ctags_index = CtagsIndex(self.config.target_directory)
-        symbol_count = self.ctags_index.generate_index()
-        logger.info(f"Ctags index ready: {symbol_count} symbols indexed")
+        self.ctags_index.generate_index_async()
+        # Index will complete in background - tools will return limited results until ready
 
         self.issue_tracker = IssueTracker()
         self.output_generator = OutputGenerator(self.config.output_path)
@@ -378,6 +378,13 @@ def parse_args() -> argparse.Namespace:
         version="%(prog)s 0.1.0",
     )
 
+    parser.add_argument(
+        "-d", "--debug",
+        action="store_true",
+        default=False,
+        help="Enable debug logging to console and log file (default: INFO level)",
+    )
+
     return parser.parse_args()
 
 
@@ -394,6 +401,7 @@ def main() -> int:
             target_directory=args.target_directory,
             config_file=args.config,
             commit_hash=args.commit,
+            debug=args.debug,
         )
     except ConfigError as e:
         print(f"Configuration error: {e}", file=sys.stderr)

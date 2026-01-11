@@ -73,6 +73,11 @@ The primary objective of this project is to implement a software program that **
     2.  **File-by-file fallback:** If a directory group still exceeds the limit, process files individually.
     3.  **Skip oversized files:** If a single file exceeds the context limit, skip it and log a warning.
     4.  **Merged Results:** When a check runs across multiple batches, all issues from all batches are **merged into a single result set**.
+*   **Dynamic Token Tracking:** To prevent context overflow during multi-turn tool calling:
+    1.  **Batch Size:** Uses **55% of context limit** for file content, leaving 45% for system prompt, tool iterations, and response.
+    2.  **Runtime Tracking:** Scanner tracks accumulated tokens during tool call iterations.
+    3.  **Early Termination:** At **85% context usage**, tool calling stops and LLM is instructed to finalize with available information.
+    4.  **Fallback:** If overflow still occurs despite tracking, log **ERROR** (indicates limit miscalculation) and skip the batch.
 *   **Token Estimation:** Use a **simple character/word ratio** approximation to estimate token count before sending to the LLM.
 *   **Continuous Loop:** Once all checks in the list are completed, the scanner **restarts from the beginning** of the check list and continues indefinitely.
 *   **AI Interaction:** Each query will be sent to the local AI model.

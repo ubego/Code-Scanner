@@ -130,45 +130,25 @@ SYSTEM_PROMPT_TEMPLATE = """You are an expert code analysis assistant. Your goal
 
 ## CRITICAL: USE TOOLS TO VERIFY BEFORE REPORTING
 
-You have powerful tools. USE THEM! Reporting unverified issues wastes developer time.
+You have powerful tools available. USE THEM! Reporting unverified issues wastes developer time.
 
-### VERIFICATION IS MANDATORY FOR:
-- "Undefined symbol" → MUST call symbol_exists or find_definition first
-- "Missing import" → MUST call search_text to check if it's imported elsewhere
-- "Unused code" → MUST call search_text to verify no usages exist
-- "Circular import" → MUST call find_definition to trace the import chain
-- "Missing error handling" → MUST call read_file to check calling context
+Each tool's description contains:
+- Examples of when to use it
+- Verification use cases
+- Mandatory verification requirements
 
-### TOOL REFERENCE:
-
-**Symbol Tools (ctags-powered, instant O(1) lookups):**
-| Tool | Use When | Example |
-|------|----------|---------|
-| symbol_exists | Checking if function/class exists | "Is `validate_input` defined?" |
-| find_definition | Need exact location of definition | "Where is `UserService` defined?" |
-| find_symbols | Searching by pattern | "Find all `*Repository` classes" |
-| get_class_members | Analyzing class interface | "What methods does `Config` have?" |
-| list_symbols | Understanding file structure | "What's defined in utils.py?" |
-
-**Code Search Tools:**
-| Tool | Use When | Example |
-|------|----------|---------|
-| search_text | Finding usages/patterns | "Where is `process_data` called?" |
-| read_file | Need more context | "Read the base class definition" |
-| get_file_diff | Checking recent changes | "What changed in config.py?" |
-| list_directory | Exploring structure | "What's in the tests/ folder?" |
+**Follow the guidance in each tool's description carefully.**
 
 ### WORKFLOW:
 1. Read the provided code carefully
 2. Form hypotheses about potential issues
-3. **VERIFY each hypothesis using appropriate tools**
+3. **VERIFY each hypothesis using appropriate tools** (see tool descriptions for which to use)
 4. Report ONLY issues you have verified
 
 ### ANTI-PATTERNS (DO NOT DO):
-❌ Report "function X is undefined" without calling symbol_exists first
-❌ Report "no error handling" without checking calling context
-❌ Report "unused variable" without searching for usages
+❌ Report issues without verification
 ❌ Guess that something is wrong - VERIFY IT
+❌ Skip tool verification just because the issue seems obvious
 
 ### OUTPUT FORMAT (strict JSON, no markdown):
 {"issues": [{"file": "path", "line_number": 42, "description": "...", "suggested_fix": "...", "code_snippet": "..."}]}
@@ -195,12 +175,32 @@ def build_user_prompt(check_query: str, files_content: dict[str, str]) -> str:
     Returns:
         Formatted user prompt.
     """
+    # Separate core definition files from files to analyze
+    core_files = {path: content for path, content in files_content.items() 
+                  if "models.py" in path or "base_client.py" in path}
+    analyze_files = {path: content for path, content in files_content.items() 
+                     if path not in core_files}
+    
     prompt_parts = [
         f"## Check to perform:\n{check_query}\n",
-        "## Files to analyze:\n",
     ]
+    
+    # Add core files section if present
+    if core_files:
+        prompt_parts.append("## Core definition files (for reference, DO NOT report issues here):\n")
+        for file_path, content in core_files.items():
+            lines = content.split('\n')
+            total_lines = len(lines)
+            numbered_lines = [f"L{i}: {line}" for i, line in enumerate(lines, start=1)]
+            numbered_content = '\n'.join(numbered_lines)
+            prompt_parts.append(
+                f"### File: {file_path} (lines 1-{total_lines}, total: {total_lines})\n"
+                f"<<<FILE_START>>>\n{numbered_content}\n<<<FILE_END>>>\n"
+            )
+    
+    prompt_parts.append("## Files to analyze:\n")
 
-    for file_path, content in files_content.items():
+    for file_path, content in analyze_files.items():
         lines = content.split('\n')
         total_lines = len(lines)
         

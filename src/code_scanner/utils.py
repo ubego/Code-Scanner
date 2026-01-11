@@ -216,13 +216,16 @@ def read_file_content(file_path: Path) -> str | None:
 
 
 
-def setup_logging(log_file: Path, console_level: int = logging.INFO) -> None:
+def setup_logging(log_file: Path, debug: bool = False) -> None:
     """Set up logging to both console and file.
 
     Args:
         log_file: Path to the log file.
-        console_level: Logging level for console output.
+        debug: If True, set DEBUG level for both console and file.
+               If False, set INFO level for both.
     """
+    log_level = logging.DEBUG if debug else logging.INFO
+    
     # Create formatter for file (no colors)
     file_formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -242,17 +245,17 @@ def setup_logging(log_file: Path, console_level: int = logging.INFO) -> None:
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
     
-    root_logger.setLevel(logging.DEBUG)
+    root_logger.setLevel(log_level)
 
     # Console handler (with colors)
     console_handler = logging.StreamHandler(sys.stderr)
-    console_handler.setLevel(console_level)
+    console_handler.setLevel(log_level)
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
 
     # File handler (no colors)
     file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(log_level)
     file_handler.setFormatter(file_formatter)
     root_logger.addHandler(file_handler)
 

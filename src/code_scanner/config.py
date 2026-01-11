@@ -31,6 +31,7 @@ class Config:
     check_groups: list[CheckGroup]
     commit_hash: Optional[str] = None
     llm: LLMConfig = field(default_factory=LLMConfig)
+    debug: bool = False  # Enable debug logging
 
     # Output file name (in target directory)
     output_file: str = "code_scanner_results.md"
@@ -76,6 +77,7 @@ def load_config(
     target_directory: Path,
     config_file: Optional[Path] = None,
     commit_hash: Optional[str] = None,
+    debug: bool = False,
 ) -> Config:
     """Load configuration from TOML file.
 
@@ -84,6 +86,7 @@ def load_config(
         config_file: Optional path to config file. If not provided,
                     looks in the script directory.
         commit_hash: Optional commit hash to compare against.
+        debug: Enable debug logging (default: False, INFO level).
 
     Returns:
         Loaded and validated Config object.
@@ -288,6 +291,7 @@ def load_config(
         check_groups=check_groups,
         commit_hash=commit_hash,
         llm=llm_config,
+        debug=debug,
     )
 
     total_checks = sum(len(g.checks) for g in config.check_groups)

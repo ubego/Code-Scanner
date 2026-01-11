@@ -15,6 +15,7 @@ import json
 import logging
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -149,6 +150,11 @@ class CtagsIndex:
         self._symbols_by_name: dict[str, list[Symbol]] = {}
         self._symbols_by_file: dict[str, list[Symbol]] = {}
         self._is_indexed = False
+        
+        # Async indexing support
+        self._index_thread: Optional[threading.Thread] = None
+        self._index_error: Optional[Exception] = None
+        self._is_indexing = False
 
         # Verify ctags is available
         self._verify_ctags()
@@ -317,16 +323,76 @@ class CtagsIndex:
                     continue
 
             self._is_indexed = True
+            self._is_indexing = False
             logger.info(f"Indexed {len(self._symbols)} symbols from {len(self._symbols_by_file)} files")
             return len(self._symbols)
 
         except subprocess.TimeoutExpired:
+            self._is_indexing = False
             raise CtagsError(
                 "Ctags timed out after 5 minutes. "
                 "The repository may be too large or contain problematic files."
             )
         except subprocess.SubprocessError as e:
+            self._is_indexing = False
             raise CtagsError(f"Failed to run ctags: {e}")
+
+    def generate_index_async(self) -> None:
+        """Start asynchronous ctags index generation in a background thread.
+        
+        The index will be built in the background, allowing the application
+        to continue running. Use `is_indexed` or `is_indexing` properties to
+        check the status. If indexing fails, the error is stored in `index_error`.
+        
+        This is useful for large repositories where ctags may take several seconds.
+        """
+        if self._is_indexed or self._is_indexing:
+            return  # Already indexed or in progress
+        
+        self._is_indexing = True
+        self._index_error = None
+        
+        def _run_indexing():
+            try:
+                self.generate_index()
+            except Exception as e:
+                self._index_error = e
+                self._is_indexing = False
+                logger.error(f"Async ctags indexing failed: {e}")
+        
+        self._index_thread = threading.Thread(target=_run_indexing, daemon=True)
+        self._index_thread.start()
+        logger.info("Started async ctags index generation")
+
+    def wait_for_index(self, timeout: Optional[float] = None) -> bool:
+        """Wait for async index generation to complete.
+        
+        Args:
+            timeout: Maximum seconds to wait. None means wait forever.
+            
+        Returns:
+            True if index is ready, False if timed out or failed.
+            
+        Raises:
+            CtagsError: If indexing failed with an error.
+        """
+        if self._index_thread is not None:
+            self._index_thread.join(timeout=timeout)
+        
+        if self._index_error is not None:
+            raise CtagsError(f"Ctags indexing failed: {self._index_error}")
+        
+        return self._is_indexed
+
+    @property
+    def is_indexing(self) -> bool:
+        """Check if index generation is currently in progress."""
+        return self._is_indexing
+
+    @property
+    def index_error(self) -> Optional[Exception]:
+        """Get the error from async indexing, if any."""
+        return self._index_error
 
     @property
     def is_indexed(self) -> bool:
