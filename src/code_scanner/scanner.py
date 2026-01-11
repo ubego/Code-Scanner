@@ -546,9 +546,6 @@ class Scanner:
     ) -> list[dict[str, str]]:
         """Create batches of files based on context limit.
         
-        Core definition files (models.py, base_client.py) are included in every
-        batch to provide cross-file context and reduce false positives.
-
         Args:
             files_content: Dictionary of file paths to content.
 
@@ -558,34 +555,17 @@ class Scanner:
         context_limit = self.llm_client.context_limit
 
         # Reserve tokens for prompt overhead, tool calling, and response
-        # Using 55% for file content leaves 45% for:
-        # - System prompt (~500 tokens)
-        # - Tool call iterations (~2000-5000 tokens per iteration)
-        # - Response generation (~1000 tokens)
-        available_tokens = int(context_limit * 0.55)  # 55% for file content
+        # Using 55% for file content leaves 45% for system prompt & tools
+        available_tokens = int(context_limit * 0.55)
         
-        # Identify core definition files to include in every batch
-        core_files = {}
-        core_tokens = 0
-        core_patterns = ["models.py", "base_client.py"]
-        
-        for file_path, content in files_content.items():
-            if any(pattern in file_path for pattern in core_patterns):
-                tokens = estimate_tokens(content)
-                core_files[file_path] = content
-                core_tokens += tokens
-        
-        # Adjust available tokens for non-core files
-        available_for_batch = available_tokens - core_tokens
-
         # Try all files together first
         total_tokens = sum(estimate_tokens(c) for c in files_content.values())
         if total_tokens <= available_tokens:
             return [files_content]
 
-        # Group by directory hierarchy (excluding core files already handled)
+        # Group by directory hierarchy
         batches: list[dict[str, str]] = []
-        groups = group_files_by_directory([p for p in files_content.keys() if p not in core_files])
+        groups = group_files_by_directory(list(files_content.keys()))
 
         current_batch: dict[str, str] = {}
         current_tokens = 0
@@ -599,10 +579,10 @@ class Scanner:
                 tokens = estimate_tokens(content)
 
                 # Skip files that alone exceed the limit
-                if tokens > available_for_batch:
+                if tokens > available_tokens:
                     logger.warning(
                         f"Skipping oversized file: {file_path} "
-                        f"({tokens} tokens > {available_for_batch} available)"
+                        f"({tokens} tokens > {available_tokens} available)"
                     )
                     self._scan_info["skipped_files"].append(file_path)
                     continue
@@ -614,12 +594,12 @@ class Scanner:
                 continue
 
             # Check if directory group fits in current batch
-            if current_tokens + dir_tokens <= available_for_batch:
+            if current_tokens + dir_tokens <= available_tokens:
                 current_batch.update(dir_content)
                 current_tokens += dir_tokens
             else:
                 # Try to fit individual files
-                if dir_tokens <= available_for_batch:
+                if dir_tokens <= available_tokens:
                     # Start new batch with this directory
                     if current_batch:
                         batches.append(current_batch)
@@ -634,7 +614,7 @@ class Scanner:
 
                     for file_path, content in dir_content.items():
                         tokens = estimate_tokens(content)
-                        if current_tokens + tokens <= available_for_batch:
+                        if current_tokens + tokens <= available_tokens:
                             current_batch[file_path] = content
                             current_tokens += tokens
                         else:
@@ -645,18 +625,8 @@ class Scanner:
 
         if current_batch:
             batches.append(current_batch)
-        
-        # Add core files to every batch (only if we have actual batches)
-        if core_files and batches:
-            for batch in batches:
-                batch.update(core_files)
-            logger.debug(f"Added {len(core_files)} core file(s) to {len(batches)} batch(es) for cross-file context")
-            return batches
-        elif batches:
-            return batches
-        else:
-            # No batches created (all files filtered or oversized)
-            return []
+
+        return batches
 
     def _parse_issues_from_response(
         self,

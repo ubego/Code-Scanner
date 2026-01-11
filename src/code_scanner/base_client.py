@@ -175,32 +175,12 @@ def build_user_prompt(check_query: str, files_content: dict[str, str]) -> str:
     Returns:
         Formatted user prompt.
     """
-    # Separate core definition files from files to analyze
-    core_files = {path: content for path, content in files_content.items() 
-                  if "models.py" in path or "base_client.py" in path}
-    analyze_files = {path: content for path, content in files_content.items() 
-                     if path not in core_files}
-    
     prompt_parts = [
         f"## Check to perform:\n{check_query}\n",
+        "## Files to analyze:\n"
     ]
-    
-    # Add core files section if present
-    if core_files:
-        prompt_parts.append("## Core definition files (for reference, DO NOT report issues here):\n")
-        for file_path, content in core_files.items():
-            lines = content.split('\n')
-            total_lines = len(lines)
-            numbered_lines = [f"L{i}: {line}" for i, line in enumerate(lines, start=1)]
-            numbered_content = '\n'.join(numbered_lines)
-            prompt_parts.append(
-                f"### File: {file_path} (lines 1-{total_lines}, total: {total_lines})\n"
-                f"<<<FILE_START>>>\n{numbered_content}\n<<<FILE_END>>>\n"
-            )
-    
-    prompt_parts.append("## Files to analyze:\n")
 
-    for file_path, content in analyze_files.items():
+    for file_path, content in files_content.items():
         lines = content.split('\n')
         total_lines = len(lines)
         

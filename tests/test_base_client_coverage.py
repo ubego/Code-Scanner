@@ -62,25 +62,25 @@ class TestBaseClientCoverage:
         assert "file2.py" in prompt
         assert "L1: class Bar: pass" in prompt
 
-    def test_build_user_prompt_with_core_files(self):
-        """Test that core files are separated in the prompt."""
+    def test_build_user_prompt_treats_all_files_equally(self):
+        """Test that what were 'core files' are now treated as regular files."""
         check = "Check logic"
         batch = {
             "src/main.py": "print('hello')",
-            "models.py": "class Issue: pass",      # Should be core
-            "base_client.py": "class Base: pass"  # Should be core
+            "models.py": "class Issue: pass",
+            "base_client.py": "class Base: pass"
         }
         
         prompt = build_user_prompt(check, batch)
         
-        # Core files section should be present
-        assert "## Core definition files (for reference, DO NOT report issues here):" in prompt
-        assert "models.py" in prompt
-        assert "base_client.py" in prompt
+        # Core files section should NOT be present
+        assert "## Core definition files" not in prompt
         
-        # Main files section
+        # All files should be under "Files to analyze"
         assert "## Files to analyze:" in prompt
         assert "src/main.py" in prompt
+        assert "models.py" in prompt
+        assert "base_client.py" in prompt
 
     def test_build_user_prompt_empty_batch(self):
         """Test build_user_prompt with empty batch."""
