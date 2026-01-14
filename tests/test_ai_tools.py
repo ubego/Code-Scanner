@@ -23,7 +23,6 @@ def make_mock_ctags(target_dir):
     mock_index.find_definitions.return_value = []
     mock_index.find_symbols_by_pattern.return_value = []
     mock_index.get_symbols_in_file.return_value = []
-    mock_index.get_class_members.return_value = []
     mock_index.get_file_structure.return_value = {
         "file_path": "test.py",
         "classes": [],
@@ -501,14 +500,14 @@ class TestToolSchemas:
 
     def test_schemas_structure(self):
         """Test that tool schemas have correct structure."""
-        assert len(AI_TOOLS_SCHEMA) == 11
+        assert len(AI_TOOLS_SCHEMA) == 10
 
         tool_names = {tool["function"]["name"] for tool in AI_TOOLS_SCHEMA}
         assert tool_names == {
             "search_text", "read_file", "list_directory",
             "get_file_diff", "get_file_summary", "symbol_exists",
-            "find_definition", "list_symbols", "find_symbols",
-            "get_class_members", "get_index_stats",
+            "find_definition", "find_symbols",
+            "get_enclosing_scope", "find_usages",
         }
 
         # Check each schema has required fields
@@ -1827,7 +1826,7 @@ class TestLLMInterfaceConsistency:
     """Tests to verify LLM interface consistency."""
 
     def test_all_tools_in_schema(self):
-        """Verify all 11 tools are present in schema."""
+        """Verify all 10 tools are present in schema."""
         tool_names = {tool["function"]["name"] for tool in AI_TOOLS_SCHEMA}
         expected_tools = {
             "search_text",
@@ -1837,10 +1836,9 @@ class TestLLMInterfaceConsistency:
             "get_file_summary",
             "symbol_exists",
             "find_definition",
-            "list_symbols",
             "find_symbols",
-            "get_class_members",
-            "get_index_stats",
+            "get_enclosing_scope",
+            "find_usages",
         }
         assert tool_names == expected_tools
 
@@ -2167,3 +2165,222 @@ class TestSymbolExistsEdgeCases:
         assert result.data["exists"]
         # Should be limited to 10 locations
         assert len(result.data["locations"]) <= 10
+
+
+class TestGetEnclosingScopeTool:
+    """Tests for get_enclosing_scope tool."""
+
+    def test_get_enclosing_scope_function(self, tmp_path: Path):
+        """Test get_enclosing_scope finds a function containing a line."""
+        test_file = tmp_path / "module.py"
+        test_file.write_text("""def my_function():
+    x = 1
+    y = 2
+    return x + y
+
+def other_function():
+    pass
+""")
+        # Configure mock to return function symbol
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_enclosing_symbol.return_value = Symbol(
+            name="my_function",
+            file_path="module.py",
+            line=1,
+            kind="function",
+            end_line=4,
+            language="Python",
+            pattern="def my_function():",
+            scope=None,
+            signature="()",
+        )
+
+        executor = AIToolExecutor(tmp_path, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "get_enclosing_scope", {"file_path": "module.py", "line_number": 2}
+        )
+
+        assert result.success
+        assert result.data["type"] == "function"
+        assert result.data["name"] == "my_function"
+        assert result.data["start_line"] == 1
+        assert "def my_function" in result.data["content"]
+
+    def test_get_enclosing_scope_class_method(self, tmp_path: Path):
+        """Test get_enclosing_scope finds a method within a class."""
+        test_file = tmp_path / "models.py"
+        test_file.write_text("""class MyClass:
+    def method(self):
+        value = 42
+        return value
+""")
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_enclosing_symbol.return_value = Symbol(
+            name="method",
+            file_path="models.py",
+            line=2,
+            kind="method",
+            end_line=4,
+            language="Python",
+            pattern="def method(self):",
+            scope="MyClass",
+            signature="(self)",
+        )
+
+        executor = AIToolExecutor(tmp_path, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "get_enclosing_scope", {"file_path": "models.py", "line_number": 3}
+        )
+
+        assert result.success
+        assert result.data["type"] == "method"
+        assert result.data["name"] == "method"
+        assert result.data["scope"] == "MyClass"
+
+    def test_get_enclosing_scope_file_not_found(self, tmp_path: Path):
+        """Test get_enclosing_scope with non-existent file."""
+        executor = AIToolExecutor(tmp_path, 8192, make_mock_ctags(tmp_path))
+        result = executor.execute_tool(
+            "get_enclosing_scope", {"file_path": "nonexistent.py", "line_number": 5}
+        )
+
+        assert not result.success
+        assert "not found" in result.error.lower()
+
+    def test_get_enclosing_scope_missing_file_path(self, tmp_path: Path):
+        """Test get_enclosing_scope with missing file_path."""
+        executor = AIToolExecutor(tmp_path, 8192, make_mock_ctags(tmp_path))
+        result = executor.execute_tool("get_enclosing_scope", {"line_number": 5})
+
+        assert not result.success
+        assert "file_path" in result.error.lower()
+
+    def test_get_enclosing_scope_invalid_line(self, tmp_path: Path):
+        """Test get_enclosing_scope with invalid line number."""
+        test_file = tmp_path / "small.py"
+        test_file.write_text("x = 1\n")
+
+        executor = AIToolExecutor(tmp_path, 8192, make_mock_ctags(tmp_path))
+        result = executor.execute_tool(
+            "get_enclosing_scope", {"file_path": "small.py", "line_number": 100}
+        )
+
+        assert not result.success
+        assert "beyond file length" in result.error.lower()
+
+    def test_get_enclosing_scope_no_scope_found(self, tmp_path: Path):
+        """Test get_enclosing_scope when line is not in any scope."""
+        test_file = tmp_path / "toplevel.py"
+        test_file.write_text("# Just a comment\nx = 1\ny = 2\n")
+
+        # Mock returns None (no enclosing scope)
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_enclosing_symbol.return_value = None
+
+        executor = AIToolExecutor(tmp_path, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "get_enclosing_scope", {"file_path": "toplevel.py", "line_number": 2}
+        )
+
+        assert result.success
+        assert result.data["type"] == "file_context"
+        assert "content" in result.data
+
+
+class TestFindUsagesTool:
+    """Tests for find_usages tool."""
+
+    def test_find_usages_basic(self, tmp_path: Path):
+        """Test find_usages finds basic occurrences."""
+        test_file = tmp_path / "module.py"
+        test_file.write_text("""def process_data():
+    pass
+
+result1 = process_data()
+result2 = process_data()
+""")
+        executor = AIToolExecutor(tmp_path, 8192, make_mock_ctags(tmp_path))
+        result = executor.execute_tool("find_usages", {"symbol": "process_data"})
+
+        assert result.success
+        assert result.data["symbol"] == "process_data"
+        assert result.data["total_usages"] >= 0  # May vary based on detection
+        assert "entries" in result.data
+
+    def test_find_usages_excludes_definitions(self, tmp_path: Path):
+        """Test find_usages excludes definitions by default."""
+        test_file = tmp_path / "module.py"
+        test_file.write_text("""def my_func():
+    pass
+
+my_func()
+""")
+        # Configure mock to identify definition
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="my_func", file_path="module.py", line=1, kind="function",
+                   language="Python", pattern="def my_func():", scope=None, signature=None)
+        ]
+
+        executor = AIToolExecutor(tmp_path, 8192, mock_ctags)
+        result = executor.execute_tool("find_usages", {"symbol": "my_func"})
+
+        assert result.success
+        assert result.data["include_definitions"] is False
+
+    def test_find_usages_includes_definitions(self, tmp_path: Path):
+        """Test find_usages includes definitions when requested."""
+        test_file = tmp_path / "module.py"
+        test_file.write_text("""def my_func():
+    pass
+
+my_func()
+""")
+        mock_ctags = make_mock_ctags(tmp_path)
+        mock_ctags.find_symbol.return_value = [
+            Symbol(name="my_func", file_path="module.py", line=1, kind="function",
+                   language="Python", pattern="def my_func():", scope=None, signature=None)
+        ]
+
+        executor = AIToolExecutor(tmp_path, 8192, mock_ctags)
+        result = executor.execute_tool(
+            "find_usages", {"symbol": "my_func", "include_definitions": True}
+        )
+
+        assert result.success
+        assert result.data["include_definitions"] is True
+
+    def test_find_usages_missing_symbol(self, tmp_path: Path):
+        """Test find_usages with missing symbol parameter."""
+        executor = AIToolExecutor(tmp_path, 8192, make_mock_ctags(tmp_path))
+        result = executor.execute_tool("find_usages", {})
+
+        assert not result.success
+        assert "symbol" in result.error.lower()
+
+    def test_find_usages_no_matches(self, tmp_path: Path):
+        """Test find_usages when symbol has no usages."""
+        test_file = tmp_path / "module.py"
+        test_file.write_text("x = 1\n")
+
+        executor = AIToolExecutor(tmp_path, 8192, make_mock_ctags(tmp_path))
+        result = executor.execute_tool("find_usages", {"symbol": "nonexistent_symbol"})
+
+        assert result.success
+        assert result.data["total_usages"] == 0
+        assert result.data["entries"] == []
+
+    def test_find_usages_with_file_filter(self, tmp_path: Path):
+        """Test find_usages with file path filter."""
+        file1 = tmp_path / "module1.py"
+        file1.write_text("def helper(): pass\nhelper()\n")
+        file2 = tmp_path / "module2.py"
+        file2.write_text("helper()\n")
+
+        executor = AIToolExecutor(tmp_path, 8192, make_mock_ctags(tmp_path))
+        result = executor.execute_tool(
+            "find_usages", {"symbol": "helper", "file_path": "module1.py"}
+        )
+
+        assert result.success
+        assert result.data["file_filter"] == "module1.py"

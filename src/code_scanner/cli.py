@@ -131,9 +131,15 @@ class Application:
         )
 
         # Initialize components
+        # Exclude scanner output files from triggering rescans
+        excluded_files = {
+            self.config.output_file,  # code_scanner_results.md
+            f"{self.config.output_file}.bak",  # backup file
+        }
         self.git_watcher = GitWatcher(
             self.config.target_directory,
             self.config.commit_hash,
+            excluded_files=excluded_files,
         )
         self.git_watcher.connect()
 

@@ -427,39 +427,8 @@ find_definition(symbol="process_data")
 }
 ```
 
-### 8. list_symbols
 
-**Purpose:** List all symbols in a specific file. Useful for getting an overview of a file's structure without reading the entire content.
-
-**Parameters:**
-- `file_path` (required): Relative path to the file
-
-**Returns:**
-- `file_path`: The requested file
-- `symbols`: Array of symbols in the file, each with:
-  - `name`: Symbol name
-  - `line`: Line number
-  - `kind`: Symbol kind (function, class, method, variable)
-  - `scope`: Parent scope if any
-
-**Example Usage:**
-```python
-# List all symbols in a file
-list_symbols(file_path="src/models/user.py")
-
-# Result:
-{
-  "file_path": "src/models/user.py",
-  "symbols": [
-    {"name": "User", "line": 10, "kind": "class", "scope": null},
-    {"name": "__init__", "line": 15, "kind": "method", "scope": "User"},
-    {"name": "validate", "line": 25, "kind": "method", "scope": "User"},
-    {"name": "DEFAULT_ROLE", "line": 5, "kind": "variable", "scope": null}
-  ]
-}
-```
-
-### 9. find_symbols
+### 8. find_symbols
 
 **Purpose:** Find symbols matching a pattern across the entire codebase. Supports wildcards for flexible symbol discovery.
 
@@ -494,78 +463,91 @@ find_symbols(pattern="test_*", symbol_type="function")
 find_symbols(pattern="*Handler", symbol_type="class")
 ```
 
-### 10. get_class_members
 
-**Purpose:** Get all members (methods, attributes) of a specific class. Essential for understanding class structure and inheritance.
+
+## 9. get_enclosing_scope
+
+**Purpose:** Identify and retrieve the content of the innermost function, class, or method containing a specific line. This is a powerful context retrieval tool that returns the precise scope needed for analysis, avoiding the need to guess line numbers with `read_file`.
 
 **Parameters:**
-- `class_name` (required): Name of the class to inspect
+- `file_path` (required): Relative path to the file
+- `line_number` (required): Line number to analyze
 
 **Returns:**
-- `class_name`: The class inspected
-- `found`: Boolean indicating if class was found
-- `file`: File where class is defined
-- `line`: Line number of class definition
-- `members`: Array of class members, each with:
-  - `name`: Member name
-  - `kind`: Member kind (method, member, etc.)
+- `type`: Symbol type (function, class, method, etc.) or "file_context" if no scope found
+- `name`: Name of the enclosing symbol
+- `file_path`: The file path
+- `start_line`: Start line of the scope
+- `end_line`: End line of the scope
+- `signature`: Function signature if available
+- `scope`: Parent scope if any
+- `content`: Complete source code of the function/class (smartly truncated if too large)
+
+**Example Usage:**
+```python
+# Get the function containing line 42
+get_enclosing_scope(file_path="src/processor.py", line_number=42)
+
+# Result:
+{
+  "type": "function",
+  "name": "process_data",
+  "file_path": "src/processor.py",
+  "start_line": 40,
+  "end_line": 55,
+  "signature": "(data)",
+  "content": "def process_data(data):\n    # line 41\n    result = data * 2  # line 42\n    return result"
+}
+```
+
+**Behavior:**
+- Uses ctags index to identify the enclosing symbol
+- Reads file content for the identified range
+- Automatically handles scope end detection based on language conventions
+- Truncates content if it exceeds token limits (returns partial content with warning)
+- Returns surrounding file context if no enclosing symbol is found (e.g., top-level code)
+
+### 10. find_usages
+
+**Purpose:** Find all references to a specific symbol across the repository. Combines text search with ctags intelligence to distinguish between definitions and usages. Essential for impact analysis and finding dead code.
+
+**Parameters:**
+- `symbol` (required): The symbol name to find usages for
+- `file_path` (optional): Filter to search usages only within a specific file
+- `include_definitions` (optional): If true, includes definition sites in results (default: false)
+
+**Returns:**
+- `symbol`: The symbol searched for
+- `total_usages`: Count of usage locations found
+- `total_definitions`: Count of definition locations found
+- `include_definitions`: Whether definitions are included in `entries`
+- `entries`: Array of usage locations, each with:
+  - `file`: File path
   - `line`: Line number
-  - `signature`: Method signature if available
+  - `code`: Code snippet
+  - `is_definition`: Boolean indicating if this is a definition
 
 **Example Usage:**
 ```python
-# Get members of a class
-get_class_members(class_name="UserService")
+# Find who calls 'calculate_total'
+find_usages(symbol="calculate_total")
 
 # Result:
 {
-  "class_name": "UserService",
-  "found": true,
-  "file": "src/services/user_service.py",
-  "line": 15,
-  "members": [
-    {"name": "__init__", "kind": "method", "line": 20, "signature": "(self, db)"},
-    {"name": "create_user", "kind": "method", "line": 30, "signature": "(self, data)"},
-    {"name": "delete_user", "kind": "method", "line": 45, "signature": "(self, user_id)"},
-    {"name": "_validate", "kind": "method", "line": 60, "signature": "(self, data)"}
+  "symbol": "calculate_total",
+  "total_usages": 2,
+  "entries": [
+    {"file": "src/main.py", "line": 10, "code": "res = calculate_total(x)", "is_definition": false},
+    {"file": "tests/test_calc.py", "line": 5, "code": "assert calculate_total(1) == 2", "is_definition": false}
   ]
 }
 ```
 
-### 11. get_index_stats
-
-**Purpose:** Get statistics about the ctags symbol index. Useful for understanding repository size and symbol distribution.
-
-**Parameters:** None
-
-**Returns:**
-- `total_symbols`: Total number of indexed symbols
-- `total_files`: Number of files indexed
-- `symbols_by_kind`: Count of symbols by kind (function, class, etc.)
-- `top_files`: Files with most symbols (top 10)
-
-**Example Usage:**
-```python
-# Get index statistics
-get_index_stats()
-
-# Result:
-{
-  "total_symbols": 1250,
-  "total_files": 85,
-  "symbols_by_kind": {
-    "function": 450,
-    "class": 75,
-    "method": 520,
-    "variable": 205
-  },
-  "top_files": [
-    {"file": "src/core/engine.py", "count": 85},
-    {"file": "src/models/base.py", "count": 62},
-    ...
-  ]
-}
-```
+**Behavior:**
+- Performs text search for the symbol pattern
+- Cross-references with ctags index to identify which matches are definitions
+- Returns structured results separating definitions and usages
+- Supports file filtering to narrow scope
 
 ## Pagination Pattern
 

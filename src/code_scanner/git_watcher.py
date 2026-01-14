@@ -22,19 +22,27 @@ class GitError(Exception):
 class GitWatcher:
     """Monitors a Git repository for uncommitted changes."""
 
-    def __init__(self, repo_path: Path, commit_hash: Optional[str] = None):
+    def __init__(
+        self,
+        repo_path: Path,
+        commit_hash: Optional[str] = None,
+        excluded_files: Optional[set[str]] = None,
+    ):
         """Initialize the Git watcher.
 
         Args:
             repo_path: Path to the Git repository.
             commit_hash: Optional commit hash to compare against.
                         If None, compares against HEAD.
+            excluded_files: Optional set of file paths to exclude from change detection.
+                           These files (like scanner output files) will not trigger rescans.
 
         Raises:
             GitError: If path is not a valid Git repository.
         """
         self.repo_path = repo_path.resolve()
         self.commit_hash = commit_hash
+        self.excluded_files = excluded_files or set()
         self._repo: Optional[Repo] = None
         self._last_state: Optional[GitState] = None
 
@@ -269,7 +277,8 @@ class GitWatcher:
         """Check if there are changes since the last state.
 
         Compares both file paths AND modification times to detect actual changes,
-        not just git status fluctuations.
+        not just git status fluctuations. Excludes files in self.excluded_files
+        from triggering change detection (e.g., scanner output files).
 
         Args:
             last_state: Previous GitState to compare against.
@@ -280,19 +289,46 @@ class GitWatcher:
         current_state = self.get_state()
 
         if last_state is None:
-            return current_state.has_changes
+            # Filter out excluded files when checking for changes
+            non_excluded_files = [
+                f for f in current_state.changed_files
+                if f.path not in self.excluded_files
+            ]
+            has_changes = len(non_excluded_files) > 0
+            if has_changes:
+                logger.debug(
+                    f"Initial state has {len(non_excluded_files)} changed files: "
+                    f"{[f.path for f in non_excluded_files[:10]]}"
+                    f"{'...' if len(non_excluded_files) > 10 else ''}"
+                )
+            return has_changes
 
-        # Compare file lists by path
-        current_paths = {f.path for f in current_state.changed_files}
-        last_paths = {f.path for f in last_state.changed_files}
+        # Compare file lists by path, excluding scanner output files
+        current_paths = {
+            f.path for f in current_state.changed_files
+            if f.path not in self.excluded_files
+        }
+        last_paths = {
+            f.path for f in last_state.changed_files
+            if f.path not in self.excluded_files
+        }
 
         # If paths differ, there are definitely changes
         if current_paths != last_paths:
+            added = current_paths - last_paths
+            removed = last_paths - current_paths
+            if added:
+                logger.info(f"New changed files detected: {list(added)}")
+            if removed:
+                logger.info(f"Files no longer changed: {list(removed)}")
             return True
 
         # Paths are same - check if any file's modification time changed
         # This catches in-place edits that don't change git status paths
         for changed_file in current_state.changed_files:
+            # Skip excluded files (e.g., scanner output files)
+            if changed_file.path in self.excluded_files:
+                continue
             if changed_file.is_deleted:
                 continue
             
@@ -308,7 +344,7 @@ class GitWatcher:
                             try:
                                 last_mtime = float(last_file.content)
                                 if current_mtime > last_mtime:
-                                    logger.debug(f"File {changed_file.path} modified since last check")
+                                    logger.info(f"File modified since last check: {changed_file.path}")
                                     return True
                             except ValueError:
                                 pass

@@ -45,7 +45,10 @@ AI_TOOLS_SCHEMA = [
 - Check if variable is used: search_text(patterns="myVar", file_pattern="*.cpp")
 - Find regex pattern: search_text(patterns="class.*Service", is_regex=true)
 
-Returns file paths, line numbers, and matching lines. Supports literal text and regex.""",
+Returns file paths, line numbers, and matching lines. Supports literal text and regex.
+Results are paginated (default 50 matches). Use 'offset' parameter to retrieve more results.
+
+**NOTE:** To find references to a specific symbol (function, class, variable), PREFER 'find_usages' which uses ctags for higher accuracy and context.""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -98,7 +101,9 @@ Returns file paths, line numbers, and matching lines. Supports literal text and 
 - Read specific lines: read_file(file_path="main.cpp", start_line=50, end_line=100)
 - Continue reading large file: read_file(file_path="big.py", start_line=200)
 
-For large files, content is returned in chunks. Use start_line to get subsequent chunks.""",
+For large files, content is returned in chunks. Use start_line to get subsequent chunks.
+
+**NOTE:** To read a single function, class, or method, PREFER 'get_enclosing_scope' which automatically captures the correct range and is more token-efficient.""",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -254,27 +259,7 @@ Returns exact file path and line number where symbol is defined.""",
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_symbols",
-            "description": "List all symbols (functions, classes, methods, etc.) defined in a file. Returns a structured view of the file's contents with classes, their methods, standalone functions, and variables.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Relative path to the file from repository root",
-                    },
-                    "kind": {
-                        "type": "string",
-                        "description": "Optional: filter by symbol kind (function, class, method, variable, etc.)",
-                    },
-                },
-                "required": ["file_path"],
-            },
-        },
-    },
+
     {
         "type": "function",
         "function": {
@@ -296,32 +281,76 @@ Returns exact file path and line number where symbol is defined.""",
             },
         },
     },
+
     {
         "type": "function",
         "function": {
-            "name": "get_class_members",
-            "description": "Get all members (methods, properties, fields) of a class. Returns a list of all symbols that belong to the specified class.",
+            "name": "get_enclosing_scope",
+            "description": """**CONTEXT TOOL** - Get the function/class/struct containing a specific line.
+**PREFER THIS over read_file** when analyzing a specific function or class to save tokens.
+
+**USE FOR CONTEXT:**
+- Single line changed → get_enclosing_scope to see full function context
+- Understanding what scope a variable belongs to
+- Seeing the full method to understand parameter handling
+
+**EXAMPLES:**
+- Get function containing line 42: get_enclosing_scope(file_path="src/utils.py", line_number=42)
+- Check class structure: get_enclosing_scope(file_path="src/models/user.cpp", line_number=150)
+
+Returns the complete definition (signature, body) of the enclosing scope.""",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "class_name": {
+                    "file_path": {
                         "type": "string",
-                        "description": "Name of the class to get members for",
+                        "description": "Relative path to the file from repository root",
+                    },
+                    "line_number": {
+                        "type": "integer",
+                        "description": "Line number to find enclosing scope for (1-based)",
+                        "minimum": 1,
                     },
                 },
-                "required": ["class_name"],
+                "required": ["file_path", "line_number"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "get_index_stats",
-            "description": "Get statistics about the ctags index - total symbols, files indexed, breakdown by kind and language. Useful for understanding codebase structure.",
+            "name": "find_usages",
+            "description": """**VERIFICATION TOOL** - Find all locations where a symbol is used.
+**PREFER THIS over search_text** for finding symbol references - it avoids partial string matches.
+
+**MANDATORY BEFORE REPORTING:**
+- 'unused function' → find_usages("function_name") to verify no callers
+- 'dead code' → find_usages to check if anything references it
+- 'refactoring impact' → find_usages to see all affected locations
+
+**EXAMPLES:**
+- Find all calls to function: find_usages(symbol="process_data")
+- Find usages in specific file: find_usages(symbol="helper", file_path="src/main.cpp")
+- Include definitions: find_usages(symbol="MyClass", include_definitions=true)
+
+Returns all locations where the symbol appears with file, line, and context.""",
             "parameters": {
                 "type": "object",
-                "properties": {},
-                "required": [],
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "Symbol name to find usages for (function, class, variable, etc.)",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Optional: limit search to this file only",
+                    },
+                    "include_definitions": {
+                        "type": "boolean",
+                        "description": "If true, include definition locations. Default is false (usages only).",
+                    },
+                },
+                "required": ["symbol"],
             },
         },
     },
@@ -390,7 +419,7 @@ class AIToolExecutor:
         Returns:
             ToolResult with execution outcome.
         """
-        logger.info(f"Executing tool: {tool_name} with args: {arguments}")
+        logger.info(f"\n{'='*50}\n🔎 EXECUTING AI TOOL: {tool_name}\n👉 ARGUMENTS: {arguments}\n{'='*50}")
 
         try:
             if tool_name == "search_text":
@@ -433,22 +462,24 @@ class AIToolExecutor:
                     symbol=arguments.get("symbol", ""),
                     kind=arguments.get("kind"),
                 )
-            elif tool_name == "list_symbols":
-                return self._list_symbols(
-                    file_path=arguments.get("file_path", ""),
-                    kind=arguments.get("kind"),
-                )
+
             elif tool_name == "find_symbols":
                 return self._find_symbols(
                     pattern=arguments.get("pattern", ""),
                     kind=arguments.get("kind"),
                 )
-            elif tool_name == "get_class_members":
-                return self._get_class_members(
-                    class_name=arguments.get("class_name", ""),
+
+            elif tool_name == "get_enclosing_scope":
+                return self._get_enclosing_scope(
+                    file_path=arguments.get("file_path", ""),
+                    line_number=arguments.get("line_number", 1),
                 )
-            elif tool_name == "get_index_stats":
-                return self._get_index_stats()
+            elif tool_name == "find_usages":
+                return self._find_usages(
+                    symbol=arguments.get("symbol", ""),
+                    file_path=arguments.get("file_path"),
+                    include_definitions=arguments.get("include_definitions", False),
+                )
             else:
                 return ToolResult(
                     success=False,
@@ -630,8 +661,8 @@ class AIToolExecutor:
         warning = None
         if has_more:
             warning = (
-                f"⚠️ PARTIAL RESULTS: Showing {len(paginated_matches)} of {total_matches} total matches "
-                f"(offset {offset}). To get more results, call search_text again with offset={next_offset}"
+                f"⚠️ PARTIAL RESULTS: Showing matches {offset + 1}-{offset + len(paginated_matches)} of {total_matches}. "
+                f"To get more results, call search_text again with offset={next_offset}"
             )
 
         # Group results by pattern for easier reading
@@ -955,8 +986,8 @@ class AIToolExecutor:
             warning = None
             if has_more:
                 warning = (
-                    f"⚠️ PARTIAL LISTING: Showing {len(paginated_items)} of {total_items} total items "
-                    f"(offset {offset}). To get more results, call list_directory again with offset={next_offset}"
+                    f"⚠️ PARTIAL LISTING: Showing items {offset + 1}-{offset + len(paginated_items)} of {total_items}. "
+                    f"To get more results, call list_directory again with offset={next_offset}"
                 )
 
             result_data = {
@@ -1320,69 +1351,6 @@ class AIToolExecutor:
                 error=f"Error finding definition: {str(e)}",
             )
 
-    def _list_symbols(self, file_path: str, kind: Optional[str] = None) -> ToolResult:
-        """List all symbols defined in a file.
-
-        Args:
-            file_path: Relative path to the file.
-            kind: Optional kind filter.
-
-        Returns:
-            ToolResult with list of symbols.
-        """
-        if not file_path:
-            return ToolResult(
-                success=False,
-                data=None,
-                error="file_path is required",
-            )
-
-        # Check if ctags index is ready
-        if not self._is_ctags_ready():
-            return self._ctags_not_ready_result("list_symbols")
-
-        try:
-            symbols = self.ctags_index.get_symbols_in_file(file_path, kind=kind)
-
-            if not symbols:
-                return ToolResult(
-                    success=True,
-                    data={
-                        "file_path": file_path,
-                        "symbol_count": 0,
-                        "symbols": [],
-                        "message": f"No symbols found in '{file_path}'",
-                    },
-                )
-
-            symbol_list = []
-            for s in symbols:
-                symbol_list.append({
-                    "name": s.name,
-                    "line": s.line,
-                    "kind": s.kind,
-                    "scope": s.scope,
-                    "signature": s.signature,
-                    "access": s.access,
-                })
-
-            return ToolResult(
-                success=True,
-                data={
-                    "file_path": file_path,
-                    "symbol_count": len(symbol_list),
-                    "symbols": symbol_list,
-                },
-            )
-
-        except Exception as e:
-            logger.error(f"Error listing symbols in {file_path}: {e}", exc_info=True)
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"Error listing symbols: {str(e)}",
-            )
-
     def _find_symbols(self, pattern: str, kind: Optional[str] = None) -> ToolResult:
         """Find symbols matching a pattern.
 
@@ -1447,138 +1415,315 @@ class AIToolExecutor:
                 error=f"Error finding symbols: {str(e)}",
             )
 
-    def _get_class_members(self, class_name: str) -> ToolResult:
-        """Get all members of a class.
+    def _get_enclosing_scope(
+        self,
+        file_path: str,
+        line_number: int,
+    ) -> ToolResult:
+        """Get the enclosing function/class/struct containing a specific line.
 
         Args:
-            class_name: Name of the class.
+            file_path: Relative path to the file.
+            line_number: Line number to find enclosing scope for.
 
         Returns:
-            ToolResult with class members.
+            ToolResult with scope information and content.
         """
-        if not class_name:
+        if not file_path:
             return ToolResult(
                 success=False,
                 data=None,
-                error="class_name is required",
+                error="file_path is required",
             )
 
-        # Check if ctags index is ready
-        if not self._is_ctags_ready():
-            return self._ctags_not_ready_result("get_class_members")
+        if line_number < 1:
+            return ToolResult(
+                success=False,
+                data=None,
+                error="line_number must be >= 1",
+            )
+
+        # Resolve file path
+        full_path = (self.target_directory / file_path).resolve()
+
+        # Security check
+        try:
+            full_path.relative_to(self.target_directory)
+        except ValueError:
+            return ToolResult(
+                success=False,
+                data=None,
+                error=f"Access denied: path '{file_path}' is outside repository",
+            )
+
+        if not full_path.exists():
+            return ToolResult(
+                success=False,
+                data=None,
+                error=f"File not found: {file_path}",
+            )
+
+        if not full_path.is_file():
+            return ToolResult(
+                success=False,
+                data=None,
+                error=f"Not a file: {file_path}",
+            )
 
         try:
-            # First, find the class definition(s)
-            class_symbols = self.ctags_index.find_symbol(class_name, kind="class")
-            
-            # Get all members with this class as scope
-            all_members = self.ctags_index.get_class_members(class_name)
+            # Try using ctags to find enclosing symbol
+            enclosing_symbol = None
+            if self._is_ctags_ready():
+                enclosing_symbol = self.ctags_index.find_enclosing_symbol(file_path, line_number)
 
-            if not class_symbols and not all_members:
+            # Read file content
+            content = read_file_content(full_path)
+            if content is None:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    error=f"Failed to read file: {file_path}",
+                )
+
+            lines = content.split("\n")
+            total_lines = len(lines)
+
+            if line_number > total_lines:
+                return ToolResult(
+                    success=False,
+                    data=None,
+                    error=f"Line {line_number} is beyond file length ({total_lines} lines)",
+                )
+
+            if enclosing_symbol:
+                # We have ctags info - extract the scope content
+                from .ctags_index import KIND_MAP
+                start_line = enclosing_symbol.line
+                end_line = enclosing_symbol.end_line or self._estimate_scope_end(
+                    lines, start_line - 1, enclosing_symbol.kind
+                )
+                
+                # Ensure we don't exceed file bounds
+                end_line = min(end_line, total_lines)
+                
+                # Extract scope content
+                scope_lines = lines[start_line - 1:end_line]
+                scope_content = "\n".join(scope_lines)
+                
+                # Check token size and truncate if needed
+                tokens = estimate_tokens(scope_content)
+                warning = None
+                if tokens > self.chunk_size:
+                    # Truncate to fit
+                    max_lines = int(len(scope_lines) * (self.chunk_size / tokens))
+                    max_lines = max(20, max_lines)  # At least 20 lines
+                    scope_lines = scope_lines[:max_lines]
+                    scope_content = "\n".join(scope_lines)
+                    warning = (
+                        f"⚠️ PARTIAL CONTENT: Scope truncated to {len(scope_lines)} lines. "
+                        f"Full scope is lines {start_line}-{end_line}. "
+                        f"Use read_file with line range for complete content."
+                    )
+
+                result_data = {
+                    "type": KIND_MAP.get(enclosing_symbol.kind, enclosing_symbol.kind),
+                    "name": enclosing_symbol.name,
+                    "file_path": file_path,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "signature": enclosing_symbol.signature,
+                    "scope": enclosing_symbol.scope,
+                    "content": scope_content,
+                }
+
+                return ToolResult(
+                    success=True,
+                    data=result_data,
+                    warning=warning,
+                )
+
+            else:
+                # No ctags or no enclosing scope found - return context around the line
+                context_lines = 20
+                start = max(0, line_number - 1 - context_lines)
+                end = min(total_lines, line_number + context_lines)
+                context_content = "\n".join(lines[start:end])
+
                 return ToolResult(
                     success=True,
                     data={
-                        "class_name": class_name,
-                        "found": False,
-                        "members": [],
-                        "message": f"Class '{class_name}' not found",
+                        "type": "file_context",
+                        "name": None,
+                        "file_path": file_path,
+                        "start_line": start + 1,
+                        "end_line": end,
+                        "signature": None,
+                        "scope": None,
+                        "content": context_content,
+                        "message": "No enclosing function/class found. Showing context around the line.",
                     },
+                    warning=(
+                        "Could not determine enclosing scope. "
+                        "Ctags index may not be ready or the line may be at file scope."
+                    ) if not self._is_ctags_ready() else None,
                 )
 
-            # If multiple class definitions exist, filter members by the first class's file
-            # This prevents mixing members from different classes with the same name
-            if class_symbols:
-                target_file = class_symbols[0].file_path
-                members = [m for m in all_members if m.file_path == target_file]
-            else:
-                members = all_members
-
-            # Organize members by kind
-            methods = []
-            properties = []
-            other = []
-
-            for m in members:
-                member_info = {
-                    "name": m.name,
-                    "line": m.line,
-                    "kind": m.kind,
-                    "file": m.file_path.lstrip("./"),
-                    "signature": m.signature,
-                    "access": m.access,
-                }
-
-                if m.kind in ("method", "function", "f", "m"):
-                    methods.append(member_info)
-                elif m.kind in ("property", "member", "field", "p", "M", "F"):
-                    properties.append(member_info)
-                else:
-                    other.append(member_info)
-
-            # Get class location
-            class_info = None
-            if class_symbols:
-                c = class_symbols[0]
-                class_info = {
-                    "file": c.file_path.lstrip("./"),
-                    "line": c.line,
-                    "kind": c.kind,
-                }
-
-            return ToolResult(
-                success=True,
-                data={
-                    "class_name": class_name,
-                    "found": True,
-                    "class_definition": class_info,
-                    "member_count": len(members),
-                    "methods": methods,
-                    "properties": properties,
-                    "other": other,
-                },
-            )
-
         except Exception as e:
-            logger.error(f"Error getting members for {class_name}: {e}", exc_info=True)
+            logger.error(f"Error getting enclosing scope: {e}", exc_info=True)
             return ToolResult(
                 success=False,
                 data=None,
-                error=f"Error getting class members: {str(e)}",
+                error=f"Error getting enclosing scope: {str(e)}",
             )
 
-    def _get_index_stats(self) -> ToolResult:
-        """Get statistics about the ctags index.
+    def _estimate_scope_end(self, lines: list[str], start_idx: int, kind: str) -> int:
+        """Estimate where a scope ends based on indentation or braces.
+        
+        Args:
+            lines: All lines in the file.
+            start_idx: Starting index (0-based).
+            kind: Symbol kind.
+            
+        Returns:
+            Estimated end line (1-based).
+        """
+        if start_idx >= len(lines):
+            return start_idx + 1
+
+        start_line = lines[start_idx]
+        # Get base indentation of the scope definition
+        base_indent = len(start_line) - len(start_line.lstrip())
+        
+        # Track brace depth for C-style languages
+        brace_depth = start_line.count("{") - start_line.count("}")
+        in_braces = brace_depth > 0 or "{" in start_line
+        
+        for i in range(start_idx + 1, len(lines)):
+            line = lines[i]
+            stripped = line.strip()
+            
+            if not stripped:  # Skip empty lines
+                continue
+            
+            # Update brace depth
+            brace_depth += line.count("{") - line.count("}")
+            
+            if in_braces:
+                # For brace-based languages, end when we close all braces
+                if brace_depth <= 0:
+                    return i + 1
+            else:
+                # For indentation-based languages (Python), 
+                # end when we see a line with <= base indentation
+                current_indent = len(line) - len(line.lstrip())
+                if current_indent <= base_indent and stripped:
+                    return i  # Return the line before (1-based)
+        
+        # If we didn't find end, return a reasonable default
+        return min(start_idx + 50 + 1, len(lines))
+
+    def _find_usages(
+        self,
+        symbol: str,
+        file_path: Optional[str] = None,
+        include_definitions: bool = False,
+    ) -> ToolResult:
+        """Find all usages of a symbol in the repository.
+
+        Args:
+            symbol: Symbol name to find usages for.
+            file_path: Optional file to limit search to.
+            include_definitions: If True, include definition locations.
 
         Returns:
-            ToolResult with index statistics.
+            ToolResult with list of usage locations.
         """
-        # Include indexing status in stats even if not ready
-        if self.ctags_index.is_indexing:
-            return ToolResult(
-                success=True,
-                data={
-                    "status": "indexing_in_progress",
-                    "is_indexed": False,
-                    "symbol_count": 0,
-                    "file_count": 0,
-                    "message": "Symbol index is currently being built in the background",
-                },
-            )
-        elif not self._is_ctags_ready():
-            return self._ctags_not_ready_result("get_index_stats")
-
-        try:
-            stats = self.ctags_index.get_stats()
-
-            return ToolResult(
-                success=True,
-                data=stats,
-            )
-
-        except Exception as e:
-            logger.error(f"Error getting index stats: {e}", exc_info=True)
+        if not symbol:
             return ToolResult(
                 success=False,
                 data=None,
-                error=f"Error getting index stats: {str(e)}",
+                error="symbol is required",
+            )
+
+        try:
+            # Use search_text to find all occurrences
+            search_result = self._search_text(
+                patterns=symbol,
+                is_regex=False,
+                match_whole_word=True,
+                case_sensitive=True,  # Symbol names are case-sensitive
+                file_pattern=file_path.split("/")[-1] if file_path else None,
+                offset=0,
+            )
+
+            if not search_result.success:
+                return search_result
+
+            # Get definitions from ctags to identify which matches are definitions
+            definition_locations: set[tuple[str, int]] = set()
+            if self._is_ctags_ready():
+                definitions = self.ctags_index.find_symbol(symbol, case_sensitive=True)
+                for defn in definitions:
+                    # Normalize path
+                    defn_path = defn.file_path.lstrip("./")
+                    definition_locations.add((defn_path, defn.line))
+
+            # Process search results
+            all_matches = search_result.data.get("matches_by_pattern", {}).get(symbol, [])
+            
+            # Filter by file_path if specified
+            if file_path:
+                normalized_filter = file_path.lstrip("./")
+                all_matches = [
+                    m for m in all_matches
+                    if m["file"].lstrip("./") == normalized_filter
+                ]
+
+            # Categorize as definition or usage
+            usages = []
+            definitions = []
+            for match in all_matches:
+                match_path = match["file"].lstrip("./")
+                match_line = match["line"]
+                is_definition = (match_path, match_line) in definition_locations or match.get("is_definition", False)
+
+                entry = {
+                    "file": match["file"],
+                    "line": match_line,
+                    "code": match["code"],
+                    "is_definition": is_definition,
+                }
+
+                if is_definition:
+                    definitions.append(entry)
+                else:
+                    usages.append(entry)
+
+            # Build result based on include_definitions flag
+            result_entries = usages.copy()
+            if include_definitions:
+                result_entries = definitions + usages
+
+            return ToolResult(
+                success=True,
+                data={
+                    "symbol": symbol,
+                    "total_usages": len(usages),
+                    "total_definitions": len(definitions),
+                    "include_definitions": include_definitions,
+                    "entries": result_entries,
+                    "file_filter": file_path,
+                },
+                warning=(
+                    f"Found {len(definitions)} definition(s) and {len(usages)} usage(s). "
+                    f"{'Showing both.' if include_definitions else 'Showing usages only. Use include_definitions=true to see definitions.'}"
+                ) if definitions else None,
+            )
+
+        except Exception as e:
+            logger.error(f"Error finding usages for {symbol}: {e}", exc_info=True)
+            return ToolResult(
+                success=False,
+                data=None,
+                error=f"Error finding usages: {str(e)}",
             )

@@ -495,7 +495,7 @@ class TestToolExecutorInScanner:
         # Check that tools were provided to LLM
         call_kwargs = llm_client.query.call_args[1]
         assert "tools" in call_kwargs
-        assert len(call_kwargs["tools"]) == 11  # 11 tools available (6 base + 5 ctags)
+        assert len(call_kwargs["tools"]) == 10  # 10 tools available
 
 
 class TestAsyncCtagsTools:

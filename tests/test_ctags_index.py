@@ -810,3 +810,108 @@ class TestCtagsIndexFindDefinitions:
         result = index.find_definitions("my_func")
         assert len(result) == 1
         assert result[0].name == "my_func"
+
+
+class TestCtagsIndexFindEnclosingSymbol:
+    """Tests for CtagsIndex.find_enclosing_symbol method."""
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_find_enclosing_symbol_basic(self, mock_run, mock_which):
+        """Test finding enclosing symbol for simple function."""
+        mock_which.return_value = "/usr/bin/ctags"
+        
+        version_result = MagicMock(stdout="Universal Ctags 6.0.0", stderr="", returncode=0)
+        
+        # Function defined at line 5, ends at line 10
+        ctags_output = (
+            '{"_type": "tag", "name": "my_func", "path": "./test.py", "line": 5, "kind": "f", "end": 10}\n'
+        )
+        index_result = MagicMock(stdout=ctags_output, stderr="", returncode=0)
+        
+        mock_run.side_effect = [version_result, index_result]
+        
+        index = CtagsIndex(Path("/tmp/repo"))
+        index.generate_index()
+        
+        # Line 7 is inside
+        result = index.find_enclosing_symbol("test.py", 7)
+        assert result is not None
+        assert result.name == "my_func"
+        
+        # Line 12 is outside
+        result = index.find_enclosing_symbol("test.py", 12)
+        assert result is None
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_find_enclosing_symbol_nested(self, mock_run, mock_which):
+        """Test finding enclosing symbol specifically picks innermost."""
+        mock_which.return_value = "/usr/bin/ctags"
+        
+        version_result = MagicMock(stdout="Universal Ctags 6.0.0", stderr="", returncode=0)
+        
+        # Class contains method
+        ctags_output = (
+            '{"_type": "tag", "name": "MyClass", "path": "./test.py", "line": 1, "kind": "c", "end": 20}\n'
+            '{"_type": "tag", "name": "method", "path": "./test.py", "line": 5, "kind": "m", "end": 10}\n'
+        )
+        index_result = MagicMock(stdout=ctags_output, stderr="", returncode=0)
+        
+        mock_run.side_effect = [version_result, index_result]
+        
+        index = CtagsIndex(Path("/tmp/repo"))
+        index.generate_index()
+        
+        # Inside method (line 7) - should be method is innermost
+        result = index.find_enclosing_symbol("test.py", 7)
+        assert result is not None
+        assert result.name == "method"
+        
+        # Inside class but outside method (line 15)
+        result = index.find_enclosing_symbol("test.py", 15)
+        assert result is not None
+        assert result.name == "MyClass"
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_find_enclosing_symbol_no_end_line(self, mock_run, mock_which):
+        """Test behavior when ctags doesn't provide end lines."""
+        mock_which.return_value = "/usr/bin/ctags"
+        
+        version_result = MagicMock(stdout="Universal Ctags 6.0.0", stderr="", returncode=0)
+        
+        ctags_output = (
+            '{"_type": "tag", "name": "func1", "path": "./test.py", "line": 5, "kind": "f"}\n'
+            '{"_type": "tag", "name": "func2", "path": "./test.py", "line": 15, "kind": "f"}\n'
+        )
+        index_result = MagicMock(stdout=ctags_output, stderr="", returncode=0)
+        
+        mock_run.side_effect = [version_result, index_result]
+        
+        index = CtagsIndex(Path("/tmp/repo"))
+        index.generate_index()
+        
+        # Should fallback to checking if line is after start
+        # Without explicit end, it assumes validity until next symbol? 
+        # Actually logic is: if no end_line, it's considered valid if line >= line
+        # But find_enclosing_symbol implementation filters by scope range.
+        # If end_line is None, the current implementation skips it or treats it as strictly checking start.
+        # Let's verify implementation logic: 
+        # "if s.end_line and not (s.line <= line_number <= s.end_line): continue"
+        # "if not s.end_line and s.line > line_number: continue"
+        # So if no end line, it matches anything after start line in the file.
+        
+        # Line 7 is after func1 start (5) - should match func1
+        # But wait, func2 starts at 15. The implementation sorts by line number and picks last one <= line_number?
+        # Implementation says: "closest = None... for s in symbols: ... if s.line <= line_number: closest = s"
+        # So "last" symbol that starts before line_number is the inner-most candidate if spans are not explicit.
+        
+        result = index.find_enclosing_symbol("test.py", 7)
+        assert result is not None
+        assert result.name == "func1"
+        
+        result = index.find_enclosing_symbol("test.py", 20)
+        assert result is not None
+        assert result.name == "func2"
+

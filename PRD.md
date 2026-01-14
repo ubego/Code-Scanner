@@ -5,7 +5,7 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
-*   **Quality Assurance:** The codebase maintains **90% test coverage** with 670+ unit tests ensuring reliability and maintainability.
+*   **Quality Assurance:** The codebase maintains **90% test coverage** with 700+ unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
@@ -44,8 +44,13 @@ The primary objective of this project is to implement a software program that **
     4.  This repeats until a full cycle completes with no file changes.
     5.  This ensures **all checks run on a consistent worktree snapshot** without redundant work.
 *   **Scan Completion Behavior:** After completing all checks in a scan cycle with no mid-scan changes, the scanner **waits for new file changes** before starting another scan. It tracks file modification times and content hashes to detect actual changes—simply having uncommitted files or touched timestamps is not enough to trigger a rescan if content remains identical. This prevents endless scanning loops.
+*   **Scanner Output File Exclusion:** The scanner's own output files (`code_scanner_results.md` and `code_scanner_results.md.bak`) are **automatically excluded from change detection**. This prevents infinite rescan loops that would otherwise occur because the scanner writes to these files during each scan cycle.
 *   **Startup Behavior:** If no uncommitted changes exist at startup, the application must **enter the wait state immediately** and poll for changes. It should not exit.
 *   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
+*   **Change Detection Logging:** When changes are detected, the scanner logs which specific files triggered the rescan. This includes:
+    *   **New/removed files:** Files added to or removed from the changed files set.
+    *   **Modified files:** Files whose content was modified in-place (detected via modification time).
+    *   **Scan startup:** List of all changed files at the beginning of each scan cycle.
 
 ### 2.2 Query and Analysis Engine
 *   **Configuration Input:** The scanner will take a **TOML configuration file** containing user-defined prompts organized into check groups. The configuration file is **read once at startup** (no hot-reload support).
@@ -125,6 +130,7 @@ The primary objective of this project is to implement a software program that **
 *   **Output Location:** The output file is written to the **target directory** root.
 *   **Initial Output:** The output file must be **created at startup** (before scanning begins) to provide immediate feedback that the scanner is running.
 *   **Scanner Files Exclusion:** The scanner must automatically exclude its own output files (`code_scanner_results.md` and `code_scanner.log`) from scanning to prevent self-referential analysis.
+*   **Change Detection Exclusion:** The Git watcher must exclude `code_scanner_results.md` and `code_scanner_results.md.bak` from triggering rescans. Without this exclusion, every write to the output file would trigger a false "file changed" detection, causing endless rescan loops.
 *   **Detailed Findings:** For every issue found, the log must include:
     *   **File path** (exact location)
     *   **Line number** (specific line)
@@ -197,9 +203,9 @@ The primary objective of this project is to implement a software program that **
 The scanner provides **AI Tools** (function calling) that allow the LLM to interactively request additional information from the broader codebase beyond the modified files. This enables sophisticated architectural checks and cross-file analysis.
 
 **Prerequisites:**
-*   **Universal Ctags** must be installed for symbol indexing. The ctags-based tools (find_definition, list_symbols, find_symbols, get_class_members, get_index_stats) require Universal Ctags to be available in the system PATH.
+*   **Universal Ctags** must be installed for symbol indexing. The ctags-based tools (find_definition, find_symbols) require Universal Ctags to be available in the system PATH.
 
-**Available AI Tools (11 tools):**
+**Available AI Tools (13 tools):**
 
 1.  **search_text(patterns, is_regex, match_whole_word, case_sensitive, file_pattern, offset):**
     *   Searches the entire repository for text patterns (strings, function names, class names, variables, etc.).
@@ -259,29 +265,27 @@ The scanner provides **AI Tools** (function calling) that allow the LLM to inter
     *   Returns file path, line number, and code pattern.
     *   Use case: Navigate directly to symbol definitions for cross-file analysis.
 
-8.  **list_symbols(file_path, kind, include_details):**
-    *   List all symbols defined in a specific file.
-    *   `kind`: Optional filter (function, class, variable, etc.).
-    *   `include_details`: Include signature and scope information (default: true).
-    *   Use case: Get overview of what a file defines without reading it.
 
-9.  **find_symbols(pattern, kind, case_sensitive):**
+8.  **find_symbols(pattern, kind, case_sensitive):**
     *   Search for symbols matching a pattern across the entire repository.
     *   Supports wildcards: `*` (any chars), `?` (single char).
     *   `kind`: Optional filter by symbol kind.
     *   `case_sensitive`: Default false for flexible matching.
     *   Use case: Find symbols by naming convention (e.g., `test_*`, `*Handler`).
 
-10. **get_class_members(class_name, member_kind):**
-    *   Get all members of a specific class.
-    *   `member_kind`: Optional filter (method, field, property, etc.).
-    *   Returns methods, fields, properties with their signatures.
-    *   Use case: Analyze class structure, check for required methods.
 
-11. **get_index_stats():**
-    *   Get statistics about the ctags index.
-    *   Returns total symbols, files indexed, breakdown by kind and language.
-    *   Use case: Understand codebase composition before analysis.
+9.  **get_enclosing_scope(file_path, line_number):**
+    *   Identify and retrieve the content of the innermost function, class, or method containing a specific line.
+    *   Returns symbol name, kind, start/end lines, and the complete source code of the scope.
+    *   Smartly truncates excessively large scopes to respect context limits.
+    *   Use case: Retrieve full function context when analyzing a specific bug or line, completely avoiding manual line counting.
+
+10. **find_usages(symbol, file_path, include_definitions):**
+    *   Find all references to a symbol across the repository.
+    *   Combines text search with ctags intelligence to distinguish definitions from usages.
+    *   `file_path`: Optional filter to search within a specific file.
+    *   `include_definitions`: Boolean to optionally include definition sites in results.
+    *   Use case: Impact analysis (who calls this function?), finding all instantiations of a class, checking for unused code.
 
 **Pagination Pattern:**
 

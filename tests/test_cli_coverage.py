@@ -107,6 +107,10 @@ class TestApplicationSetup:
             MockGitWatcher.assert_called_once_with(
                 mock_config.target_directory,
                 mock_config.commit_hash,
+                excluded_files={
+                    mock_config.output_file,
+                    f"{mock_config.output_file}.bak",
+                },
             )
             MockGitWatcher.return_value.connect.assert_called_once()
 

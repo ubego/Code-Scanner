@@ -49,6 +49,7 @@ class Symbol:
     access: Optional[str] = None  # public, private, protected
     language: Optional[str] = None  # Programming language
     pattern: Optional[str] = None  # Search pattern from ctags
+    end_line: Optional[int] = None  # End line of symbol (if available from ctags)
     extras: dict = field(default_factory=dict)  # Additional fields
 
     @classmethod
@@ -72,6 +73,7 @@ class Symbol:
             access=data.get("access"),
             language=data.get("language"),
             pattern=data.get("pattern"),
+            end_line=data.get("end"),  # ctags uses 'end' field for end line
             extras={
                 k: v
                 for k, v in data.items()
@@ -87,6 +89,7 @@ class Symbol:
                     "access",
                     "language",
                     "pattern",
+                    "end",
                     "_type",
                 }
             },
@@ -709,3 +712,81 @@ class CtagsIndex:
             "by_kind": kind_counts,
             "by_language": lang_counts,
         }
+
+    def find_enclosing_symbol(
+        self,
+        file_path: str,
+        line_number: int,
+    ) -> Optional[Symbol]:
+        """Find the innermost symbol that contains a specific line.
+
+        This is useful for understanding the context around a changed line,
+        e.g., finding which function or class a line belongs to.
+
+        Args:
+            file_path: Relative path to file from repository root.
+            line_number: Line number to find enclosing scope for (1-based).
+
+        Returns:
+            The innermost Symbol containing the line, or None if not found.
+        """
+        if not self._is_indexed:
+            return None
+
+        # Get all symbols in the file
+        symbols = self.get_symbols_in_file(file_path)
+        if not symbols:
+            return None
+
+        # Filter to scope-defining symbols (functions, classes, methods, structs, etc.)
+        scope_kinds = {"function", "class", "method", "struct", "interface", "trait", 
+                       "enum", "namespace", "impl", "f", "c", "m", "s", "i", "n", "P"}
+        scope_symbols = [
+            s for s in symbols 
+            if s.kind in scope_kinds or KIND_MAP.get(s.kind, s.kind) in scope_kinds
+        ]
+
+        # Find all symbols that contain the given line
+        candidates: list[Symbol] = []
+        for symbol in scope_symbols:
+            start = symbol.line
+            end = symbol.end_line
+
+            # If end_line is available, use it; otherwise, estimate based on next symbol
+            if end is not None:
+                if start <= line_number <= end:
+                    candidates.append(symbol)
+            else:
+                # Fallback: check if line is at or after this symbol's start
+                # and before the next symbol's start
+                if start <= line_number:
+                    candidates.append(symbol)
+
+        if not candidates:
+            return None
+
+        # Return the innermost (most specific) scope
+        # The innermost scope is the one with the latest start line that still contains the target
+        # If we have end_line info, prefer the narrowest range
+        def scope_priority(sym: Symbol) -> tuple:
+            # Priority: (has_end_line, smallest range, latest start)
+            if sym.end_line is not None:
+                range_size = sym.end_line - sym.line
+                return (1, -range_size, sym.line)  # Prefer smaller ranges
+            return (0, 0, sym.line)  # Start line as tiebreaker
+
+        candidates.sort(key=scope_priority, reverse=True)
+        
+        # Filter out candidates that don't actually contain the line (for fallback case)
+        if candidates and candidates[0].end_line is None:
+            # Without end_line info, use heuristics
+            # Choose the symbol with the highest start line <= line_number
+            best = max(
+                [c for c in candidates if c.line <= line_number],
+                key=lambda s: s.line,
+                default=None
+            )
+            return best
+        
+        return candidates[0] if candidates else None
+

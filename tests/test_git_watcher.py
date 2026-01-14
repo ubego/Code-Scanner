@@ -150,6 +150,40 @@ class TestGitWatcher:
         # Now there should be changes
         assert watcher.has_changes_since(state1)
 
+    def test_has_changes_since_excludes_specified_files(self, git_repo: Path):
+        """Test that excluded files don't trigger change detection."""
+        # Create the output file (which should be excluded)
+        output_file = git_repo / "code_scanner_results.md"
+        output_file.write_text("initial content")
+        
+        # Create a normal file
+        normal_file = git_repo / "code.py"
+        normal_file.write_text("# code")
+        
+        # Create watcher with exclusion
+        watcher = GitWatcher(
+            git_repo,
+            excluded_files={"code_scanner_results.md", "code_scanner_results.md.bak"}
+        )
+        watcher.connect()
+        
+        state1 = watcher.get_state()
+        
+        # Modify only the excluded file
+        import time
+        time.sleep(0.01)
+        output_file.write_text("updated content")
+        
+        # Should NOT detect changes (excluded file modified)
+        assert not watcher.has_changes_since(state1)
+        
+        # Now modify the normal file
+        time.sleep(0.01)
+        normal_file.write_text("# updated code")
+        
+        # Should detect changes (non-excluded file modified)
+        assert watcher.has_changes_since(state1)
+
     def test_has_changes_since_mtime_detection(self, git_repo: Path):
         """Test that has_changes_since detects in-place file modifications via mtime."""
         # Create a file and stage it

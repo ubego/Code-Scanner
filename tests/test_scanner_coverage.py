@@ -515,13 +515,14 @@ class TestScannerFilesContent:
         assert len(result) == 0
 
     def test_get_files_content_skips_scanner_files(self, mock_dependencies):
-        """Get files content skips scanner output files."""
+        """Get files content skips scanner output files including backup."""
         scanner = Scanner(**mock_dependencies)
         scanner.config.output_file = "results.md"
         scanner.config.log_file = "scanner.log"
         
         changed = [
             ChangedFile(path="results.md", status="unstaged"),
+            ChangedFile(path="results.md.bak", status="unstaged"),  # backup file
             ChangedFile(path="scanner.log", status="unstaged"),
         ]
         result = scanner._get_files_content(changed)

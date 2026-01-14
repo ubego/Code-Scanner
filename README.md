@@ -249,6 +249,14 @@ If the LLM backend becomes unavailable during scanning (e.g., LM Studio crashes,
 2. **Retry every 10 seconds** until the connection is restored
 3. **Continue scanning** from where it left off once reconnected
 
+### Scanner Keeps Rescanning Without Code Changes
+
+The scanner automatically excludes its own output files (`code_scanner_results.md` and `code_scanner_results.md.bak`) from change detection. If you're experiencing unexpected rescans:
+
+1. **Check the logs** for "New changed files detected" or "File modified since last check" messages
+2. **Verify no other tools** are modifying files in the target directory
+3. **Check for IDE auto-save** or other processes that might be touching files
+
 This allows you to restart LM Studio or fix network issues without stopping the scanner. The scanner handles various connection errors including:
 - Lost connection
 - Connection refused
