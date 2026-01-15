@@ -241,6 +241,9 @@ class Scanner:
         Args:
             git_state: Current Git state with changed files.
         """
+        # Clear file cache since we're starting a new scan with potentially changed files
+        self.tool_executor.clear_file_cache()
+        
         # Log changed files at the start of scan cycle
         changed_file_paths = [f.path for f in git_state.changed_files if not f.is_deleted]
         logger.info(f"Starting scan with {len(changed_file_paths)} changed files")

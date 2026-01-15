@@ -4,6 +4,7 @@ import logging
 import re
 import subprocess
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -376,6 +377,37 @@ class AIToolExecutor:
         self.ctags_index = ctags_index
         # Reserve some tokens for the tool response structure
         self.chunk_size = min(DEFAULT_CHUNK_SIZE_TOKENS, context_limit // 4)
+        # LRU cache for file contents - avoids re-reading same files
+        self._file_cache: dict[Path, Optional[str]] = {}
+        self._file_cache_max_size = 200
+
+    def _get_file_content(self, file_path: Path) -> Optional[str]:
+        """Get file content with caching.
+        
+        Args:
+            file_path: Absolute path to the file.
+            
+        Returns:
+            File content or None if unreadable/binary.
+        """
+        if file_path in self._file_cache:
+            return self._file_cache[file_path]
+        
+        content = read_file_content(file_path)
+        
+        # Manage cache size - remove oldest entries if needed
+        if len(self._file_cache) >= self._file_cache_max_size:
+            # Remove first 20% of entries (FIFO-style eviction)
+            keys_to_remove = list(self._file_cache.keys())[:self._file_cache_max_size // 5]
+            for key in keys_to_remove:
+                del self._file_cache[key]
+        
+        self._file_cache[file_path] = content
+        return content
+
+    def clear_file_cache(self) -> None:
+        """Clear the file content cache. Call when files change."""
+        self._file_cache.clear()
 
     def _is_ctags_ready(self) -> bool:
         """Check if the ctags index is ready for queries."""
@@ -614,7 +646,7 @@ class AIToolExecutor:
                     continue
 
             try:
-                content = read_file_content(file_path)
+                content = self._get_file_content(file_path)
                 if content is None:
                     continue
 
@@ -763,7 +795,7 @@ class AIToolExecutor:
             )
 
         try:
-            content = read_file_content(full_path)
+            content = self._get_file_content(full_path)
             if content is None:
                 return ToolResult(
                     success=False,
@@ -880,7 +912,7 @@ class AIToolExecutor:
         # Try to get line count for text files
         if not is_binary_file(full_path):
             try:
-                content = read_file_content(full_path)
+                content = self._get_file_content(full_path)
                 if content is not None:
                     info["lines"] = len(content.split("\n"))
             except Exception:
@@ -1162,7 +1194,7 @@ class AIToolExecutor:
 
         try:
             # Get total lines from file first (always available)
-            content = read_file_content(full_path)
+            content = self._get_file_content(full_path)
             total_lines = len(content.split("\n")) if content else 0
 
             # Use ctags index for file structure if available
@@ -1476,8 +1508,8 @@ class AIToolExecutor:
             if self._is_ctags_ready():
                 enclosing_symbol = self.ctags_index.find_enclosing_symbol(file_path, line_number)
 
-            # Read file content
-            content = read_file_content(full_path)
+            # Read file content (cached)
+            content = self._get_file_content(full_path)
             if content is None:
                 return ToolResult(
                     success=False,
