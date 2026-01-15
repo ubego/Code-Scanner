@@ -383,6 +383,43 @@ class AIToolExecutor:
         # LRU cache for file contents - avoids re-reading same files
         self._file_cache: dict[Path, Optional[str]] = {}
         self._file_cache_max_size = 200
+        
+        # Tool dispatch table: maps tool name to (handler_name, argument_spec)
+        # argument_spec: list of (arg_name, default_value) tuples
+        # We store method names (not bound methods) to allow test mocking
+        self._tool_dispatch: dict[str, tuple[str, list[tuple[str, Any]]]] = {
+            "search_text": ("_search_text", [
+                ("patterns", ""), ("is_regex", False), ("match_whole_word", True),
+                ("case_sensitive", False), ("file_pattern", None), ("offset", 0),
+            ]),
+            "read_file": ("_read_file", [
+                ("file_path", ""), ("start_line", None), ("end_line", None),
+            ]),
+            "list_directory": ("_list_directory", [
+                ("directory_path", "."), ("recursive", False), ("offset", 0),
+            ]),
+            "get_file_diff": ("_get_file_diff", [
+                ("file_path", ""), ("context_lines", 3),
+            ]),
+            "get_file_summary": ("_get_file_summary", [
+                ("file_path", ""),
+            ]),
+            "symbol_exists": ("_symbol_exists", [
+                ("symbol", ""), ("symbol_type", "any"),
+            ]),
+            "find_definition": ("_find_definition", [
+                ("symbol", ""), ("kind", None),
+            ]),
+            "find_symbols": ("_find_symbols", [
+                ("pattern", ""), ("kind", None),
+            ]),
+            "get_enclosing_scope": ("_get_enclosing_scope", [
+                ("file_path", ""), ("line_number", 1),
+            ]),
+            "find_usages": ("_find_usages", [
+                ("symbol", ""), ("file_path", None), ("include_definitions", False),
+            ]),
+        }
 
     def _get_file_content(self, file_path: Path) -> Optional[str]:
         """Get file content with caching.
@@ -457,70 +494,18 @@ class AIToolExecutor:
         logger.info(f"\n{'='*50}\n🔎 EXECUTING AI TOOL: {tool_name}\n👉 ARGUMENTS: {arguments}\n{'='*50}")
 
         try:
-            if tool_name == "search_text":
-                return self._search_text(
-                    patterns=arguments.get("patterns", ""),
-                    is_regex=arguments.get("is_regex", False),
-                    match_whole_word=arguments.get("match_whole_word", True),
-                    case_sensitive=arguments.get("case_sensitive", False),
-                    file_pattern=arguments.get("file_pattern"),
-                    offset=arguments.get("offset", 0),
-                )
-            elif tool_name == "read_file":
-                return self._read_file(
-                    file_path=arguments.get("file_path", ""),
-                    start_line=arguments.get("start_line"),
-                    end_line=arguments.get("end_line"),
-                )
-            elif tool_name == "list_directory":
-                return self._list_directory(
-                    directory_path=arguments.get("directory_path", "."),
-                    recursive=arguments.get("recursive", False),
-                    offset=arguments.get("offset", 0),
-                )
-            elif tool_name == "get_file_diff":
-                return self._get_file_diff(
-                    file_path=arguments.get("file_path", ""),
-                    context_lines=arguments.get("context_lines", 3),
-                )
-            elif tool_name == "get_file_summary":
-                return self._get_file_summary(
-                    file_path=arguments.get("file_path", ""),
-                )
-            elif tool_name == "symbol_exists":
-                return self._symbol_exists(
-                    symbol=arguments.get("symbol", ""),
-                    symbol_type=arguments.get("symbol_type", "any"),
-                )
-            elif tool_name == "find_definition":
-                return self._find_definition(
-                    symbol=arguments.get("symbol", ""),
-                    kind=arguments.get("kind"),
-                )
-
-            elif tool_name == "find_symbols":
-                return self._find_symbols(
-                    pattern=arguments.get("pattern", ""),
-                    kind=arguments.get("kind"),
-                )
-
-            elif tool_name == "get_enclosing_scope":
-                return self._get_enclosing_scope(
-                    file_path=arguments.get("file_path", ""),
-                    line_number=arguments.get("line_number", 1),
-                )
-            elif tool_name == "find_usages":
-                return self._find_usages(
-                    symbol=arguments.get("symbol", ""),
-                    file_path=arguments.get("file_path"),
-                    include_definitions=arguments.get("include_definitions", False),
-                )
-            else:
+            if tool_name not in self._tool_dispatch:
                 return ToolResult(
                     success=False,
                     data=None,
                     error=f"Unknown tool: {tool_name}",
                 )
+            
+            handler_name, arg_spec = self._tool_dispatch[tool_name]
+            handler = getattr(self, handler_name)
+            # Build kwargs from argument spec with defaults
+            kwargs = {name: arguments.get(name, default) for name, default in arg_spec}
+            return handler(**kwargs)
 
         except Exception as e:
             logger.error(f"Tool execution error: {e}", exc_info=True)

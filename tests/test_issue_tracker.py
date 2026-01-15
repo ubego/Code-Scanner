@@ -641,3 +641,149 @@ Test issue
         
         assert loaded == 1
         assert tracker.open_issues[0].file_path == "test.cpp"
+
+
+class TestIndexHelpers:
+    """Tests for internal index helper methods."""
+
+    def test_add_to_index_open_issue(self):
+        """Test _add_to_index adds open issue to open index."""
+        tracker = IssueTracker()
+        issue = Issue(
+            file_path="src/main.py",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="",
+            check_query="Test",
+            timestamp=datetime.now(),
+            status=IssueStatus.OPEN,
+        )
+        
+        tracker._add_to_index(issue)
+        
+        assert "src/main.py" in tracker._open_by_file
+        assert issue in tracker._open_by_file["src/main.py"]
+        assert "src/main.py" not in tracker._resolved_by_file
+
+    def test_add_to_index_resolved_issue(self):
+        """Test _add_to_index adds resolved issue to resolved index."""
+        tracker = IssueTracker()
+        issue = Issue(
+            file_path="src/main.py",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="",
+            check_query="Test",
+            timestamp=datetime.now(),
+            status=IssueStatus.RESOLVED,
+        )
+        
+        tracker._add_to_index(issue)
+        
+        assert "src/main.py" in tracker._resolved_by_file
+        assert issue in tracker._resolved_by_file["src/main.py"]
+        assert "src/main.py" not in tracker._open_by_file
+
+    def test_remove_from_index_removes_issue(self):
+        """Test _remove_from_index removes issue from correct index."""
+        tracker = IssueTracker()
+        issue = Issue(
+            file_path="src/main.py",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="",
+            check_query="Test",
+            timestamp=datetime.now(),
+            status=IssueStatus.OPEN,
+        )
+        tracker._open_by_file["src/main.py"] = [issue]
+        
+        tracker._remove_from_index(issue, IssueStatus.OPEN)
+        
+        assert issue not in tracker._open_by_file.get("src/main.py", [])
+
+    def test_remove_from_index_nonexistent_file(self):
+        """Test _remove_from_index handles nonexistent file gracefully."""
+        tracker = IssueTracker()
+        issue = Issue(
+            file_path="src/nonexistent.py",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="",
+            check_query="Test",
+            timestamp=datetime.now(),
+            status=IssueStatus.OPEN,
+        )
+        
+        # Should not raise exception
+        tracker._remove_from_index(issue, IssueStatus.OPEN)
+
+    def test_remove_from_index_issue_not_in_list(self):
+        """Test _remove_from_index handles issue not in list gracefully."""
+        tracker = IssueTracker()
+        issue1 = Issue(
+            file_path="src/main.py",
+            line_number=10,
+            description="Issue 1",
+            suggested_fix="",
+            check_query="Test",
+            timestamp=datetime.now(),
+            status=IssueStatus.OPEN,
+        )
+        issue2 = Issue(
+            file_path="src/main.py",
+            line_number=20,
+            description="Issue 2",
+            suggested_fix="",
+            check_query="Test",
+            timestamp=datetime.now(),
+            status=IssueStatus.OPEN,
+        )
+        tracker._open_by_file["src/main.py"] = [issue1]
+        
+        # Should not raise exception
+        tracker._remove_from_index(issue2, IssueStatus.OPEN)
+        
+        # issue1 should still be there
+        assert issue1 in tracker._open_by_file["src/main.py"]
+
+    def test_move_issue_status_open_to_resolved(self):
+        """Test _move_issue_status moves issue from open to resolved."""
+        tracker = IssueTracker()
+        issue = Issue(
+            file_path="src/main.py",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="",
+            check_query="Test",
+            timestamp=datetime.now(),
+            status=IssueStatus.OPEN,
+        )
+        tracker._open_by_file["src/main.py"] = [issue]
+        
+        tracker._move_issue_status(issue, IssueStatus.OPEN, IssueStatus.RESOLVED)
+        
+        assert issue.status == IssueStatus.RESOLVED
+        assert issue not in tracker._open_by_file.get("src/main.py", [])
+        assert issue in tracker._resolved_by_file.get("src/main.py", [])
+        assert tracker._changed
+
+    def test_move_issue_status_resolved_to_open(self):
+        """Test _move_issue_status moves issue from resolved to open (reopen)."""
+        tracker = IssueTracker()
+        issue = Issue(
+            file_path="src/main.py",
+            line_number=10,
+            description="Test issue",
+            suggested_fix="",
+            check_query="Test",
+            timestamp=datetime.now(),
+            status=IssueStatus.RESOLVED,
+        )
+        tracker._resolved_by_file["src/main.py"] = [issue]
+        
+        tracker._move_issue_status(issue, IssueStatus.RESOLVED, IssueStatus.OPEN)
+        
+        assert issue.status == IssueStatus.OPEN
+        assert issue not in tracker._resolved_by_file.get("src/main.py", [])
+        assert issue in tracker._open_by_file.get("src/main.py", [])

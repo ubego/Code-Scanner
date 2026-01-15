@@ -22,6 +22,39 @@ class IssueTracker:
         self._open_by_file: dict[str, list[Issue]] = {}
         self._resolved_by_file: dict[str, list[Issue]] = {}
 
+    def _add_to_index(self, issue: Issue) -> None:
+        """Add an issue to the appropriate index based on its status.
+        
+        Args:
+            issue: The issue to index.
+        """
+        index = self._open_by_file if issue.status == IssueStatus.OPEN else self._resolved_by_file
+        index.setdefault(issue.file_path, []).append(issue)
+
+    def _remove_from_index(self, issue: Issue, from_status: IssueStatus) -> None:
+        """Remove an issue from an index.
+        
+        Args:
+            issue: The issue to remove.
+            from_status: The status index to remove from.
+        """
+        index = self._open_by_file if from_status == IssueStatus.OPEN else self._resolved_by_file
+        if issue.file_path in index and issue in index[issue.file_path]:
+            index[issue.file_path].remove(issue)
+
+    def _move_issue_status(self, issue: Issue, from_status: IssueStatus, to_status: IssueStatus) -> None:
+        """Move an issue between status indices.
+        
+        Args:
+            issue: The issue to move.
+            from_status: The current status (index to remove from).
+            to_status: The new status (index to add to).
+        """
+        self._remove_from_index(issue, from_status)
+        issue.status = to_status
+        self._add_to_index(issue)
+        self._changed = True
+
     @property
     def issues(self) -> list[Issue]:
         """Get all tracked issues."""
@@ -77,15 +110,7 @@ class IssueTracker:
         
         for issue in issues:
             self._issues.append(issue)
-            # Build indices
-            if issue.status == IssueStatus.OPEN:
-                if issue.file_path not in self._open_by_file:
-                    self._open_by_file[issue.file_path] = []
-                self._open_by_file[issue.file_path].append(issue)
-            else:
-                if issue.file_path not in self._resolved_by_file:
-                    self._resolved_by_file[issue.file_path] = []
-                self._resolved_by_file[issue.file_path].append(issue)
+            self._add_to_index(issue)
 
         if issues:
             logger.info(f"Loaded {len(issues)} issues from content")
@@ -256,23 +281,15 @@ class IssueTracker:
             if existing.matches(issue):
                 # Reopen the issue - move from resolved to open index
                 logger.info(f"Reopening resolved issue: {existing.file_path}")
-                existing.status = IssueStatus.OPEN
                 existing.line_number = issue.line_number
                 existing.timestamp = issue.timestamp
-                self._resolved_by_file[file_path].remove(existing)
-                if file_path not in self._open_by_file:
-                    self._open_by_file[file_path] = []
-                self._open_by_file[file_path].append(existing)
-                self._changed = True
+                self._move_issue_status(existing, IssueStatus.RESOLVED, IssueStatus.OPEN)
                 return False
 
         # Add new issue
         logger.info(f"New issue: {issue.file_path}:{issue.line_number}")
         self._issues.append(issue)
-        # Add to open index
-        if file_path not in self._open_by_file:
-            self._open_by_file[file_path] = []
-        self._open_by_file[file_path].append(issue)
+        self._add_to_index(issue)
         self._changed = True
         return True
 
@@ -383,17 +400,11 @@ class IssueTracker:
             if not matches:
                 to_resolve.append(existing)
         
-        # Resolve and move to resolved index
+        # Resolve and move to resolved index using helper
         for issue in to_resolve:
-            issue.status = IssueStatus.RESOLVED
+            self._move_issue_status(issue, IssueStatus.OPEN, IssueStatus.RESOLVED)
             resolved_count += 1
-            self._changed = True
             logger.info(f"Resolved (fixed): {file_path}:{issue.line_number}")
-            # Move from open to resolved index
-            self._open_by_file[file_path].remove(issue)
-            if file_path not in self._resolved_by_file:
-                self._resolved_by_file[file_path] = []
-            self._resolved_by_file[file_path].append(issue)
         
         return resolved_count
 
