@@ -342,3 +342,72 @@ class TestIssueTracker:
         assert resolved == 1
         assert len(tracker.open_issues) == 1
         assert len(tracker.resolved_issues) == 1
+
+    def test_update_from_scan_unchanged_file_keeps_issues(self):
+        """Test that issues are NOT resolved when file is not in scanned_files list.
+        
+        This tests the fix for the bug where LLM non-determinism could cause
+        issues to be resolved even when the file content hadn't changed.
+        The scanner should only pass files with changed content to update_from_scan.
+        """
+        tracker = IssueTracker()
+        
+        # Add initial issue for file
+        tracker.add_issue(Issue(
+            file_path="unchanged.cpp",
+            line_number=10,
+            description="Memory leak",
+            suggested_fix="Free memory",
+            check_query="Check memory",
+            timestamp=datetime.now(),
+            code_snippet="malloc()",
+        ))
+        
+        # Simulate scan where file content hasn't changed
+        # The scanner should NOT include unchanged files in the scanned_files list
+        # So we pass an empty list (file wasn't actually changed)
+        new_count, resolved = tracker.update_from_scan([], [])
+        
+        # Issue should still be open (not resolved)
+        assert new_count == 0
+        assert resolved == 0
+        assert len(tracker.open_issues) == 1
+        assert len(tracker.resolved_issues) == 0
+        assert tracker.open_issues[0].file_path == "unchanged.cpp"
+
+    def test_update_from_scan_only_resolves_changed_files(self):
+        """Test that issues are only resolved for files that are in scanned_files."""
+        tracker = IssueTracker()
+        
+        # Add issues for two files
+        tracker.add_issue(Issue(
+            file_path="changed.cpp",
+            line_number=10,
+            description="Issue in changed file",
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+            code_snippet="code1",
+        ))
+        tracker.add_issue(Issue(
+            file_path="unchanged.cpp",
+            line_number=20,
+            description="Issue in unchanged file",
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+            code_snippet="code2",
+        ))
+        
+        # Scan only reports issues for changed.cpp (unchanged.cpp not in list)
+        # This simulates the case where unchanged.cpp content didn't change
+        new_count, resolved = tracker.update_from_scan([], ["changed.cpp"])
+        
+        # Issue in changed.cpp should be resolved (was scanned, no new issue)
+        # Issue in unchanged.cpp should remain open (not in scanned_files)
+        assert new_count == 0
+        assert resolved == 1
+        assert len(tracker.open_issues) == 1
+        assert len(tracker.resolved_issues) == 1
+        assert tracker.open_issues[0].file_path == "unchanged.cpp"
+        assert tracker.resolved_issues[0].file_path == "changed.cpp"

@@ -409,10 +409,26 @@ class Scanner:
         # Log total issues found in this scan
         logger.info(f"Scan found {len(all_issues)} total issue(s) across all checks")
 
-        # Update issue tracker with scan results
-        scanned_files = self._scan_info.get("files_scanned", [])
+        # Determine which files have actually changed content since last scan
+        # Only resolve issues for files with changed content (LLM results are non-deterministic)
+        files_content = self._get_files_content(git_state.changed_files)
+        files_content, _ = self._filter_ignored_files(files_content)
+        
+        actually_changed_files: list[str] = []
+        for file_path, content in files_content.items():
+            current_hash = hash(content)
+            previous_hash = self._last_file_contents_hash.get(file_path)
+            if previous_hash is None or current_hash != previous_hash:
+                # File is new or content changed - issues can be resolved if not re-reported
+                actually_changed_files.append(file_path)
+            # If content unchanged, don't resolve issues even if LLM didn't re-report them
+        
+        if actually_changed_files:
+            logger.debug(f"Files with changed content: {actually_changed_files[:10]}{'...' if len(actually_changed_files) > 10 else ''}")
+
+        # Update issue tracker with scan results - only for files that actually changed
         new_count, resolved_count = self.issue_tracker.update_from_scan(
-            all_issues, scanned_files
+            all_issues, actually_changed_files
         )
         logger.info(f"Scan complete: {new_count} new issues, {resolved_count} resolved")
 
@@ -425,9 +441,7 @@ class Scanner:
         all_changed_paths = {f.path for f in git_state.changed_files if not f.is_deleted}
         self._last_scanned_files = all_changed_paths
         
-        # Get fresh content for hash tracking (only non-ignored files need hashes)
-        files_content = self._get_files_content(git_state.changed_files)
-        files_content, _ = self._filter_ignored_files(files_content)
+        # Update hash tracking with current content (reuse files_content from above)
         self._last_file_contents_hash = {}
         self._last_file_mtime = {}
         for file_path, content in files_content.items():
