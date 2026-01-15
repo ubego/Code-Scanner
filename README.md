@@ -199,7 +199,12 @@ pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml"
 checks = []
 ```
 
-The scanner will skip files matching these patterns entirely, reducing noise and improving performance.
+The scanner uses a **unified filtering architecture** that applies all exclusion rules in a single pass:
+1. **Scanner output files** - Always excluded (O(1) set lookup)
+2. **Config ignore patterns** - Applied via fnmatch
+3. **Gitignore patterns** - Applied via in-memory pathspec matching
+
+This eliminates redundant subprocess calls and multiple filtering passes, improving performance on large repositories.
 
 ### Context Limit (Required)
 
@@ -288,9 +293,20 @@ The scanner creates `~/.code-scanner/code_scanner.lock` (global location) to pre
 
 ### Excluded Files
 
-The scanner automatically excludes:
+The scanner uses a **unified file filtering system** that combines all exclusion rules for efficiency:
+
+**Scanner Output Files** (always excluded):
 - `code_scanner_results.md` - The output report
-- `code_scanner.log` - The log file (in `~/.code-scanner/`)
+- `code_scanner_results.md.bak` - The backup file
+- `code_scanner.log` - The log file
+
+**Config Ignore Patterns**:
+- Files matching patterns in check groups with empty `checks = []`
+- Example: `*.md, *.txt, *.json` for documentation files
+
+**Gitignore Patterns**:
+- Files matching `.gitignore` are excluded via in-memory pattern matching
+- No subprocess calls - uses the `pathspec` library for efficiency
 
 ### Backup Files
 

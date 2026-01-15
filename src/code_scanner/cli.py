@@ -13,6 +13,7 @@ from typing import Optional
 
 from .config import Config, ConfigError, load_config
 from .ctags_index import CtagsIndex, CtagsNotFoundError, CtagsError
+from .file_filter import FileFilter
 from .git_watcher import GitWatcher, GitError
 from .issue_tracker import IssueTracker
 from .base_client import BaseLLMClient, LLMClientError
@@ -131,15 +132,39 @@ class Application:
         )
 
         # Initialize components
-        # Exclude scanner output files from triggering rescans
-        excluded_files = {
+        # Collect scanner output files to exclude from scanning and change detection
+        scanner_files = {
             self.config.output_file,  # code_scanner_results.md
             f"{self.config.output_file}.bak",  # backup file
+            self.config.log_file,  # code_scanner.log
         }
+        
+        # Collect config ignore patterns (check groups with empty checks list)
+        config_ignore_patterns: list[str] = []
+        for group in self.config.check_groups:
+            if not group.checks:  # Empty checks = ignore pattern
+                # Split pattern by comma to get individual patterns
+                config_ignore_patterns.extend(
+                    p.strip() for p in group.pattern.split(",")
+                )
+        
+        # Create unified file filter for efficient filtering
+        self.file_filter = FileFilter(
+            repo_path=self.config.target_directory,
+            scanner_files=scanner_files,
+            config_ignore_patterns=config_ignore_patterns,
+            load_gitignore=True,
+        )
+        logger.info(
+            f"FileFilter initialized: {len(scanner_files)} scanner files, "
+            f"{len(config_ignore_patterns)} ignore patterns"
+        )
+        
         self.git_watcher = GitWatcher(
             self.config.target_directory,
             self.config.commit_hash,
-            excluded_files=excluded_files,
+            excluded_files=scanner_files,  # Keep for has_changes_since filtering
+            file_filter=self.file_filter,  # Use for gitignore matching
         )
         self.git_watcher.connect()
 
@@ -171,6 +196,7 @@ class Application:
             issue_tracker=self.issue_tracker,
             output_generator=self.output_generator,
             ctags_index=self.ctags_index,
+            file_filter=self.file_filter,
         )
 
     def _acquire_lock(self) -> None:

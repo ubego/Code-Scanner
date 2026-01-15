@@ -1,13 +1,12 @@
 """Git integration for monitoring file changes."""
 
 import logging
-import os
 from pathlib import Path
 from typing import Optional
 
-import git
 from git import Repo, InvalidGitRepositoryError, GitCommandError
 
+from .file_filter import FileFilter
 from .models import ChangedFile, GitState
 
 logger = logging.getLogger(__name__)
@@ -27,6 +26,7 @@ class GitWatcher:
         repo_path: Path,
         commit_hash: Optional[str] = None,
         excluded_files: Optional[set[str]] = None,
+        file_filter: Optional[FileFilter] = None,
     ):
         """Initialize the Git watcher.
 
@@ -36,6 +36,8 @@ class GitWatcher:
                         If None, compares against HEAD.
             excluded_files: Optional set of file paths to exclude from change detection.
                            These files (like scanner output files) will not trigger rescans.
+            file_filter: Optional unified FileFilter for all exclusion rules.
+                        If provided, replaces subprocess-based gitignore checking.
 
         Raises:
             GitError: If path is not a valid Git repository.
@@ -45,6 +47,7 @@ class GitWatcher:
         self.excluded_files = excluded_files or set()
         self._repo: Optional[Repo] = None
         self._last_state: Optional[GitState] = None
+        self._file_filter = file_filter
 
     def connect(self) -> None:
         """Connect to the Git repository.
@@ -256,12 +259,20 @@ class GitWatcher:
     def _is_ignored(self, path: str) -> bool:
         """Check if a path is ignored by .gitignore.
 
+        Uses FileFilter for in-memory matching if available,
+        falls back to git check-ignore subprocess otherwise.
+
         Args:
             path: Relative path to check.
 
         Returns:
             True if path should be ignored.
         """
+        # Use unified file filter if available (fast, in-memory)
+        if self._file_filter is not None:
+            return self._file_filter.is_gitignored(path)
+        
+        # Fallback to subprocess (slow, but accurate)
         if self._repo is None:
             return False
 

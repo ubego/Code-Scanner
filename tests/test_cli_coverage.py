@@ -95,6 +95,7 @@ class TestApplicationSetup:
         with patch.object(app, '_acquire_lock'), \
              patch.object(app, '_backup_existing_output'), \
              patch('code_scanner.cli.setup_logging'), \
+             patch('code_scanner.cli.FileFilter') as MockFileFilter, \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
              patch('code_scanner.cli.IssueTracker'), \
@@ -104,13 +105,19 @@ class TestApplicationSetup:
             
             app._setup()
             
+            # FileFilter should be created with scanner files and ignore patterns
+            MockFileFilter.assert_called_once()
+            
+            # GitWatcher should include excluded_files and file_filter
             MockGitWatcher.assert_called_once_with(
                 mock_config.target_directory,
                 mock_config.commit_hash,
                 excluded_files={
                     mock_config.output_file,
                     f"{mock_config.output_file}.bak",
+                    mock_config.log_file,
                 },
+                file_filter=MockFileFilter.return_value,
             )
             MockGitWatcher.return_value.connect.assert_called_once()
 

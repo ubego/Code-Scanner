@@ -565,6 +565,48 @@ class TestScannerFilesContent:
         
         assert "test.py" not in result
 
+    def test_get_files_content_uses_file_filter(self, mock_dependencies):
+        """Get files content uses unified FileFilter when provided."""
+        from code_scanner.file_filter import FileFilter
+        
+        # Create a FileFilter that skips .md files
+        mock_filter = MagicMock(spec=FileFilter)
+        mock_filter.should_skip.side_effect = lambda path: (
+            (True, "config_pattern:*.md") if path.endswith(".md") else (False, "")
+        )
+        
+        scanner = Scanner(**mock_dependencies, file_filter=mock_filter)
+        
+        changed = [
+            ChangedFile(path="main.py", status="unstaged"),
+            ChangedFile(path="README.md", status="unstaged"),
+        ]
+        
+        with patch("code_scanner.scanner.is_binary_file", return_value=False), \
+             patch("code_scanner.scanner.read_file_content", return_value="content"):
+            result = scanner._get_files_content(changed)
+        
+        # FileFilter should be called for each file
+        assert mock_filter.should_skip.call_count == 2
+        # Only main.py should be included (README.md skipped by filter)
+        assert "main.py" in result
+        assert "README.md" not in result
+
+    def test_filter_ignored_files_noop_with_file_filter(self, mock_dependencies):
+        """Filter ignored files is a no-op when FileFilter is used."""
+        from code_scanner.file_filter import FileFilter
+        
+        mock_filter = MagicMock(spec=FileFilter)
+        scanner = Scanner(**mock_dependencies, file_filter=mock_filter)
+        
+        files_content = {"test.py": "content", "readme.md": "docs"}
+        
+        # With FileFilter, _filter_ignored_files should return input unchanged
+        result, ignored = scanner._filter_ignored_files(files_content)
+        
+        assert result == files_content
+        assert ignored == []
+
 
 class TestScannerRunCheck:
     """Tests for Scanner _run_check method."""

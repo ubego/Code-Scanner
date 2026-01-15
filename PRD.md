@@ -129,8 +129,14 @@ The primary objective of this project is to implement a software program that **
 *   **Log Generation:** The system must produce a **Markdown log file** named `code_scanner_results.md` as its primary and only User Interface.
 *   **Output Location:** The output file is written to the **target directory** root.
 *   **Initial Output:** The output file must be **created at startup** (before scanning begins) to provide immediate feedback that the scanner is running.
-*   **Scanner Files Exclusion:** The scanner must automatically exclude its own output files (`code_scanner_results.md` and `code_scanner.log`) from scanning to prevent self-referential analysis.
+*   **Scanner Files Exclusion:** The scanner must automatically exclude its own output files (`code_scanner_results.md`, `code_scanner_results.md.bak`, and `code_scanner.log`) from scanning to prevent self-referential analysis.
 *   **Change Detection Exclusion:** The Git watcher must exclude `code_scanner_results.md` and `code_scanner_results.md.bak` from triggering rescans. Without this exclusion, every write to the output file would trigger a false "file changed" detection, causing endless rescan loops.
+*   **Unified File Filtering:** All file exclusion rules are consolidated into a single `FileFilter` component for efficiency:
+    *   **Scanner files:** Direct set lookup (O(1)) for output files.
+    *   **Config ignore patterns:** fnmatch matching for patterns like `*.md, *.txt`.
+    *   **Gitignore patterns:** In-memory pathspec matching (eliminates subprocess calls).
+    *   **Single-pass filtering:** Files are filtered once early in the pipeline, before content is read.
+    *   **Graceful degradation:** If pathspec library is unavailable, falls back to git subprocess.
 *   **Detailed Findings:** For every issue found, the log must include:
     *   **File path** (exact location)
     *   **Line number** (specific line)
