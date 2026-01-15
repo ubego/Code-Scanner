@@ -187,17 +187,25 @@ checks = [
 - `"*.cpp, *.h"` - Match multiple extensions (comma-separated)
 - `"*"` - Match all files
 - `"src/*.py"` - Match files in specific directories
+- `"/*tests*/"` - Match files in directories containing 'tests'
+- `"/*3rdparty*/, /*vendor*/"` - Match files in third-party directories
+- `"/*build*/, /*cmake-build-*/"` - Match build output directories
 
 ### Ignore Patterns
 
-Files matching patterns with an **empty checks list** will be ignored during scanning. This is useful for excluding documentation files, configuration files, or other non-code files:
+Files matching patterns with an **empty checks list** will be ignored during scanning. This is useful for excluding documentation files, test directories, third-party code, or build artifacts:
 
 ```toml
-# Ignore documentation and config files
+# Ignore documentation, config files, tests, and third-party code
 [[checks]]
-pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml"
+pattern = "*.md, *.txt, *.json, /*tests*/, /*3rdparty*/, /*vendor*/, /*build*/"
 checks = []
 ```
+
+**Directory pattern syntax:** Use `/*dirname*/` to match files in directories:
+- `/*tests*/` - Files in any directory named 'tests'
+- `/*node_modules*/` - Files in node_modules (at any depth)
+- `/*cmake-build-*/` - Files in cmake-build-debug, cmake-build-release, etc.
 
 The scanner uses a **unified filtering architecture** that applies all exclusion rules in a single pass:
 1. **Scanner output files** - Always excluded (O(1) set lookup)
@@ -302,7 +310,8 @@ The scanner uses a **unified file filtering system** that combines all exclusion
 
 **Config Ignore Patterns**:
 - Files matching patterns in check groups with empty `checks = []`
-- Example: `*.md, *.txt, *.json` for documentation files
+- Supports file extensions (e.g., `*.md, *.txt`) and directory patterns (e.g., `/*tests*/`)
+- Example: `*.md, *.txt, /*tests*/, /*vendor*/` for docs and third-party code
 
 **Gitignore Patterns**:
 - Files matching `.gitignore` are excluded via in-memory pattern matching
@@ -329,7 +338,7 @@ uv run pytest --cov=code_scanner --cov-report=term-missing
 uv run pytest --cov=code_scanner --cov-report=html  # Open htmlcov/index.html
 ```
 
-**Current Coverage:** 93% with 640 tests.
+**Current Coverage:** 93% with 746 tests.
 
 ### Project Structure
 

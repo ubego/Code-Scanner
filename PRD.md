@@ -67,9 +67,12 @@ The primary objective of this project is to implement a software program that **
     *   **Checks:** List of prompt strings to run against matching files.
     *   **Legacy Support:** Simple list of strings format is still supported (converted to single group with `"*"` pattern).
 *   **Ignore Patterns:** Check groups with an **empty checks list** define ignore patterns. Files matching these patterns are **excluded from all scanning**:
-    *   Example: `[[checks]]\npattern = "*.md, *.txt, *.json"\nchecks = []`
+    *   **File patterns:** Match by extension (e.g., `*.md, *.txt, *.json`)
+    *   **Directory patterns:** Match files in directories using `/*dirname*/` syntax (e.g., `/*tests*/`, `/*3rdparty*/`, `/*build*/`)
+    *   Example: `[[checks]]\npattern = "*.md, *.txt, /*tests*/, /*vendor*/"\nchecks = []`
+    *   Directory patterns support wildcards (e.g., `/*cmake-build-*/` matches `cmake-build-debug`, `cmake-build-release`)
     *   Files matching ignore patterns are silently skipped, reducing noise and improving performance.
-    *   Useful for excluding documentation, configuration files, and other non-code files.
+    *   Useful for excluding documentation, test directories, third-party code, and build artifacts.
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
 *   **Pattern-Based Filtering:** For each check group, only files matching the group's pattern are included in the analysis batches.
 *   **Aggregated Context:** Each query is sent to the AI with the **entire content of all matching modified files** as context, not file-by-file.
