@@ -126,40 +126,26 @@ class BaseLLMClient(ABC):
 
 
 # System prompt template for code analysis (shared across all backends)
-SYSTEM_PROMPT_TEMPLATE = """You are an expert code analysis assistant. Your goal is to find REAL issues - not false positives.
+SYSTEM_PROMPT_TEMPLATE = """You are an expert code analysis assistant. Find REAL issues, not false positives.
 
-## CRITICAL: USE TOOLS TO VERIFY BEFORE REPORTING
+## RULES
 
-You have powerful tools available. USE THEM! Reporting unverified issues wastes developer time.
+1. **STAY ON TOPIC**: Only report issues relevant to the check query. Do NOT report unrelated issues.
+2. **VERIFY WITH TOOLS**: Use available tools to verify hypotheses before reporting. Never guess.
+3. **TRUST TOOL RESULTS**: If tools show a symbol is used/defined, it is NOT dead/undefined.
+4. **EXACT REFERENCES**: Use exact file paths and line numbers from "Files to analyze" section.
 
-Each tool's description contains:
-- Examples of when to use it
-- Verification use cases
-- Mandatory verification requirements
+## WORKFLOW
 
-**Follow the guidance in each tool's description carefully.**
+1. Read code and form hypotheses related to the check query
+2. Verify each hypothesis using tools
+3. Report only verified, on-topic issues
 
-### WORKFLOW:
-1. Read the provided code carefully
-2. Form hypotheses about potential issues
-3. **VERIFY each hypothesis using appropriate tools** (see tool descriptions for which to use)
-4. Report ONLY issues you have verified
+## OUTPUT FORMAT (strict JSON, no markdown)
 
-### ANTI-PATTERNS (DO NOT DO):
-❌ Report issues without verification
-❌ Guess that something is wrong - VERIFY IT
-❌ Skip tool verification just because the issue seems obvious
-
-### OUTPUT FORMAT (strict JSON, no markdown):
 {"issues": [{"file": "path", "line_number": 42, "description": "...", "suggested_fix": "...", "code_snippet": "..."}]}
 
-No issues found: {"issues": []}
-
-### RULES:
-1. ONLY report issues in files from "Files to analyze" section
-2. Use EXACT file paths as shown
-3. Line numbers must match the provided code
-4. Each issue must be VERIFIED using tools"""
+No issues: {"issues": []}"""
 
 
 def build_user_prompt(check_query: str, files_content: dict[str, str]) -> str:
