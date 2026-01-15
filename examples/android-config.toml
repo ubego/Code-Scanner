@@ -102,11 +102,12 @@ checks = [
 ]
 
 # ==============================================================================
-# Ignore Patterns (files to skip during scanning)
+# Ignore Patterns (files and directories to skip during scanning)
 # ==============================================================================
-# Files matching these patterns with empty checks will be ignored.
+# Files and directories matching these patterns with empty checks will be ignored.
+# Use /*dirname*/ syntax for directory patterns.
 # Add or modify patterns as needed for your project.
 
 [[checks]]
-pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml"
+pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml, /*test*/, /*tests*/, /*3rdparty*/, /*third_party*/, /*vendor*/, /*build*/, /*.gradle*/, /*generated*/"
 checks = []

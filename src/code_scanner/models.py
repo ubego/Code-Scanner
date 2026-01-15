@@ -152,6 +152,11 @@ class CheckGroup:
     def matches_file(self, file_path: str) -> bool:
         """Check if the file matches this check group's pattern.
 
+        Supports:
+        - File extension patterns: *.cpp, *.h
+        - Wildcard: * matches all files
+        - Directory patterns: /*dirname*/ matches files in directories containing 'dirname'
+
         Args:
             file_path: The file path to check.
 
@@ -168,7 +173,15 @@ class CheckGroup:
 
         # Check if any pattern matches
         for pattern in patterns:
-            if fnmatch(filename, pattern) or fnmatch(file_path, pattern):
+            # Check for directory pattern: /*dirname*/
+            if pattern.startswith("/") and pattern.endswith("/") and len(pattern) > 2:
+                dir_pattern = pattern[1:-1]  # Remove leading and trailing /
+                # Check if any directory component matches the pattern
+                path_parts = file_path.replace("\\", "/").split("/")
+                for part in path_parts[:-1]:  # Exclude the filename itself
+                    if fnmatch(part, dir_pattern):
+                        return True
+            elif fnmatch(filename, pattern) or fnmatch(file_path, pattern):
                 return True
 
         return False

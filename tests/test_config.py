@@ -388,6 +388,89 @@ class TestCheckGroupPatternMatching:
         
         assert group.matches_file("main.cpp") is True
         assert group.matches_file("header.h") is True
+
+    def test_directory_pattern_matches(self):
+        """Test that /*dirname*/ pattern matches files in matching directories."""
+        group = CheckGroup(pattern="/*tests*/", checks=[])
+        
+        # Files in 'tests' directory should match
+        assert group.matches_file("tests/test_main.py") is True
+        assert group.matches_file("src/tests/test_util.py") is True
+        assert group.matches_file("project/tests/unit/test_foo.py") is True
+        
+        # Files not in 'tests' directory should not match
+        assert group.matches_file("src/main.py") is False
+        assert group.matches_file("test_main.py") is False  # filename, not directory
+
+    def test_directory_pattern_with_wildcard(self):
+        """Test directory pattern with wildcards like /*test*/."""
+        group = CheckGroup(pattern="/*test*/", checks=[])
+        
+        # Matches directories containing 'test'
+        assert group.matches_file("tests/file.py") is True
+        assert group.matches_file("unit_tests/file.py") is True
+        assert group.matches_file("test_data/file.txt") is True
+        assert group.matches_file("src/testing/file.cpp") is True
+        
+        # Does not match
+        assert group.matches_file("src/main.py") is False
+
+    def test_directory_pattern_3rdparty(self):
+        """Test matching 3rdparty and third_party directories."""
+        group = CheckGroup(pattern="/*3rdparty*/, /*third_party*/", checks=[])
+        
+        assert group.matches_file("3rdparty/lib/file.cpp") is True
+        assert group.matches_file("vendor/3rdparty/lib.h") is True
+        assert group.matches_file("third_party/boost/config.hpp") is True
+        assert group.matches_file("src/third_party/json/json.h") is True
+        
+        assert group.matches_file("src/main.cpp") is False
+
+    def test_directory_pattern_build_directories(self):
+        """Test matching build directories with patterns like /*build*/ and /*cmake-build-*/."""
+        group = CheckGroup(pattern="/*build*/, /*cmake-build-*/", checks=[])
+        
+        assert group.matches_file("build/main.o") is True
+        assert group.matches_file("cmake-build-debug/CMakeCache.txt") is True
+        assert group.matches_file("cmake-build-release/lib.a") is True
+        assert group.matches_file("out/build/x64/file.obj") is True
+        
+        assert group.matches_file("src/builder.cpp") is False  # file, not directory
+
+    def test_mixed_file_and_directory_patterns(self):
+        """Test combining file extension and directory patterns."""
+        group = CheckGroup(pattern="*.md, *.txt, /*tests*/, /*vendor*/", checks=[])
+        
+        # File extension matches
+        assert group.matches_file("README.md") is True
+        assert group.matches_file("src/notes.txt") is True
+        
+        # Directory matches
+        assert group.matches_file("tests/test_main.cpp") is True
+        assert group.matches_file("vendor/lib/util.cpp") is True
+        
+        # Neither matches
+        assert group.matches_file("src/main.cpp") is False
+
+    def test_directory_pattern_nested_path(self):
+        """Test directory pattern matching in deeply nested paths."""
+        group = CheckGroup(pattern="/*node_modules*/", checks=[])
+        
+        assert group.matches_file("node_modules/lodash/index.js") is True
+        assert group.matches_file("packages/app/node_modules/react/index.js") is True
+        assert group.matches_file("a/b/c/node_modules/d/e/f.js") is True
+        
+        assert group.matches_file("src/modules/app.js") is False
+
+    def test_directory_pattern_does_not_match_filename(self):
+        """Test that directory patterns don't match against filenames."""
+        group = CheckGroup(pattern="/*test*/", checks=[])
+        
+        # Should NOT match - 'test' is in filename, not directory
+        assert group.matches_file("test_main.py") is False
+        assert group.matches_file("src/test_utils.py") is False
+        assert group.matches_file("main_test.cpp") is False
+
 from unittest.mock import patch
 from code_scanner.models import LLMConfig
 # Re-importing missing symbols or using existing imports.
