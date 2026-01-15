@@ -321,18 +321,21 @@ Returns the complete definition (signature, body) of the enclosing scope.""",
         "type": "function",
         "function": {
             "name": "find_usages",
-            "description": """**VERIFICATION TOOL** - Find all locations where a symbol is used.
-**PREFER THIS over search_text** for finding symbol references - it avoids partial string matches.
+            "description": """**MANDATORY VERIFICATION TOOL** - Find all locations where a symbol is used.
+**YOU MUST USE THIS** before claiming any code is unused, dead, or never called.
 
-**MANDATORY BEFORE REPORTING:**
-- 'unused function' → find_usages("function_name") to verify no callers
-- 'dead code' → find_usages to check if anything references it
-- 'refactoring impact' → find_usages to see all affected locations
+**REQUIRED WORKFLOW - NEVER SKIP:**
+1. Before reporting 'unused function/method' → call find_usages(symbol) FIRST
+2. Before reporting 'dead code' → call find_usages(symbol) FIRST  
+3. Before reporting 'never called' → call find_usages(symbol) FIRST
+4. If find_usages returns ANY results → the code IS used, DO NOT report as unused
 
 **EXAMPLES:**
-- Find all calls to function: find_usages(symbol="process_data")
-- Find usages in specific file: find_usages(symbol="helper", file_path="src/main.cpp")
-- Include definitions: find_usages(symbol="MyClass", include_definitions=true)
+- Verify function is unused: find_usages(symbol="processData") → if results exist, it IS used
+- Check method callers: find_usages(symbol="acquireList") → empty = truly unused
+- Find all references: find_usages(symbol="MyClass", include_definitions=true)
+
+**CRITICAL:** If find_usages shows the symbol has callers/references, you MUST NOT report it as dead code or unused. Trust the tool results over your assumptions.
 
 Returns all locations where the symbol appears with file, line, and context.""",
             "parameters": {

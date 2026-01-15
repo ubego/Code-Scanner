@@ -714,9 +714,8 @@ class Scanner:
     ) -> list[Issue]:
         """Run a single check against all batches with AI tool support.
 
-        The LLM can request additional context via tools (search_text,
-        read_file, list_directory). This method handles iterative tool calling
-        until the LLM provides a final answer.
+        The LLM can request additional context via tools. This method handles
+        iterative tool calling until the LLM provides a final answer.
 
         Args:
             check_query: The check query to run.
@@ -825,22 +824,9 @@ class Scanner:
                         tool_name = tool_call["tool_name"]
                         arguments = tool_call["arguments"]
 
-                        # Log tool execution with relevant argument details
-                        if tool_name == "search_text":
-                            patterns = arguments.get('patterns', '?')
-                            logger.info(f"  → {tool_name}: searching for '{patterns}'")
-                        elif tool_name == "read_file":
-                            file_path = arguments.get('file_path', '?')
-                            start = arguments.get('start_line')
-                            end = arguments.get('end_line')
-                            if start and end:
-                                logger.info(f"  → {tool_name}: {file_path} (lines {start}-{end})")
-                            else:
-                                logger.info(f"  → {tool_name}: {file_path}")
-                        elif tool_name == "list_directory":
-                            logger.info(f"  → {tool_name}: {arguments.get('directory_path', '?')}")
-                        else:
-                            logger.info(f"  → {tool_name}: {arguments}")
+                        # Log tool execution with compact argument summary
+                        args_summary = self._format_tool_args_for_log(tool_name, arguments)
+                        logger.info(f"  → {tool_name}: {args_summary}")
 
                         logger.debug(f"Executing tool: {tool_name} with args: {arguments}")
                         result = self.tool_executor.execute_tool(tool_name, arguments)
@@ -916,6 +902,53 @@ class Scanner:
         # Max iterations reached
         logger.warning(f"Max tool iterations ({max_tool_iterations}) reached, using last response")
         return []
+
+    def _format_tool_args_for_log(self, tool_name: str, arguments: dict) -> str:
+        """Format tool arguments for compact logging.
+        
+        Creates a human-readable summary of tool arguments without
+        hardcoding specific tool names.
+
+        Args:
+            tool_name: Name of the tool being called.
+            arguments: Tool arguments dictionary.
+
+        Returns:
+            Compact string representation of arguments.
+        """
+        if not arguments:
+            return "(no args)"
+        
+        # Common argument names that are good for logging
+        path_keys = ['file_path', 'directory_path', 'path']
+        search_keys = ['patterns', 'pattern', 'symbol', 'query']
+        
+        parts = []
+        
+        # Prioritize path-like arguments
+        for key in path_keys:
+            if key in arguments:
+                parts.append(str(arguments[key]))
+                break
+        
+        # Add search/pattern arguments
+        for key in search_keys:
+            if key in arguments:
+                val = arguments[key]
+                if isinstance(val, list):
+                    val = ', '.join(str(v) for v in val[:3])
+                parts.append(f"'{val}'")
+                break
+        
+        # Add line range if present
+        start = arguments.get('start_line')
+        end = arguments.get('end_line')
+        if start and end:
+            parts.append(f"lines {start}-{end}")
+        elif start:
+            parts.append(f"from line {start}")
+        
+        return ' '.join(parts) if parts else str(arguments)
 
     def _format_tool_result(self, result) -> str:
         """Format a tool result for presentation to the LLM.
