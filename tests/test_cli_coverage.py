@@ -65,7 +65,7 @@ class TestApplicationSetup:
         mock_llm.connect = MagicMock()
         mock_llm.backend_name = "LM Studio"
         
-        with patch.object(app, '_backup_existing_output'), \
+        with patch.object(app, '_backup_existing_output', return_value=None), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
@@ -93,7 +93,7 @@ class TestApplicationSetup:
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
-             patch.object(app, '_backup_existing_output'), \
+             patch.object(app, '_backup_existing_output', return_value=None), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.FileFilter') as MockFileFilter, \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
@@ -130,7 +130,7 @@ class TestApplicationSetup:
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
-             patch.object(app, '_backup_existing_output'), \
+             patch.object(app, '_backup_existing_output', return_value=None), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm) as mock_factory, \
@@ -156,7 +156,7 @@ class TestApplicationSetup:
         mock_config.llm.context_limit = 16384
         
         with patch.object(app, '_acquire_lock'), \
-             patch.object(app, '_backup_existing_output'), \
+             patch.object(app, '_backup_existing_output', return_value=None), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \
@@ -181,7 +181,7 @@ class TestApplicationSetup:
         mock_llm.backend_name = "LM Studio"
         
         with patch.object(app, '_acquire_lock'), \
-             patch.object(app, '_backup_existing_output'), \
+             patch.object(app, '_backup_existing_output', return_value=None), \
              patch('code_scanner.cli.setup_logging'), \
              patch('code_scanner.cli.GitWatcher') as MockGitWatcher, \
              patch('code_scanner.cli.create_llm_client', return_value=mock_llm), \

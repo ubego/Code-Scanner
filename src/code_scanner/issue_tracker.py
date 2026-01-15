@@ -1,7 +1,9 @@
 """Issue tracking and state management."""
 
 import logging
-from datetime import datetime
+import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from .models import Issue, IssueStatus
@@ -35,7 +37,191 @@ class IssueTracker:
         """Get all resolved issues."""
         return [i for i in self._issues if i.status == IssueStatus.RESOLVED]
 
+    def load_from_file(self, file_path: Path) -> int:
+        """Load issues from an existing output file.
 
+        Parses the Markdown output file and restores issue state.
+        This allows persisting issues between scanner restarts.
+
+        Args:
+            file_path: Path to the output Markdown file.
+
+        Returns:
+            Number of issues loaded.
+        """
+        if not file_path.exists():
+            logger.debug(f"No existing output file to load: {file_path}")
+            return 0
+
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except IOError as e:
+            logger.warning(f"Failed to read output file: {e}")
+            return 0
+
+        return self.load_from_content(content)
+
+    def load_from_content(self, content: str) -> int:
+        """Load issues from Markdown content string.
+
+        Parses the Markdown content and restores issue state.
+        This allows loading from backed-up content.
+
+        Args:
+            content: Markdown content from output file.
+
+        Returns:
+            Number of issues loaded.
+        """
+        issues = self._parse_issues_from_markdown(content)
+        
+        for issue in issues:
+            self._issues.append(issue)
+            # Build indices
+            if issue.status == IssueStatus.OPEN:
+                if issue.file_path not in self._open_by_file:
+                    self._open_by_file[issue.file_path] = []
+                self._open_by_file[issue.file_path].append(issue)
+            else:
+                if issue.file_path not in self._resolved_by_file:
+                    self._resolved_by_file[issue.file_path] = []
+                self._resolved_by_file[issue.file_path].append(issue)
+
+        if issues:
+            logger.info(f"Loaded {len(issues)} issues from content")
+        return len(issues)
+
+    def _parse_issues_from_markdown(self, content: str) -> list[Issue]:
+        """Parse issues from Markdown content.
+
+        Args:
+            content: Markdown content from output file.
+
+        Returns:
+            List of parsed Issue objects.
+        """
+        issues: list[Issue] = []
+        current_file: Optional[str] = None
+        
+        # Skip if content is just the "Scanning in progress..." placeholder
+        if "Scanning in progress..." in content and "## Issues by File" not in content:
+            return issues
+
+        lines = content.split("\n")
+        i = 0
+        
+        while i < len(lines):
+            line = lines[i]
+            
+            # Match file header: ### `path/to/file.py`
+            file_match = re.match(r"^### `(.+)`$", line)
+            if file_match:
+                current_file = file_match.group(1)
+                i += 1
+                continue
+            
+            # Match issue header: #### Line 123 - 🔴 OPEN or #### Line 123 - ✅ RESOLVED
+            issue_match = re.match(r"^#### Line (\d+) - (🔴 OPEN|✅ RESOLVED)$", line)
+            if issue_match and current_file:
+                line_number = int(issue_match.group(1))
+                status_str = issue_match.group(2)
+                status = IssueStatus.OPEN if "OPEN" in status_str else IssueStatus.RESOLVED
+                
+                # Parse the issue body
+                timestamp = datetime.now(timezone.utc)
+                check_query = ""
+                description = ""
+                code_snippet = ""
+                suggested_fix = ""
+                
+                i += 1
+                while i < len(lines):
+                    curr_line = lines[i]
+                    
+                    # Stop at next issue or file header
+                    if curr_line.startswith("#### Line") or curr_line.startswith("### `"):
+                        break
+                    if curr_line.startswith("---"):  # Footer
+                        break
+                    
+                    # Parse timestamp
+                    ts_match = re.match(r"\*\*Detected:\*\* (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", curr_line)
+                    if ts_match:
+                        try:
+                            timestamp = datetime.strptime(ts_match.group(1), "%Y-%m-%d %H:%M:%S")
+                            timestamp = timestamp.replace(tzinfo=timezone.utc)
+                        except ValueError:
+                            pass
+                        i += 1
+                        continue
+                    
+                    # Parse check query
+                    check_match = re.match(r"\*\*Check:\*\* (.+)", curr_line)
+                    if check_match:
+                        check_query = check_match.group(1)
+                        i += 1
+                        continue
+                    
+                    # Parse description
+                    if curr_line == "**Issue:**":
+                        i += 1
+                        desc_lines: list[str] = []
+                        while i < len(lines):
+                            desc_line = lines[i]
+                            # Stop at next section or next issue/file
+                            if desc_line.startswith("**") or desc_line.startswith("#### Line") or desc_line.startswith("### `") or desc_line.startswith("---"):
+                                break
+                            if desc_line.strip():
+                                desc_lines.append(desc_line)
+                            i += 1
+                        description = "\n".join(desc_lines)
+                        continue
+                    
+                    # Parse code snippet
+                    if curr_line == "**Problematic Code:**":
+                        i += 1
+                        if i < len(lines) and lines[i] == "```":
+                            i += 1
+                            snippet_lines: list[str] = []
+                            while i < len(lines) and lines[i] != "```":
+                                snippet_lines.append(lines[i])
+                                i += 1
+                            code_snippet = "\n".join(snippet_lines)
+                            i += 1  # Skip closing ```
+                        continue
+                    
+                    # Parse suggested fix
+                    if curr_line == "**Suggested Fix:**":
+                        i += 1
+                        if i < len(lines) and lines[i] == "```":
+                            i += 1
+                            fix_lines: list[str] = []
+                            while i < len(lines) and lines[i] != "```":
+                                fix_lines.append(lines[i])
+                                i += 1
+                            suggested_fix = "\n".join(fix_lines)
+                            i += 1  # Skip closing ```
+                        continue
+                    
+                    i += 1
+                
+                # Create the issue
+                issue = Issue(
+                    file_path=current_file,
+                    line_number=line_number,
+                    description=description,
+                    suggested_fix=suggested_fix,
+                    check_query=check_query,
+                    timestamp=timestamp,
+                    status=status,
+                    code_snippet=code_snippet,
+                )
+                issues.append(issue)
+                continue
+            
+            i += 1
+        
+        return issues
 
     def add_issue(self, issue: Issue) -> bool:
         """Add a new issue, handling deduplication.
