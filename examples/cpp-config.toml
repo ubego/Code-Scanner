@@ -74,6 +74,27 @@ checks = [
 ]
 
 [[checks]]
+pattern = "CMakeLists.txt, *.cmake"
+checks = [
+    # CMake best practices
+    "Check that target-based commands (target_link_libraries, target_include_directories) are used instead of directory-based commands.",
+    "Check that modern CMake (3.x) patterns are used instead of legacy patterns.",
+    "Check that PRIVATE, PUBLIC, INTERFACE keywords are used correctly for target properties.",
+    "Check that find_package() is used with REQUIRED or proper error handling.",
+    "Check that CMAKE_CXX_STANDARD is set instead of manually adding -std=c++ flags.",
+    # CMake organization
+    "Check that CMakeLists.txt files are not overly long and are split into modules where appropriate.",
+    "Check that hardcoded paths are avoided in favor of CMake variables and generator expressions.",
+    "Check that install() commands are provided for libraries and executables meant for distribution.",
+    "Check that option() is used for configurable build options with sensible defaults.",
+    # CMake correctness
+    "Check that dependencies between targets are correctly specified.",
+    "Check that source files are not GLOB'd in a way that misses new files.",
+    "Check that include guards or include_guard() are used in .cmake modules.",
+    "Check that FetchContent or find_package is used consistently for external dependencies.",
+]
+
+[[checks]]
 pattern = "*"
 checks = [
     "Check for headers that are included but not used.",

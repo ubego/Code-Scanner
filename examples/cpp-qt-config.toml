@@ -84,6 +84,46 @@ checks = [
 ]
 
 [[checks]]
+pattern = "CMakeLists.txt, *.cmake"
+checks = [
+    # CMake best practices
+    "Check that target-based commands (target_link_libraries, target_include_directories) are used instead of directory-based commands.",
+    "Check that modern CMake (3.x) patterns are used instead of legacy patterns.",
+    "Check that PRIVATE, PUBLIC, INTERFACE keywords are used correctly for target properties.",
+    "Check that find_package(Qt6) or find_package(Qt5) includes all required components.",
+    "Check that CMAKE_AUTOMOC, CMAKE_AUTORCC, and CMAKE_AUTOUIC are enabled for Qt projects.",
+    # CMake organization
+    "Check that CMakeLists.txt files are not overly long and are split into modules where appropriate.",
+    "Check that hardcoded paths are avoided in favor of CMake variables and generator expressions.",
+    "Check that qt_add_qml_module() is used for QML modules in Qt6 projects.",
+    "Check that install() commands are provided for libraries and executables meant for distribution.",
+    # CMake correctness
+    "Check that dependencies between targets are correctly specified.",
+    "Check that source files are not GLOB'd in a way that misses new files.",
+    "Check that Qt resources (.qrc) are properly added to targets.",
+]
+
+[[checks]]
+pattern = "*.pro, *.pri"
+checks = [
+    # qmake best practices
+    "Check that QT += modules are listed explicitly and only include needed modules.",
+    "Check that CONFIG += options are appropriate for the project type.",
+    "Check that DEFINES are used instead of hardcoded preprocessor flags in QMAKE_CXXFLAGS.",
+    "Check that INCLUDEPATH and LIBS are set correctly for external dependencies.",
+    # qmake organization
+    "Check that SOURCES, HEADERS, and FORMS are organized and not duplicated.",
+    "Check that .pri files are used to share common settings across subprojects.",
+    "Check that SUBDIRS projects have proper dependencies specified with .depends.",
+    "Check that platform-specific blocks (win32, unix, macx) are used for platform-specific settings.",
+    # qmake correctness
+    "Check that RESOURCES includes all .qrc files needed by the project.",
+    "Check that INSTALLS targets are defined for deployment.",
+    "Check that VERSION and TARGET are set appropriately.",
+    "Check that conditional includes (exists(), include()) have proper error handling.",
+]
+
+[[checks]]
 pattern = "*"
 checks = [
     "Check that implementation is in .cpp files rather than .h files except for templates.",
