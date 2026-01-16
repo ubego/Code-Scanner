@@ -94,7 +94,51 @@ class IssueTracker:
 
         return self.load_from_content(content)
 
-    def load_from_content(self, content: str) -> int:
+    def _validate_issue(self, issue: Issue, target_directory: Path) -> tuple[bool, str]:
+        """Validate that an issue is still relevant.
+        
+        Checks:
+        1. File exists
+        2. Line number is within file bounds
+        3. Code snippet still exists in file (if provided)
+        
+        Args:
+            issue: The issue to validate.
+            target_directory: Root directory of the repository.
+            
+        Returns:
+            Tuple of (is_valid, reason) where reason explains why invalid.
+        """
+        file_path = target_directory / issue.file_path
+        
+        # Check 1: File exists
+        if not file_path.exists():
+            return False, "file does not exist"
+        
+        try:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
+            lines = content.splitlines()
+        except (IOError, OSError) as e:
+            return False, f"cannot read file: {e}"
+        
+        # Check 2: Line number is within bounds
+        if issue.line_number > len(lines):
+            return False, f"line {issue.line_number} exceeds file length ({len(lines)} lines)"
+        
+        # Check 3: Code snippet still exists (if provided)
+        if issue.code_snippet and issue.code_snippet.strip():
+            # Normalize the snippet for comparison
+            snippet_lines = [line.strip() for line in issue.code_snippet.strip().splitlines() if line.strip()]
+            if snippet_lines:
+                # Check if the first line of the snippet exists anywhere in the file
+                first_snippet_line = snippet_lines[0]
+                found = any(first_snippet_line in line for line in lines)
+                if not found:
+                    return False, "code snippet no longer exists in file"
+        
+        return True, ""
+
+    def load_from_content(self, content: str, target_directory: Optional[Path] = None) -> int:
         """Load issues from Markdown content string.
 
         Parses the Markdown content and restores issue state.
@@ -102,19 +146,40 @@ class IssueTracker:
 
         Args:
             content: Markdown content from output file.
+            target_directory: If provided, validates issues against this directory:
+                - File must exist
+                - Line number must be within file bounds  
+                - Code snippet must still exist in file (if provided)
 
         Returns:
             Number of issues loaded.
         """
         issues = self._parse_issues_from_markdown(content)
         
+        loaded_count = 0
+        skipped_count = 0
+        skip_reasons: dict[str, int] = {}
+        
         for issue in issues:
+            # Validate issue if target_directory provided
+            if target_directory is not None:
+                is_valid, reason = self._validate_issue(issue, target_directory)
+                if not is_valid:
+                    skipped_count += 1
+                    skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+                    logger.debug(f"Skipping issue {issue.file_path}:{issue.line_number}: {reason}")
+                    continue
+            
             self._issues.append(issue)
             self._add_to_index(issue)
+            loaded_count += 1
 
-        if issues:
-            logger.info(f"Loaded {len(issues)} issues from content")
-        return len(issues)
+        if loaded_count > 0:
+            logger.info(f"Loaded {loaded_count} issues from content")
+        if skipped_count > 0:
+            reasons_str = ", ".join(f"{k}: {v}" for k, v in skip_reasons.items())
+            logger.info(f"Skipped {skipped_count} stale issues ({reasons_str})")
+        return loaded_count
 
     def _parse_issues_from_markdown(self, content: str) -> list[Issue]:
         """Parse issues from Markdown content.

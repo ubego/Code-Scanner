@@ -357,10 +357,11 @@ class TestHasChangesSinceEdgeCases:
         new_file.unlink()
         
         with patch.object(watcher, 'get_state', return_value=fake_state):
-            # has_changes_since should return True due to OSError when trying to stat
+            # has_changes_since should return False - OSError is skipped (file doesn't exist)
+            # This prevents false positives from files with encoding issues or missing files
             result = watcher.has_changes_since(state)
         
-        assert result is True
+        assert result is False
 
     def test_has_changes_since_deleted_file_skipped(self, temp_git_repo):
         """Test has_changes_since skips deleted files in mtime check."""

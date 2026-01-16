@@ -346,22 +346,24 @@ class GitWatcher:
             file_path = self.repo_path / changed_file.path
             try:
                 current_mtime = file_path.stat().st_mtime
-                # Find matching file in last state to compare mtime
-                for last_file in last_state.changed_files:
-                    if last_file.path == changed_file.path:
-                        # Store mtime in ChangedFile.content for comparison
-                        # If last_file.content was set to mtime, compare it
-                        if last_file.content is not None:
-                            try:
-                                last_mtime = float(last_file.content)
-                                if current_mtime > last_mtime:
-                                    logger.info(f"File modified since last check: {changed_file.path}")
-                                    return True
-                            except ValueError:
-                                pass
-                        break
             except OSError:
-                # Can't stat file, assume changed
-                return True
+                # Can't stat file (doesn't exist, encoding issue, etc.) - skip it
+                # This can happen with files that have special characters in names
+                # or files that were deleted but git status still shows them
+                continue
+            
+            # Find matching file in last state to compare mtime
+            for last_file in last_state.changed_files:
+                if last_file.path == changed_file.path:
+                    # If last_file.content was set to mtime, compare it
+                    if last_file.content is not None:
+                        try:
+                            last_mtime = float(last_file.content)
+                            if current_mtime > last_mtime:
+                                logger.info(f"File modified since last check: {changed_file.path}")
+                                return True
+                        except ValueError:
+                            pass
+                    break
 
         return False

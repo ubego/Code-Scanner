@@ -187,8 +187,12 @@ class Application:
         
         # Load issues from backed-up content to preserve state between restarts
         # The backup function already deleted the original file, so we use the saved content
+        # Only load issues for files that still exist (skip deleted files)
         if self._previous_output_content:
-            loaded_count = self.issue_tracker.load_from_content(self._previous_output_content)
+            loaded_count = self.issue_tracker.load_from_content(
+                self._previous_output_content,
+                target_directory=self.config.target_directory
+            )
             if loaded_count > 0:
                 logger.info(f"Restored {loaded_count} issues from previous session")
         

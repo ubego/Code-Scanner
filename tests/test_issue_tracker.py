@@ -787,3 +787,86 @@ class TestIndexHelpers:
         assert issue.status == IssueStatus.OPEN
         assert issue not in tracker._resolved_by_file.get("src/main.py", [])
         assert issue in tracker._open_by_file.get("src/main.py", [])
+
+
+class TestLoadFromContentFileValidation:
+    """Tests for file existence validation when loading issues."""
+
+    def test_load_from_content_skips_nonexistent_files(self, tmp_path):
+        """Test that issues for non-existent files are skipped when target_directory is provided."""
+        # Create only one of the two files mentioned in the content
+        existing_file = tmp_path / "existing.py"
+        existing_file.write_text("content")
+        
+        content = '''# Code Scanner Results
+
+## Issues by File
+
+### `existing.py`
+
+#### Line 10 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Existing file issue
+
+### `deleted_file.py`
+
+#### Line 5 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Deleted file issue
+'''
+        tracker = IssueTracker()
+        loaded = tracker.load_from_content(content, target_directory=tmp_path)
+        
+        # Only the issue for existing.py should be loaded
+        assert loaded == 1
+        assert len(tracker.open_issues) == 1
+        assert tracker.open_issues[0].file_path == "existing.py"
+
+    def test_load_from_content_loads_all_without_target_directory(self):
+        """Test that all issues are loaded when target_directory is not provided."""
+        content = '''# Code Scanner Results
+
+## Issues by File
+
+### `existing.py`
+
+#### Line 10 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Existing file issue
+
+### `deleted_file.py`
+
+#### Line 5 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Deleted file issue
+'''
+        tracker = IssueTracker()
+        loaded = tracker.load_from_content(content)
+        
+        # Both issues should be loaded when no validation
+        assert loaded == 2
+        assert len(tracker.open_issues) == 2
