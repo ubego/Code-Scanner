@@ -248,3 +248,96 @@ class TestIssueMatches:
         
         # They match because code_snippet is the same
         assert issue1.matches(issue2) is True
+
+
+class TestMarkdownParsingWithEmptyLines:
+    """Tests for parsing markdown with empty lines before code blocks."""
+
+    def test_parse_suggested_fix_with_empty_line(self):
+        """Suggested fix is parsed correctly when empty line precedes code block."""
+        content = """# Code Scanner Results
+
+*Last updated: 2024-01-15 10:00:00*
+
+## Summary
+
+- **Open Issues:** 1
+- **Resolved Issues:** 0
+- **Total Issues:** 1
+
+## Issues by File
+
+### `test.py`
+
+#### Line 10 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Test description
+
+**Problematic Code:**
+
+```
+some code
+```
+
+**Suggested Fix:**
+
+```
+Replace with better code
+```
+
+"""
+        tracker = IssueTracker()
+        count = tracker.load_from_content(content)
+        
+        assert count == 1
+        issue = tracker.issues[0]
+        assert issue.suggested_fix == "Replace with better code"
+        assert issue.code_snippet == "some code"
+
+    def test_parse_multiline_suggested_fix(self):
+        """Multi-line suggested fix is parsed correctly."""
+        content = """# Code Scanner Results
+
+*Last updated: 2024-01-15 10:00:00*
+
+## Summary
+
+- **Open Issues:** 1
+- **Resolved Issues:** 0
+- **Total Issues:** 1
+
+## Issues by File
+
+### `test.py`
+
+#### Line 10 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Test description
+
+**Suggested Fix:**
+
+```
+Line 1 of fix
+Line 2 of fix
+Line 3 of fix
+```
+
+"""
+        tracker = IssueTracker()
+        count = tracker.load_from_content(content)
+        
+        assert count == 1
+        issue = tracker.issues[0]
+        assert issue.suggested_fix == "Line 1 of fix\nLine 2 of fix\nLine 3 of fix"

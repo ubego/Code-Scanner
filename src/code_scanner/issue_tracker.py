@@ -270,6 +270,9 @@ class IssueTracker:
                     # Parse code snippet
                     if curr_line == "**Problematic Code:**":
                         i += 1
+                        # Skip empty lines before code block
+                        while i < len(lines) and not lines[i].strip():
+                            i += 1
                         if i < len(lines) and lines[i] == "```":
                             i += 1
                             snippet_lines: list[str] = []
@@ -283,6 +286,9 @@ class IssueTracker:
                     # Parse suggested fix
                     if curr_line == "**Suggested Fix:**":
                         i += 1
+                        # Skip empty lines before code block
+                        while i < len(lines) and not lines[i].strip():
+                            i += 1
                         if i < len(lines) and lines[i] == "```":
                             i += 1
                             fix_lines: list[str] = []
