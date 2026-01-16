@@ -63,6 +63,7 @@ checks = [
     "Check for commented-out code blocks that should be removed.",
     "Check for TODO or FIXME comments that have lingered too long.",
     "Check for duplicate implementations that should be consolidated.",
+    "Check for repeated code blocks that can be extracted into a separate function.",
     "Check for opportunities to optimize algorithms and data structures.",
     "Check that all changed code paths handle edge cases and error conditions correctly.",
     "Check that the overall design fits the existing architecture and abstractions.",
@@ -86,5 +87,5 @@ checks = [
 # Add or modify patterns as needed for your project.
 
 [[checks]]
-pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml, /*test*/, /*tests*/, /*3rdparty*/, /*third_party*/, /*vendor*/"
+pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml, /*test*/, /*tests*/, /*external*/, /*3rdparty*/, /*third_party*/, /*vendor*/"
 checks = []

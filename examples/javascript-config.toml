@@ -104,6 +104,7 @@ checks = [
     "Check for commented-out code blocks larger than 3 lines.",
     "Check for TODO or FIXME comments that appear outdated.",
     "Check for duplicate implementations of similar logic across files.",
+    "Check for repeated code blocks that can be extracted into a separate function.",
     "Check that all changed code paths handle edge cases and error conditions correctly.",
     "Check that the overall design fits the existing architecture and abstractions.",
     "Check that complex logic is broken down into small, understandable units with clear responsibilities.",
@@ -126,5 +127,5 @@ checks = [
 # Add or modify patterns as needed for your project.
 
 [[checks]]
-pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml, /*test*/, /*tests*/, /*__tests__*/, /*3rdparty*/, /*third_party*/, /*vendor*/, /*node_modules*/, /*dist*/, /*build*/, /*.next*/"
+pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml, /*test*/, /*tests*/, /*__tests__*/, /*external*/, /*3rdparty*/, /*third_party*/, /*vendor*/, /*node_modules*/, /*dist*/, /*build*/, /*.next*/"
 checks = []

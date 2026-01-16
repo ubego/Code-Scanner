@@ -87,6 +87,7 @@ checks = [
     "Check for unused resources or dependencies.",
     "Check for feature flags for features that shipped long ago.",
     "Check for dead code paths that were not cleaned up.",
+    "Check for repeated code blocks that can be extracted into a separate function or method.",
     "Check that all changed code paths handle edge cases and error conditions correctly.",
     "Check that the overall design fits the existing architecture and abstractions.",
     "Check that complex logic is broken down into small, understandable units with clear responsibilities.",
@@ -109,5 +110,5 @@ checks = [
 # Add or modify patterns as needed for your project.
 
 [[checks]]
-pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml, /*test*/, /*tests*/, /*3rdparty*/, /*third_party*/, /*vendor*/, /*build*/, /*.gradle*/, /*generated*/"
+pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml, /*test*/, /*tests*/, /*external*/, /*3rdparty*/, /*third_party*/, /*vendor*/, /*build*/, /*.gradle*/, /*generated*/"
 checks = []

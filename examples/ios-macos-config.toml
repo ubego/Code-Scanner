@@ -85,6 +85,7 @@ checks = [
     "Check for dead code or unused files.",
     "Check for feature flags for features that have shipped.",
     "Check for duplicate implementations.",
+    "Check for repeated code blocks that can be extracted into a separate function or method.",
     "Check that user-facing strings are localized.",
     "Check that all changed code paths handle edge cases and error conditions correctly.",
     "Check that the overall design fits the existing architecture and abstractions.",
@@ -108,5 +109,5 @@ checks = [
 # Add or modify patterns as needed for your project.
 
 [[checks]]
-pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml, /*test*/, /*tests*/, /*3rdparty*/, /*third_party*/, /*vendor*/, /*Pods*/, /*Carthage*/, /*DerivedData*/"
+pattern = "*.md, *.txt, *.rst, *.html, *.json, *.toml, *.yaml, *.yml, /*test*/, /*tests*/, /*external*/, /*3rdparty*/, /*third_party*/, /*vendor*/, /*Pods*/, /*Carthage*/, /*DerivedData*/"
 checks = []
