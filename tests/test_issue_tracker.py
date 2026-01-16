@@ -795,8 +795,9 @@ class TestLoadFromContentFileValidation:
     def test_load_from_content_skips_nonexistent_files(self, tmp_path):
         """Test that issues for non-existent files are skipped when target_directory is provided."""
         # Create only one of the two files mentioned in the content
+        # File needs enough lines and content that matches validation
         existing_file = tmp_path / "existing.py"
-        existing_file.write_text("content")
+        existing_file.write_text("\n".join([f"line {i}" for i in range(1, 15)]))  # 14 lines
         
         content = '''# Code Scanner Results
 
@@ -870,3 +871,240 @@ Deleted file issue
         # Both issues should be loaded when no validation
         assert loaded == 2
         assert len(tracker.open_issues) == 2
+
+    def test_load_from_content_skips_invalid_line_number(self, tmp_path):
+        """Test that issues with line numbers exceeding file length are skipped."""
+        # Create a short file
+        short_file = tmp_path / "short.py"
+        short_file.write_text("line1\nline2\nline3\n")  # 3 lines
+        
+        content = '''# Code Scanner Results
+
+## Issues by File
+
+### `short.py`
+
+#### Line 100 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Issue on line 100 but file only has 3 lines
+'''
+        tracker = IssueTracker()
+        loaded = tracker.load_from_content(content, target_directory=tmp_path)
+        
+        # Issue should be skipped because line 100 > 3 lines
+        assert loaded == 0
+        assert len(tracker.open_issues) == 0
+
+    def test_load_from_content_skips_missing_code_snippet(self, tmp_path):
+        """Test that issues with code snippets no longer in file are skipped."""
+        # Create a file without the problematic code
+        fixed_file = tmp_path / "fixed.py"
+        fixed_file.write_text("def good_function():\n    return 42\n")
+        
+        content = '''# Code Scanner Results
+
+## Issues by File
+
+### `fixed.py`
+
+#### Line 1 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Bad code detected
+
+**Problematic Code:**
+```
+def bad_function():
+    return None  # This is wrong
+```
+'''
+        tracker = IssueTracker()
+        loaded = tracker.load_from_content(content, target_directory=tmp_path)
+        
+        # Issue should be skipped because code snippet doesn't exist in file
+        assert loaded == 0
+        assert len(tracker.open_issues) == 0
+
+    def test_load_from_content_keeps_valid_issues_with_snippet(self, tmp_path):
+        """Test that issues with matching code snippets are kept."""
+        # Create a file with the problematic code still present
+        buggy_file = tmp_path / "buggy.py"
+        buggy_file.write_text("def bad_function():\n    return None  # This is wrong\n")
+        
+        content = '''# Code Scanner Results
+
+## Issues by File
+
+### `buggy.py`
+
+#### Line 1 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Bad code detected
+
+**Problematic Code:**
+```
+def bad_function():
+```
+'''
+        tracker = IssueTracker()
+        loaded = tracker.load_from_content(content, target_directory=tmp_path)
+        
+        # Issue should be loaded because code snippet exists in file
+        assert loaded == 1
+        assert len(tracker.open_issues) == 1
+
+
+class TestIssueValidation:
+    """Tests for _validate_issue method."""
+
+    def test_validate_issue_file_read_error(self, tmp_path):
+        """Test validation handles file read errors gracefully."""
+        from unittest.mock import patch
+        
+        # Create a file
+        test_file = tmp_path / "test.py"
+        test_file.write_text("content")
+        
+        tracker = IssueTracker()
+        issue = Issue(
+            file_path="test.py",
+            line_number=1,
+            description="Test",
+            suggested_fix="",
+            check_query="Test",
+            timestamp=datetime.now(),
+        )
+        
+        # Mock read_text to raise IOError
+        with patch.object(Path, 'read_text', side_effect=IOError("Permission denied")):
+            is_valid, reason = tracker._validate_issue(issue, tmp_path)
+        
+        assert not is_valid
+        assert "cannot read file" in reason
+
+
+class TestLoadFromFileCoverage:
+    """Additional tests for load_from_file edge cases."""
+
+    def test_load_from_file_io_error(self, tmp_path):
+        """Test load_from_file handles IO errors."""
+        from unittest.mock import patch
+        
+        # Create a file
+        test_file = tmp_path / "results.md"
+        test_file.write_text("content")
+        
+        tracker = IssueTracker()
+        
+        # Mock read_text to raise IOError
+        with patch.object(Path, 'read_text', side_effect=IOError("Read error")):
+            result = tracker.load_from_file(test_file)
+        
+        assert result == 0
+
+
+class TestMarkdownParsingCoverage:
+    """Tests for edge cases in markdown parsing."""
+
+    def test_parse_invalid_timestamp(self):
+        """Test parsing handles invalid timestamp format."""
+        content = '''# Code Scanner Results
+
+## Issues by File
+
+### `test.py`
+
+#### Line 10 - 🔴 OPEN
+
+**Detected:** not-a-valid-timestamp
+
+**Check:** test check
+
+**Issue:**
+
+Test issue
+'''
+        tracker = IssueTracker()
+        loaded = tracker.load_from_content(content)
+        
+        # Issue should still be loaded with default timestamp
+        assert loaded == 1
+        assert len(tracker.open_issues) == 1
+
+    def test_parse_with_suggested_fix(self):
+        """Test parsing issues with suggested fix code block."""
+        content = '''# Code Scanner Results
+
+## Issues by File
+
+### `test.py`
+
+#### Line 10 - 🔴 OPEN
+
+**Detected:** 2024-01-15 10:00:00
+
+**Check:** test check
+
+**Issue:**
+
+Test issue description
+
+**Problematic Code:**
+```
+bad_code()
+```
+
+**Suggested Fix:**
+```
+good_code()
+```
+'''
+        tracker = IssueTracker()
+        loaded = tracker.load_from_content(content)
+        
+        assert loaded == 1
+        assert tracker.open_issues[0].suggested_fix == "good_code()"
+        assert tracker.open_issues[0].code_snippet == "bad_code()"
+
+    def test_parse_invalid_datetime_values(self):
+        """Test parsing handles regex-matching but invalid datetime values."""
+        # This timestamp matches the regex pattern but is not a valid date
+        content = '''# Code Scanner Results
+
+## Issues by File
+
+### `test.py`
+
+#### Line 10 - 🔴 OPEN
+
+**Detected:** 9999-99-99 99:99:99
+
+**Check:** test check
+
+**Issue:**
+
+Test issue
+'''
+        tracker = IssueTracker()
+        loaded = tracker.load_from_content(content)
+        
+        # Issue should still be loaded with default timestamp (ValueError caught)
+        assert loaded == 1
+        assert len(tracker.open_issues) == 1

@@ -151,6 +151,11 @@ The primary objective of this project is to implement a software program that **
 *   **State Management & Persistence:** The system must maintain an internal model of detected issues **in memory only**.
     *   **No Persistence Across Restarts:** State is **not persisted** to disk. Each scanner session starts fresh.
     *   **Automatic Results Backup:** On startup, if `code_scanner_results.md` exists, the scanner **automatically appends its content** to `code_scanner_results.md.bak` with a timestamp header, then proceeds with a fresh results file. No user prompt is required.
+    *   **Issue Validation on Restore:** When restoring issues from backup, the scanner validates each issue before loading:
+        *   **File Existence:** Skip issues for files that no longer exist.
+        *   **Line Number Bounds:** Skip issues where the line number exceeds the current file length.
+        *   **Code Snippet Verification:** Skip issues where the problematic code snippet no longer exists in the file (indicating the issue was fixed).
+        *   This prevents stale issues from cluttering results after code changes.
     *   **In-Session Tracking:** Smart matching, deduplication, and resolution tracking apply **within a single session** only.
     *   **Global Lock File:** The scanner creates a lock file at **`~/.code-scanner/code_scanner.lock`** (centralized location) to prevent multiple instances across all projects.
         *   **PID Tracking:** The lock file stores the PID of the running process.
@@ -330,7 +335,7 @@ All tools use a consistent pagination pattern to enable the LLM to fetch more re
 
 ### 3.4 Execution Workflow
 1.  **Check for lock file.** If exists and PID is running, fail with error. If stale (PID not running), remove and continue. Create lock file with current PID.
-2.  **Backup existing output file.** If `code_scanner_results.md` exists, append to `.bak` with timestamp. Print lock/log file paths.
+2.  **Backup existing output file.** If `code_scanner_results.md` exists, append to `.bak` with timestamp. **Validate and restore issues** from backup (skip stale issues for deleted/changed files). Print lock/log file paths.
 3.  Initialize by reading the **TOML config file**.
 4.  Start the **Git watcher thread** to monitor for changes every 30 seconds.
 5.  Start the **AI scanner thread** with **AI tool executor** initialized.

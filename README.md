@@ -321,6 +321,13 @@ The scanner uses a **unified file filtering system** that combines all exclusion
 
 On startup, if `code_scanner_results.md` exists, its content is automatically appended to `code_scanner_results.md.bak` with a timestamp. This preserves previous results without requiring user confirmation.
 
+**Issue Validation:** When restoring issues from backup, the scanner validates each one:
+- Skips issues for files that no longer exist
+- Skips issues where line numbers exceed current file length
+- Skips issues where the problematic code snippet was removed (fixed)
+
+This ensures only relevant issues are restored after code changes.
+
 ## Development
 
 ### Running Tests
