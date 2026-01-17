@@ -21,8 +21,9 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 - ⚡ **Continuous Monitoring**: Runs in background mode, monitoring Git changes every 30 seconds and scanning indefinitely until stopped.
 - 🔄 **Smart Change Detection**: When changes are detected mid-scan, continues from current check with refreshed file contents (preserves progress).
 - 🔧 **Configurable Checks**: Define checks in plain English via TOML configuration with file pattern support.
-- 📊 **Issue Tracking**: Tracks issue lifecycle (new, existing, resolved).
+- 📊 **Issue Tracking**: Tracks issue lifecycle (new, existing, resolved) with scoped resolution—issues are only resolved for files that were actually scanned.
 - 📝 **Real-time Updates**: Output file updates immediately when issues are found (not just at end of scan).
+- 🛡️ **Hallucination Prevention**: Validates file paths from LLM responses, discarding issues for non-existent files.
 - 🤖 **Daemon-Ready**: Fully uninteractive mode—no prompts, configurable via file only. Supports autostart on all platforms.
 
 ![Scanner Workflow](images/workflow.png)
@@ -270,11 +271,20 @@ The scanner automatically excludes its own output files (`code_scanner_results.m
 2. **Verify no other tools** are modifying files in the target directory
 3. **Check for IDE auto-save** or other processes that might be touching files
 
+The scanner uses unified file filtering (combining gitignore + config ignore patterns) throughout the entire scan lifecycle—change detection, file iteration, and issue resolution—to prevent false rescans from ignored files.
+
 This allows you to restart LM Studio or fix network issues without stopping the scanner. The scanner handles various connection errors including:
 - Lost connection
 - Connection refused
 - Connection timeout
 - Network errors
+
+### Issues Being Marked as Resolved Incorrectly
+
+If issues are being marked as "Resolved" even when code hasn't changed:
+
+1. **Check your `context_limit`** - Make sure the value in your config matches or is less than your LLM server's actual context limit. A mismatch can cause the LLM to lose context and produce inconsistent results.
+2. **LLM non-determinism** - The scanner only resolves issues for files that were actually scanned in the current cycle. Issues for unscanned files remain unchanged.
 
 ### "Model not found" (Ollama)
 
@@ -345,7 +355,7 @@ uv run pytest --cov=code_scanner --cov-report=term-missing
 uv run pytest --cov=code_scanner --cov-report=html  # Open htmlcov/index.html
 ```
 
-**Current Coverage:** 93% with 746 tests.
+**Current Coverage:** 91% with 760+ tests.
 
 ### Project Structure
 

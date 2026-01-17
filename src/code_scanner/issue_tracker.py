@@ -417,14 +417,22 @@ class IssueTracker:
 
         Adds new issues and resolves issues that are no longer detected
         in the scanned files.
+        
+        IMPORTANT: Only resolves issues for files in scanned_files.
+        This prevents LLM non-determinism from incorrectly resolving issues
+        when file content hasn't actually changed.
 
         Args:
             new_issues: Issues detected in this scan.
-            scanned_files: List of files that were scanned.
+            scanned_files: List of files that were actually scanned/changed.
+                          Only these files will have issues resolved.
 
         Returns:
             Tuple of (new_issues_count, resolved_count).
         """
+        # Convert to set for O(1) lookup
+        scanned_files_set = set(scanned_files)
+        
         # Group new issues by file
         new_by_file: dict[str, list[Issue]] = {}
         for issue in new_issues:
@@ -438,11 +446,13 @@ class IssueTracker:
             if file_path not in new_by_file:
                 resolved_count += self.resolve_issues_for_file(file_path)
 
-        # For files with new issues, resolve old issues that don't match
+        # For files with new issues that were actually scanned, resolve old issues that don't match
+        # IMPORTANT: Only resolve for files in scanned_files to avoid LLM non-determinism issues
         for file_path, file_issues in new_by_file.items():
-            resolved_count += self._resolve_non_matching(file_path, file_issues)
+            if file_path in scanned_files_set:
+                resolved_count += self._resolve_non_matching(file_path, file_issues)
 
-        # Add new issues
+        # Add new issues (all issues, not just for scanned files - new issues are always valid)
         new_count = self.add_issues(new_issues)
 
         return new_count, resolved_count

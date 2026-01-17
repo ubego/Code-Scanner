@@ -412,6 +412,49 @@ class TestIssueTracker:
         assert tracker.open_issues[0].file_path == "unchanged.cpp"
         assert tracker.resolved_issues[0].file_path == "changed.cpp"
 
+    def test_update_from_scan_does_not_resolve_for_files_not_in_scanned_files(self):
+        """Test that _resolve_non_matching is NOT called for files not in scanned_files.
+        
+        This prevents LLM non-determinism from incorrectly resolving issues
+        when file content hasn't actually changed but LLM returns different issues.
+        """
+        tracker = IssueTracker()
+        
+        # Add an existing issue
+        tracker.add_issue(Issue(
+            file_path="file.cpp",
+            line_number=10,
+            description="Existing issue",
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+            code_snippet="old_code",
+        ))
+        
+        # LLM finds a DIFFERENT issue for the same file, but file.cpp is NOT in scanned_files
+        # (simulating LLM non-determinism when file content hasn't changed)
+        new_issues = [Issue(
+            file_path="file.cpp",
+            line_number=20,
+            description="Different issue from LLM",
+            suggested_fix="",
+            check_query="",
+            timestamp=datetime.now(),
+            code_snippet="different_code",
+        )]
+        
+        # file.cpp is NOT in scanned_files (content didn't change)
+        new_count, resolved = tracker.update_from_scan(new_issues, [])
+        
+        # New issue should be added
+        assert new_count == 1
+        # But original issue should NOT be resolved (file wasn't in scanned_files)
+        assert resolved == 0
+        # Both issues should be open
+        assert len(tracker.open_issues) == 2
+        assert len(tracker.resolved_issues) == 0
+
+
 class TestIssueTrackerPersistence:
     """Tests for issue persistence (load from file/content)."""
 

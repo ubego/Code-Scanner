@@ -5,7 +5,7 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
-*   **Quality Assurance:** The codebase maintains **90% test coverage** with 700+ unit tests ensuring reliability and maintainability.
+*   **Quality Assurance:** The codebase maintains **91% test coverage** with 760+ unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
@@ -73,6 +73,7 @@ The primary objective of this project is to implement a software program that **
     *   Directory patterns support wildcards (e.g., `/*cmake-build-*/` matches `cmake-build-debug`, `cmake-build-release`)
     *   Files matching ignore patterns are silently skipped, reducing noise and improving performance.
     *   Useful for excluding documentation, test directories, third-party code, and build artifacts.
+    *   **Unified Filtering:** Ignore patterns are combined with gitignore patterns in the unified `FileFilter` component, ensuring consistent filtering throughout the scan lifecycle (change detection, file iteration, and issue resolution).
 *   **Sequential Processing:** Queries must be executed **one by one** against the identified code changes in an **AI scanning thread**.
 *   **Pattern-Based Filtering:** For each check group, only files matching the group's pattern are included in the analysis batches.
 *   **Aggregated Context:** Each query is sent to the AI with the **entire content of all matching modified files** as context, not file-by-file.
@@ -111,6 +112,7 @@ The primary objective of this project is to implement a software program that **
     *   Response is an **array of issues** (multiple issues per query are supported).
     *   Each issue contains: file, line number, description, suggested fix.
     *   **No issues found:** Return an empty array `[]`.
+    *   **File Path Validation:** Issues with empty file paths or file paths that don't exist in the target directory are silently discarded. This prevents hallucinated file paths from polluting the results.
 *   **Reasoning Effort:** The scanner must set **`reasoning_effort = "high"`** in API requests to maximize analysis quality.
 *   **Malformed Response Handling:** If the LLM returns invalid JSON or doesn't follow the schema:
     *   **Reformat Request:** First, ask the LLM to **reformat its own response** into valid JSON. This is more effective than blind retrying.
@@ -165,6 +167,7 @@ The primary objective of this project is to implement a software program that **
         *   **Matching Algorithm:** Issue matching compares the source code snippet with **whitespace-normalized comparison** (truncating/collapsing spaces). This algorithm may be improved in future versions.
         *   If an issue is detected at a different line number (e.g., due to code added above it) but matches an existing open issue's pattern, the scanner must **update the line number** in the existing record rather than creating a duplicate or resolving/re-opening.
     *   **Resolution Tracking:** If the scanner determines that a previously reported issue is no longer present (fixed), it must update the status of that issue in the output to **"RESOLVED"**. The original entry should remain for historical context, but its status changes.
+    *   **Scoped Resolution:** Issues are only resolved based on scan results for files that were **actually scanned**. If a file was not included in the current scan (e.g., not in the changed files set), its issues remain unchanged. This prevents false resolution caused by LLM non-determinism.
     *   **Resolved Issues Lifecycle:** Resolved issues remain in the log **indefinitely** for historical tracking. Users may manually remove them if desired.
     *   **Source of Truth:** The scanner is the **authoritative source** for the log file. Any manual edits by the user (e.g., deleting an "OPEN" issue) will be **overwritten** if the scanner detects that the issue still exists in the code during the next scan.
     *   **File Rewriting:** To reflect these status updates, the scanner **rewrites the entire output file** each time the internal model changes.
