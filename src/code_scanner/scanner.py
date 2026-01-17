@@ -162,9 +162,11 @@ class Scanner:
         logger.info("Scanner loop ended")
 
     def _is_file_ignored(self, file_path: str) -> bool:
-        """Check if a file matches any ignore pattern.
+        """Check if a file should be ignored from scanning.
         
-        Ignore patterns are check groups with empty checks list.
+        Uses the unified FileFilter if available (which includes config ignore
+        patterns AND gitignore patterns), otherwise falls back to checking
+        config ignore patterns only.
         
         Args:
             file_path: Relative path to the file.
@@ -172,6 +174,12 @@ class Scanner:
         Returns:
             True if the file should be ignored from scanning.
         """
+        # Use unified FileFilter if available (includes gitignore + config patterns)
+        if self._file_filter is not None:
+            should_skip, _ = self._file_filter.should_skip(file_path)
+            return should_skip
+        
+        # Fallback: check config ignore patterns only
         for pattern_group in self.config.check_groups:
             if not pattern_group.checks and pattern_group.matches_file(file_path):
                 return True
@@ -680,19 +688,23 @@ class Scanner:
     ) -> list[Issue]:
         """Parse issues from LLM response.
 
+        Validates that file paths exist before including issues.
+        Issues with non-existent file paths are logged and skipped.
+
         Args:
             response: Raw LLM response dictionary.
             check_query: The check query that was run.
             batch_idx: Current batch index (for logging).
 
         Returns:
-            List of parsed Issue objects.
+            List of parsed Issue objects with valid file paths.
         """
         issues_data = response.get("issues", [])
         logger.info(f"LLM returned {len(issues_data)} issue(s) for batch {batch_idx + 1}")
         timestamp = datetime.now()
 
         parsed_issues: list[Issue] = []
+        skipped_count = 0
         for issue_data in issues_data:
             try:
                 issue = Issue.from_llm_response(
@@ -700,11 +712,33 @@ class Scanner:
                     check_query=check_query,
                     timestamp=timestamp,
                 )
+                
+                # Validate that the file path is non-empty and the file exists
+                if not issue.file_path or not issue.file_path.strip():
+                    logger.warning(
+                        f"Skipping issue with empty file path "
+                        f"(LLM hallucination or malformed response)"
+                    )
+                    skipped_count += 1
+                    continue
+                
+                file_path = self.config.target_directory / issue.file_path
+                if not file_path.is_file():
+                    logger.warning(
+                        f"Skipping issue for non-existent file: {issue.file_path} "
+                        f"(LLM hallucination or stale reference)"
+                    )
+                    skipped_count += 1
+                    continue
+                
                 parsed_issues.append(issue)
                 logger.debug(f"Parsed issue: {issue.file_path}:{issue.line_number}")
             except Exception as e:
                 logger.warning(f"Failed to parse issue: {e}, data: {issue_data}")
 
+        if skipped_count > 0:
+            logger.info(f"Skipped {skipped_count} issue(s) with invalid or non-existent file paths")
+        
         return parsed_issues
 
     def _run_check(

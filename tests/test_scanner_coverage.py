@@ -611,8 +611,13 @@ class TestScannerFilesContent:
 class TestScannerRunCheck:
     """Tests for Scanner _run_check method."""
 
-    def test_run_check_parses_issues(self, mock_dependencies):
+    def test_run_check_parses_issues(self, mock_dependencies, tmp_path):
         """Run check parses issues from LLM response."""
+        # Create actual test file so file existence check passes
+        test_file = tmp_path / "test.py"
+        test_file.write_text("content")
+        mock_dependencies["config"].target_directory = tmp_path
+        
         scanner = Scanner(**mock_dependencies)
         
         mock_dependencies["llm_client"].query.return_value = {
@@ -1158,27 +1163,53 @@ class TestScannerAdditionalCoverage:
 
         assert issues == []
 
-    def test_parse_issues_from_response_with_invalid_issue(self, mock_dependencies):
+    def test_parse_issues_from_response_with_invalid_issue(self, mock_dependencies, tmp_path):
         """Test _parse_issues_from_response handles issues with missing fields."""
+        # Create actual test files so file existence check passes
+        (tmp_path / "test.py").write_text("content")
+        (tmp_path / "test2.py").write_text("content")
+        mock_dependencies["config"].target_directory = tmp_path
+        
         scanner = Scanner(**mock_dependencies)
 
         response = {
             "issues": [
                 {"file": "test.py", "line_number": 1, "description": "Valid"},
-                {"invalid": "issue"},  # Missing required fields - gets defaults
+                {"invalid": "issue"},  # Missing required fields - gets defaults, skipped as file doesn't exist
                 {"file": "test2.py", "line_number": 2, "description": "Also valid"},
             ]
         }
 
         issues = scanner._parse_issues_from_response(response, "test check", 0)
 
-        # All 3 issues parsed - Issue.from_llm_response uses defaults for missing fields
-        assert len(issues) == 3
-        # First and third have proper data
+        # 2 valid issues parsed - empty file path is skipped because file doesn't exist
+        assert len(issues) == 2
+        # First and second (was third) have proper data
         assert issues[0].file_path == "test.py"
-        assert issues[2].file_path == "test2.py"
-        # Second one has default empty values
-        assert issues[1].file_path == ""
+        assert issues[1].file_path == "test2.py"
+
+    def test_parse_issues_skips_nonexistent_files(self, mock_dependencies, tmp_path):
+        """Test _parse_issues_from_response skips issues for non-existent files."""
+        # Create only one of the files
+        (tmp_path / "exists.py").write_text("content")
+        mock_dependencies["config"].target_directory = tmp_path
+        
+        scanner = Scanner(**mock_dependencies)
+
+        response = {
+            "issues": [
+                {"file": "exists.py", "line_number": 1, "description": "Valid - file exists"},
+                {"file": "nonexistent.py", "line_number": 2, "description": "Invalid - file does not exist"},
+                {"file": "also_nonexistent.cpp", "line_number": 3, "description": "Invalid - file does not exist"},
+            ]
+        }
+
+        issues = scanner._parse_issues_from_response(response, "test check", 0)
+
+        # Only 1 issue parsed - the one for the existing file
+        assert len(issues) == 1
+        assert issues[0].file_path == "exists.py"
+        assert issues[0].description == "Valid - file exists"
 
 
 class TestFilterIgnoredFiles:

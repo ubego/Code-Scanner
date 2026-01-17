@@ -275,8 +275,13 @@ class TestCreateBatches:
 class TestRunCheck:
     """Tests for _run_check method."""
 
-    def test_returns_issues_from_llm(self, mock_dependencies):
+    def test_returns_issues_from_llm(self, mock_dependencies, tmp_path):
         """Issues are parsed from LLM response."""
+        # Create actual test file so file existence check passes
+        test_file = tmp_path / "test.py"
+        test_file.write_text("content")
+        mock_dependencies["config"].target_directory = tmp_path
+        
         scanner = Scanner(**mock_dependencies)
         scanner._scan_info = {"checks_run": 0}  # Initialize scan_info for output writes
         scanner.issue_tracker.add_issues.return_value = 1  # 1 new issue added
@@ -418,9 +423,14 @@ class TestIssueFromLLMResponseEdgeCases:
 class TestImmediateOutputUpdate:
     """Tests for immediate output file updates when issues are found."""
 
-    def test_output_written_immediately_when_issues_found(self, mock_dependencies):
+    def test_output_written_immediately_when_issues_found(self, mock_dependencies, tmp_path):
         """Output file is written immediately when new issues are found."""
         from code_scanner.issue_tracker import IssueTracker
+        
+        # Create actual test file so file existence check passes
+        test_file = tmp_path / "test.py"
+        test_file.write_text("content")
+        mock_dependencies["config"].target_directory = tmp_path
         
         # Use a real IssueTracker instead of mock
         real_tracker = IssueTracker()
