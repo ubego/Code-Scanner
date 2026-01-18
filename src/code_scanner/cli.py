@@ -77,7 +77,6 @@ class Application:
         self._stop_event = threading.Event()
         self._lock_acquired = False
         self.ctags_index: Optional[CtagsIndex] = None
-        self._previous_output_content: Optional[str] = None
 
     def run(self) -> int:
         """Run the application.
@@ -114,8 +113,8 @@ class Application:
         # Check and acquire lock
         self._acquire_lock()
 
-        # Backup existing output file and preserve content for issue restoration
-        self._previous_output_content = self._backup_existing_output()
+        # Backup existing output file (content preserved to .bak, scanner starts fresh)
+        self._backup_existing_output()
 
         # Set up logging
         setup_logging(self.config.log_path, debug=self.config.debug)
@@ -184,17 +183,6 @@ class Application:
         # Index will complete in background - tools will return limited results until ready
 
         self.issue_tracker = IssueTracker()
-        
-        # Load issues from backed-up content to preserve state between restarts
-        # The backup function already deleted the original file, so we use the saved content
-        # Only load issues for files that still exist (skip deleted files)
-        if self._previous_output_content:
-            loaded_count = self.issue_tracker.load_from_content(
-                self._previous_output_content,
-                target_directory=self.config.target_directory
-            )
-            if loaded_count > 0:
-                logger.info(f"Restored {loaded_count} issues from previous session")
         
         self.output_generator = OutputGenerator(self.config.output_path)
 
@@ -288,13 +276,11 @@ class Application:
                 logger.warning(f"Could not remove lock file: {e}")
             self._lock_acquired = False
 
-    def _backup_existing_output(self) -> Optional[str]:
+    def _backup_existing_output(self) -> None:
         """Backup existing output file if it exists.
         
-        Appends content to .bak file with timestamp prefix.
-        
-        Returns:
-            The content of the backed-up file, or None if no backup was made.
+        Appends content to .bak file with timestamp prefix, then removes the original.
+        The scanner starts fresh with an empty results file.
         """
         output_path = self.config.output_path
 
@@ -318,12 +304,8 @@ class Application:
                 output_path.unlink()
                 logger.debug(f"Removed existing output file: {output_path}")
                 
-                return content
-                
             except IOError as e:
                 logger.warning(f"Could not backup output file: {e}")
-        
-        return None
 
     def _run_main_loop(self) -> None:
         """Run the main application loop."""

@@ -5,7 +5,7 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
-*   **Quality Assurance:** The codebase maintains **91% test coverage** with 760+ unit tests ensuring reliability and maintainability.
+*   **Quality Assurance:** The codebase maintains **90% test coverage** with 750+ unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
@@ -151,13 +151,8 @@ The primary objective of this project is to implement a software program that **
     *   **Check query prompt** (which check/query caused this issue)
 *   **Output Organization:** Issues are grouped **by file**. Within each file section, each issue specifies which query/check caused it.
 *   **State Management & Persistence:** The system must maintain an internal model of detected issues **in memory only**.
-    *   **No Persistence Across Restarts:** State is **not persisted** to disk. Each scanner session starts fresh.
-    *   **Automatic Results Backup:** On startup, if `code_scanner_results.md` exists, the scanner **automatically appends its content** to `code_scanner_results.md.bak` with a timestamp header, then proceeds with a fresh results file. No user prompt is required.
-    *   **Issue Validation on Restore:** When restoring issues from backup, the scanner validates each issue before loading:
-        *   **File Existence:** Skip issues for files that no longer exist.
-        *   **Line Number Bounds:** Skip issues where the line number exceeds the current file length.
-        *   **Code Snippet Verification:** Skip issues where the problematic code snippet no longer exists in the file (indicating the issue was fixed).
-        *   This prevents stale issues from cluttering results after code changes.
+    *   **No Persistence Across Restarts:** State is **not persisted** to disk. Each scanner session starts fresh with no issues.
+    *   **Automatic Results Backup:** On startup, if `code_scanner_results.md` exists, the scanner **automatically appends its content** to `code_scanner_results.md.bak` with a timestamp header, then starts with a fresh empty results file. No user prompt is required.
     *   **In-Session Tracking:** Smart matching, deduplication, and resolution tracking apply **within a single session** only.
     *   **Global Lock File:** The scanner creates a lock file at **`~/.code-scanner/code_scanner.lock`** (centralized location) to prevent multiple instances across all projects.
         *   **PID Tracking:** The lock file stores the PID of the running process.
@@ -338,7 +333,7 @@ All tools use a consistent pagination pattern to enable the LLM to fetch more re
 
 ### 3.4 Execution Workflow
 1.  **Check for lock file.** If exists and PID is running, fail with error. If stale (PID not running), remove and continue. Create lock file with current PID.
-2.  **Backup existing output file.** If `code_scanner_results.md` exists, append to `.bak` with timestamp. **Validate and restore issues** from backup (skip stale issues for deleted/changed files). Print lock/log file paths.
+2.  **Backup existing output file.** If `code_scanner_results.md` exists, append to `.bak` with timestamp, then start with a fresh empty results file. Print lock/log file paths.
 3.  Initialize by reading the **TOML config file**.
 4.  Start the **Git watcher thread** to monitor for changes every 30 seconds.
 5.  Start the **AI scanner thread** with **AI tool executor** initialized.

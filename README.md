@@ -329,14 +329,7 @@ The scanner uses a **unified file filtering system** that combines all exclusion
 
 ### Backup Files
 
-On startup, if `code_scanner_results.md` exists, its content is automatically appended to `code_scanner_results.md.bak` with a timestamp. This preserves previous results without requiring user confirmation.
-
-**Issue Validation:** When restoring issues from backup, the scanner validates each one:
-- Skips issues for files that no longer exist
-- Skips issues where line numbers exceed current file length
-- Skips issues where the problematic code snippet was removed (fixed)
-
-This ensures only relevant issues are restored after code changes.
+On startup, if `code_scanner_results.md` exists, its content is automatically appended to `code_scanner_results.md.bak` with a timestamp. The scanner then starts with a fresh empty results file. This preserves previous results for reference without requiring user confirmation.
 
 ## Development
 
@@ -355,7 +348,7 @@ uv run pytest --cov=code_scanner --cov-report=term-missing
 uv run pytest --cov=code_scanner --cov-report=html  # Open htmlcov/index.html
 ```
 
-**Current Coverage:** 91% with 760+ tests.
+**Current Coverage:** 90% with 750+ tests.
 
 ### Project Structure
 
