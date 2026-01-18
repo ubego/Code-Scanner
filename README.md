@@ -41,8 +41,7 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 4. **ripgrep** (for fast code search)
 5. **[LM Studio](https://lmstudio.ai)** or **[Ollama](https://ollama.ai)** - Local LLM backend
 
-For detailed platform-specific installation, see:
-- **[Linux Setup](docs/linux-setup.md)** | **[macOS Setup](docs/macos-setup.md)** | **[Windows Setup](docs/windows-setup.md)**
+See [Documentation](#documentation) below for detailed platform-specific installation guides.
 
 ### Quick Installation
 
@@ -106,13 +105,10 @@ See `examples/` directory for configs tailored to JavaScript, Java, C++, Android
 
 ## Documentation
 
-For detailed platform-specific setup instructions:
-- **[Linux Setup](docs/linux-setup.md)** | **[Autostart](docs/autostart-linux.md)**
-- **[macOS Setup](docs/macos-setup.md)** | **[Autostart](docs/autostart-macos.md)**
-- **[Windows Setup](docs/windows-setup.md)** | **[Autostart](docs/autostart-windows.md)**
-
-**Advanced Features:**
-- **[AI Tools for Context Expansion](docs/ai-tools.md)** - How the AI can request additional codebase information for sophisticated checks
+For detailed platform-specific setup instructions (including autostart configuration):
+- **[Linux Setup](docs/linux-setup.md)**
+- **[macOS Setup](docs/macos-setup.md)**
+- **[Windows Setup](docs/windows-setup.md)**
 
 ## Supported LLM Backends
 
@@ -373,6 +369,10 @@ src/code_scanner/
 ├── utils.py         # Utility functions
 └── __main__.py      # Entry point
 ```
+
+## Advanced Features
+
+- **[AI Tools for Context Expansion](docs/ai-tools.md)** - How the AI can request additional codebase information for sophisticated checks
 
 ## License
 

@@ -392,9 +392,9 @@ The scanner includes a dedicated `text_utils` module providing advanced text pro
 ### 3.5 Service Installation
 The scanner can be installed as a system service to start automatically on boot. Autostart scripts are provided in the `scripts/` directory:
 
-*   **Linux:** `scripts/autostart-linux.sh` - Creates a systemd user service. See [docs/autostart-linux.md](docs/autostart-linux.md).
-*   **macOS:** `scripts/autostart-macos.sh` - Creates a LaunchAgent plist. See [docs/autostart-macos.md](docs/autostart-macos.md).
-*   **Windows:** `scripts/autostart-windows.bat` - Creates a Task Scheduler task. See [docs/autostart-windows.md](docs/autostart-windows.md).
+*   **Linux:** `scripts/autostart-linux.sh` - Creates a systemd user service. See [docs/linux-setup.md](docs/linux-setup.md).
+*   **macOS:** `scripts/autostart-macos.sh` - Creates a LaunchAgent plist. See [docs/macos-setup.md](docs/macos-setup.md).
+*   **Windows:** `scripts/autostart-windows.bat` - Creates a Task Scheduler task. See [docs/windows-setup.md](docs/windows-setup.md).
 
 All scripts include:
 *   **60-second startup delay** to allow LLM servers to initialize.
