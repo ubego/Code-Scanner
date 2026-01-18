@@ -76,8 +76,6 @@ checks = [
 pattern = "*.xml"
 checks = [
     "Check for deeply nested view hierarchies that should use ConstraintLayout.",
-    "Check that dimensions use dp or sp instead of hardcoded values.",
-    "Check that content descriptions are present for accessibility.",
     "Check for overdraw from overlapping opaque backgrounds.",
 ]
 

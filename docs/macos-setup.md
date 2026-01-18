@@ -55,6 +55,18 @@ ctags --version
 
 > **Note**: Make sure it's "Universal Ctags" (not "Exuberant Ctags"). The macOS built-in `ctags` is Exuberant, so always use Homebrew's version.
 
+## Ripgrep Installation
+
+Ripgrep is required for fast code search across the repository.
+
+```bash
+# Install using Homebrew
+brew install ripgrep
+
+# Verify installation
+rg --version
+```
+
 ## UV Installation
 
 ```bash

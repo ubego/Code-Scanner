@@ -3,3 +3,4 @@
 __version__ = "0.1.0"
 
 from .ctags_index import CtagsIndex, CtagsNotFoundError, CtagsError, Symbol
+from .ai_tools import RipgrepNotFoundError, verify_ripgrep

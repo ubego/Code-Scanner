@@ -1,7 +1,9 @@
 """AI tools for context expansion - allows LLM to request additional codebase information."""
 
+import json
 import logging
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from functools import lru_cache
@@ -10,11 +12,66 @@ from typing import Any, Optional
 
 from .ctags_index import CtagsIndex
 from .utils import read_file_content, is_binary_file, estimate_tokens
+from .text_utils import (
+    suggest_similar_files,
+    validate_file_path,
+    validate_line_number,
+    format_validation_error,
+    truncate_output,
+    MAX_OUTPUT_LINES,
+    MAX_OUTPUT_BYTES,
+)
 
 logger = logging.getLogger(__name__)
 
 # Maximum tokens for a single chunk when splitting large files
 DEFAULT_CHUNK_SIZE_TOKENS = 4000
+
+
+class RipgrepNotFoundError(Exception):
+    """Raised when ripgrep is not installed or not found."""
+    pass
+
+
+def verify_ripgrep() -> str:
+    """Verify ripgrep is installed and return its path.
+    
+    Returns:
+        Path to ripgrep executable.
+        
+    Raises:
+        RipgrepNotFoundError: If ripgrep is not found.
+    """
+    rg_path = shutil.which("rg")
+    
+    if rg_path is None:
+        raise RipgrepNotFoundError(
+            "\n"
+            + "=" * 70
+            + "\n"
+            "RIPGREP NOT FOUND\n"
+            + "=" * 70
+            + "\n\n"
+            "Code Scanner requires ripgrep for fast code search.\n\n"
+            "Please install ripgrep:\n\n"
+            "  Ubuntu/Debian:\n"
+            "    sudo apt install ripgrep\n\n"
+            "  Fedora:\n"
+            "    sudo dnf install ripgrep\n\n"
+            "  Arch Linux:\n"
+            "    sudo pacman -S ripgrep\n\n"
+            "  macOS:\n"
+            "    brew install ripgrep\n\n"
+            "  Windows:\n"
+            "    choco install ripgrep\n"
+            "    # or: winget install BurntSushi.ripgrep\n\n"
+            "  From source/binaries:\n"
+            "    https://github.com/BurntSushi/ripgrep\n\n"
+            + "=" * 70
+        )
+    
+    logger.info(f"Found ripgrep: {rg_path}")
+    return rg_path
 
 
 @dataclass
@@ -542,6 +599,104 @@ class AIToolExecutor:
         
         return False
 
+    def _search_with_ripgrep(
+        self,
+        pattern_list: list[str],
+        is_regex: bool,
+        match_whole_word: bool,
+        case_sensitive: bool,
+        file_pattern: Optional[str],
+    ) -> list[dict]:
+        """Search using ripgrep.
+        
+        Ripgrep automatically respects .gitignore and skips hidden files/directories.
+        
+        Args:
+            pattern_list: Patterns to search for.
+            is_regex: If True, treat patterns as regex.
+            match_whole_word: If True, match whole words only.
+            case_sensitive: If True, case-sensitive search.
+            file_pattern: Optional glob pattern for files.
+            
+        Returns:
+            List of match dictionaries.
+        """
+        all_matches = []
+        
+        for pattern in pattern_list:
+            if not pattern:
+                continue
+                
+            # Build ripgrep command
+            # Ripgrep respects .gitignore by default and skips hidden files
+            cmd = [
+                "rg",
+                "--json",  # JSON output for easy parsing
+                "--no-heading",
+                "--line-number",
+            ]
+            
+            # Add options based on parameters
+            if not case_sensitive:
+                cmd.append("--ignore-case")
+            
+            if is_regex:
+                cmd.append("--regexp")
+            else:
+                if match_whole_word:
+                    cmd.append("--word-regexp")
+                else:
+                    cmd.append("--fixed-strings")
+            
+            # File type/glob filter
+            if file_pattern:
+                cmd.extend(["--glob", file_pattern])
+            
+            cmd.append(pattern)
+            cmd.append(".")  # Search current directory
+            
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=self.target_directory,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,  # 60 second timeout
+                )
+                
+                # Parse JSON lines output
+                for line in result.stdout.strip().split("\n"):
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        if data.get("type") == "match":
+                            match_data = data.get("data", {})
+                            path = match_data.get("path", {}).get("text", "")
+                            line_num = match_data.get("line_number", 0)
+                            lines = match_data.get("lines", {}).get("text", "").strip()
+                            
+                            # Normalize path (remove leading ./)
+                            if path.startswith("./"):
+                                path = path[2:]
+                            
+                            all_matches.append({
+                                "pattern": pattern,
+                                "file": path,
+                                "line": line_num,
+                                "code": lines,
+                                "is_definition": self._is_definition_line(lines, pattern),
+                            })
+                    except json.JSONDecodeError:
+                        continue
+                        
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Ripgrep search timed out for pattern: {pattern}")
+            except Exception as e:
+                logger.error(f"Ripgrep search failed for pattern '{pattern}': {e}")
+        
+        return all_matches
+
     def _search_text(
         self,
         patterns: str | list[str],
@@ -551,7 +706,7 @@ class AIToolExecutor:
         file_pattern: Optional[str] = None,
         offset: int = 0,
     ) -> ToolResult:
-        """Search for text patterns in the repository.
+        """Search for text patterns in the repository using ripgrep.
 
         Args:
             patterns: Single pattern or list of patterns to search for.
@@ -574,86 +729,18 @@ class AIToolExecutor:
             return ToolResult(
                 success=False,
                 data=None,
-                error="At least one non-empty pattern is required",
+                error=format_validation_error(
+                    "patterns", "", "non-empty string or array of strings",
+                    "Provide at least one search pattern."
+                ),
             )
 
         page_size = 50  # Results per page
         logger.info(f"Searching for {len(pattern_list)} pattern(s), is_regex={is_regex}, offset: {offset}")
 
-        # Build regex patterns
-        regex_flags = 0 if case_sensitive else re.IGNORECASE
-        compiled_patterns = []
-        for pattern in pattern_list:
-            if not pattern:
-                continue
-            try:
-                if is_regex:
-                    # Use pattern as-is when is_regex=True
-                    regex = pattern
-                else:
-                    # Escape special characters for literal search
-                    escaped = re.escape(pattern)
-                    if match_whole_word:
-                        regex = rf"\b{escaped}\b"
-                    else:
-                        regex = escaped
-                compiled_patterns.append((pattern, re.compile(regex, regex_flags)))
-            except re.error as e:
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    error=f"Invalid regex pattern '{pattern}': {e}",
-                )
-
-        all_matches = []
-
-        # Search all non-binary files in the repository
-        for file_path in self.target_directory.rglob("*"):
-            if not file_path.is_file():
-                continue
-
-            # Skip binary files
-            if is_binary_file(file_path):
-                continue
-
-            relative_path = file_path.relative_to(self.target_directory)
-
-            # Skip hidden files and common build/cache directories
-            if any(part.startswith(".") for part in relative_path.parts):
-                continue
-            if any(
-                part in {"node_modules", "__pycache__", "build", "dist", "target", ".git"}
-                for part in relative_path.parts
-            ):
-                continue
-
-            # Apply file pattern filter if specified
-            if file_pattern:
-                from fnmatch import fnmatch
-                if not fnmatch(relative_path.name, file_pattern) and not fnmatch(str(relative_path), file_pattern):
-                    continue
-
-            try:
-                content = self._get_file_content(file_path)
-                if content is None:
-                    continue
-
-                lines = content.split("\n")
-                for line_num, line in enumerate(lines, start=1):
-                    for original_pattern, compiled in compiled_patterns:
-                        if compiled.search(line):
-                            all_matches.append({
-                                "pattern": original_pattern,
-                                "file": str(relative_path),
-                                "line": line_num,
-                                "code": line.strip(),
-                                # Mark as definition if line looks like a definition
-                                "is_definition": self._is_definition_line(line, original_pattern),
-                            })
-
-            except Exception as e:
-                logger.debug(f"Error searching {relative_path}: {e}")
-                continue
+        all_matches = self._search_with_ripgrep(
+            pattern_list, is_regex, match_whole_word, case_sensitive, file_pattern
+        )
 
         # Deduplicate matches (same file+line+pattern)
         seen = set()
@@ -741,45 +828,26 @@ class AIToolExecutor:
         Returns:
             ToolResult with file content.
         """
-        if not file_path:
+        # Use enhanced validation with file suggestions
+        is_valid, error_msg, suggestions = validate_file_path(file_path, self.target_directory)
+        if not is_valid:
+            result_data = {"file_path": file_path}
+            if suggestions:
+                result_data["suggestions"] = suggestions
+                error_msg += f" Similar files found: {', '.join(suggestions[:5])}"
             return ToolResult(
                 success=False,
-                data=None,
-                error="file_path is required",
+                data=result_data,
+                error=error_msg,
             )
 
-        # Resolve file path
         full_path = (self.target_directory / file_path).resolve()
-
-        # Security check: ensure path is within target directory
-        try:
-            full_path.relative_to(self.target_directory)
-        except ValueError:
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"Access denied: path '{file_path}' is outside repository",
-            )
-
-        if not full_path.exists():
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"File not found: {file_path}",
-            )
-
-        if not full_path.is_file():
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"Not a file: {file_path}",
-            )
 
         if is_binary_file(full_path):
             return ToolResult(
                 success=False,
                 data=None,
-                error=f"Cannot read binary file: {file_path}",
+                error=f"Cannot read binary file: {file_path}. Binary files cannot be analyzed as text.",
             )
 
         try:
@@ -794,17 +862,19 @@ class AIToolExecutor:
             lines = content.split("\n")
             total_lines = len(lines)
 
+            # Validate line numbers with helpful errors
+            if start_line is not None:
+                is_valid, line_error = validate_line_number(start_line, total_lines, "start_line")
+                if not is_valid:
+                    return ToolResult(
+                        success=False,
+                        data={"file_path": file_path, "total_lines": total_lines},
+                        error=line_error,
+                    )
+
             # Determine line range
             start_idx = (start_line - 1) if start_line else 0
             end_idx = end_line if end_line else total_lines
-
-            # Validate line numbers
-            if start_idx < 0 or start_idx >= total_lines:
-                return ToolResult(
-                    success=False,
-                    data=None,
-                    error=f"Invalid start_line: {start_line} (file has {total_lines} lines)",
-                )
 
             if end_idx < start_idx or end_idx > total_lines:
                 end_idx = total_lines
@@ -831,7 +901,7 @@ class AIToolExecutor:
                 warning = (
                     f"⚠️ PARTIAL CONTENT: This file is too large to return in full. "
                     f"Showing lines {start_idx + 1}-{actual_end_line} of {total_lines}. "
-                    f"To read more, call read_file again with start_line={actual_end_line + 1}."
+                    f"Use search_text to find specific patterns, or call read_file with start_line={actual_end_line + 1} to continue reading."
                 )
 
                 logger.info(f"Truncated file {file_path} to fit chunk size")
@@ -934,21 +1004,28 @@ class AIToolExecutor:
             return ToolResult(
                 success=False,
                 data=None,
-                error=f"Access denied: path '{directory_path}' is outside repository",
+                error=f"Access denied: path '{directory_path}' is outside repository.",
             )
 
         if not full_path.exists():
+            # Suggest similar directories
+            suggestions = suggest_similar_files(directory_path, self.target_directory)
+            # Filter to only directories from suggestions
+            dir_suggestions = [s for s in suggestions if (self.target_directory / s).is_dir()]
+            error_msg = f"Directory not found: {directory_path}"
+            if dir_suggestions:
+                error_msg += f". Did you mean: {', '.join(dir_suggestions[:3])}?"
             return ToolResult(
                 success=False,
-                data=None,
-                error=f"Directory not found: {directory_path}",
+                data={"directory_path": directory_path, "suggestions": dir_suggestions},
+                error=error_msg,
             )
 
         if not full_path.is_dir():
             return ToolResult(
                 success=False,
                 data=None,
-                error=f"Not a directory: {directory_path}",
+                error=f"Not a directory: {directory_path}. This appears to be a file - use read_file instead.",
             )
 
         try:
@@ -1146,39 +1223,20 @@ class AIToolExecutor:
         Returns:
             ToolResult with file structure summary.
         """
-        if not file_path:
+        # Use enhanced validation with file suggestions
+        is_valid, error_msg, suggestions = validate_file_path(file_path, self.target_directory)
+        if not is_valid:
+            result_data = {"file_path": file_path}
+            if suggestions:
+                result_data["suggestions"] = suggestions
+                error_msg += f" Similar files found: {', '.join(suggestions[:5])}"
             return ToolResult(
                 success=False,
-                data=None,
-                error="file_path is required",
+                data=result_data,
+                error=error_msg,
             )
 
-        # Resolve file path
         full_path = (self.target_directory / file_path).resolve()
-
-        # Security check: ensure path is within target directory
-        try:
-            full_path.relative_to(self.target_directory)
-        except ValueError:
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"Access denied: path '{file_path}' is outside repository",
-            )
-
-        if not full_path.exists():
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"File not found: {file_path}",
-            )
-
-        if not full_path.is_file():
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"Not a file: {file_path}",
-            )
 
         try:
             # Get total lines from file first (always available)
@@ -1449,46 +1507,30 @@ class AIToolExecutor:
         Returns:
             ToolResult with scope information and content.
         """
-        if not file_path:
+        # Use enhanced validation with file suggestions
+        is_valid, error_msg, suggestions = validate_file_path(file_path, self.target_directory)
+        if not is_valid:
+            result_data = {"file_path": file_path}
+            if suggestions:
+                result_data["suggestions"] = suggestions
+                error_msg += f" Similar files found: {', '.join(suggestions[:5])}"
             return ToolResult(
                 success=False,
-                data=None,
-                error="file_path is required",
+                data=result_data,
+                error=error_msg,
             )
 
         if line_number < 1:
             return ToolResult(
                 success=False,
                 data=None,
-                error="line_number must be >= 1",
+                error=format_validation_error(
+                    "line_number", str(line_number), "positive integer >= 1",
+                    "Line numbers are 1-based."
+                ),
             )
 
-        # Resolve file path
         full_path = (self.target_directory / file_path).resolve()
-
-        # Security check
-        try:
-            full_path.relative_to(self.target_directory)
-        except ValueError:
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"Access denied: path '{file_path}' is outside repository",
-            )
-
-        if not full_path.exists():
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"File not found: {file_path}",
-            )
-
-        if not full_path.is_file():
-            return ToolResult(
-                success=False,
-                data=None,
-                error=f"Not a file: {file_path}",
-            )
 
         try:
             # Try using ctags to find enclosing symbol
@@ -1508,11 +1550,13 @@ class AIToolExecutor:
             lines = content.split("\n")
             total_lines = len(lines)
 
-            if line_number > total_lines:
+            # Validate line number against file length
+            is_valid, line_error = validate_line_number(line_number, total_lines)
+            if not is_valid:
                 return ToolResult(
                     success=False,
-                    data=None,
-                    error=f"Line {line_number} is beyond file length ({total_lines} lines)",
+                    data={"file_path": file_path, "total_lines": total_lines},
+                    error=line_error,
                 )
 
             if enclosing_symbol:

@@ -4,7 +4,9 @@ The Code Scanner provides **AI Tools** (also known as function calling) that all
 
 ## Prerequisites
 
-**Universal Ctags** is required for symbol indexing and lookup functionality. Install it before using the scanner:
+### Universal Ctags
+
+Universal Ctags is required for symbol indexing and lookup functionality. Install it before using the scanner:
 
 ```bash
 # Ubuntu/Debian
@@ -21,6 +23,30 @@ sudo pacman -S ctags
 ```
 
 Verify installation with `ctags --version`. You should see "Universal Ctags" in the output.
+
+### Ripgrep
+
+Ripgrep is required for fast code search (the `search_text` tool). Install it before using the scanner:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install ripgrep
+
+# macOS (via Homebrew)
+brew install ripgrep
+
+# Fedora
+sudo dnf install ripgrep
+
+# Arch Linux
+sudo pacman -S ripgrep
+
+# Windows
+choco install ripgrep
+# or: winget install BurntSushi.ripgrep
+```
+
+Verify installation with `rg --version`.
 
 ## Overview
 
@@ -96,8 +122,10 @@ search_text(patterns="calculate_total", offset=50)
 ```
 
 **Behavior:**
+- **Ripgrep-Powered:** Uses `ripgrep` for fast search
+- Respects `.gitignore` files automatically
+- Skips hidden files and directories by default
 - Searches all non-binary files recursively
-- Skips hidden directories (`.git`, `.vscode`, etc.)
 - Skips common build directories (`node_modules`, `__pycache__`, `build`, `dist`, `target`)
 - Results paginated at 50 matches per page
 - Includes ⚠️ warning if more results available with instructions for next request
@@ -152,6 +180,7 @@ read_file(file_path="config/settings.py", start_line=151)
 
 **Behavior:**
 - Validates path is within repository (security check)
+- **Smart File Suggestions:** When a file is not found, suggests similar files using fuzzy matching (e.g., "Did you mean: main.py, utils.py?")
 - Rejects binary files
 - Automatically chunks large files (≤4000 tokens per chunk by default)
 - Includes ⚠️ warning with instructions for requesting next chunk if content is partial

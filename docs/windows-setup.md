@@ -89,6 +89,41 @@ ctags --version
 
 > **Note**: Make sure it shows "Universal Ctags" (not "Exuberant Ctags").
 
+## Ripgrep Installation
+
+Ripgrep is required for fast code search across the repository.
+
+### Option 1: Using Chocolatey (Recommended)
+
+```powershell
+# Open PowerShell as Administrator
+choco install ripgrep
+
+# Verify installation
+rg --version
+```
+
+### Option 2: Using Scoop
+
+```powershell
+scoop install ripgrep
+rg --version
+```
+
+### Option 3: Using Winget
+
+```powershell
+winget install BurntSushi.ripgrep
+rg --version
+```
+
+### Option 4: Manual Installation
+
+1. Download from [ripgrep GitHub releases](https://github.com/BurntSushi/ripgrep/releases)
+2. Extract to a folder (e.g., `C:\Program Files\ripgrep`)
+3. Add the folder to your PATH
+4. Restart PowerShell and verify: `rg --version`
+
 ## Code Scanner Installation
 
 Open PowerShell or Git Bash:

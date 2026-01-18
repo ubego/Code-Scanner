@@ -33,7 +33,6 @@ context_limit = 16384    # Context window size in tokens (minimum 16384 recommen
 pattern = "*.cpp, *.h, *.hpp"
 checks = [
     # Qt-specific checks
-    "Check that QObject-derived classes have the Q_OBJECT macro.",
     "Check that signals and slots are connected with matching signatures.",
     "Check for parent-child ownership confusion that could cause double deletion.",
     "Check that blocking operations are not performed on the main GUI thread.",

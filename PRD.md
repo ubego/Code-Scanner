@@ -5,7 +5,7 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
-*   **Quality Assurance:** The codebase maintains **90% test coverage** with 750+ unit tests ensuring reliability and maintainability.
+*   **Quality Assurance:** The codebase maintains **91% test coverage** with 799+ unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
@@ -159,7 +159,8 @@ The primary objective of this project is to implement a software program that **
         *   **Stale Lock Detection:** On startup, if a lock file exists, the scanner checks if the stored PID is still running. If the process is no longer active, the stale lock is automatically removed.
         *   **Active Lock:** If the PID is still running, fail with a clear error showing the active PID.
     *   **Smart Matching & Deduplication:** Issues are tracked primarily by **file** and **issue nature/description/code pattern**, not strictly by line number.
-        *   **Matching Algorithm:** Issue matching compares the source code snippet with **whitespace-normalized comparison** (truncating/collapsing spaces). This algorithm may be improved in future versions.
+        *   **Matching Algorithm:** Issue matching uses **fuzzy string comparison** with a configurable similarity threshold (default: 0.8). This ensures that minor variations in issue descriptions or code snippets (e.g., whitespace changes, slight wording differences) are correctly identified as the same issue.
+        *   **Whitespace Normalization:** Code snippets are compared with whitespace-normalized comparison (truncating/collapsing spaces).
         *   If an issue is detected at a different line number (e.g., due to code added above it) but matches an existing open issue's pattern, the scanner must **update the line number** in the existing record rather than creating a duplicate or resolving/re-opening.
     *   **Resolution Tracking:** If the scanner determines that a previously reported issue is no longer present (fixed), it must update the status of that issue in the output to **"RESOLVED"**. The original entry should remain for historical context, but its status changes.
     *   **Scoped Resolution:** Issues are only resolved based on scan results for files that were **actually scanned**. If a file was not included in the current scan (e.g., not in the changed files set), its issues remain unchanged. This prevents false resolution caused by LLM non-determinism.
@@ -216,6 +217,7 @@ The scanner provides **AI Tools** (function calling) that allow the LLM to inter
 
 **Prerequisites:**
 *   **Universal Ctags** must be installed for symbol indexing. The ctags-based tools (find_definition, find_symbols) require Universal Ctags to be available in the system PATH.
+*   **ripgrep** must be installed for fast code search. The search_text tool requires ripgrep (`rg`) to be available in the system PATH.
 
 **Available AI Tools (13 tools):**
 
@@ -227,6 +229,7 @@ The scanner provides **AI Tools** (function calling) that allow the LLM to inter
     *   `case_sensitive`: Boolean (default: false) - case-sensitive matching.
     *   `file_pattern`: Optional glob pattern to filter files (e.g., "*.py").
     *   Returns file paths, line numbers, and code snippets for all matches.
+    *   **Ripgrep-Powered:** Uses `ripgrep` for fast search. Ripgrep respects `.gitignore` and skips hidden files by default.
     *   **Smart Ordering:** Definitions are prioritized before usages in results.
     *   **Pagination:** Results are paginated (50 matches per page). Use `offset` parameter to fetch additional pages when `has_more` is `true`.
     *   Response includes: `total_matches`, `returned_count`, `offset`, `has_more`, `next_offset`, `matches_by_pattern`.
@@ -236,6 +239,9 @@ The scanner provides **AI Tools** (function calling) that allow the LLM to inter
     *   Reads the content of any file in the repository, even if it has no uncommitted changes.
     *   Supports line-range parameters for reading specific sections.
     *   Large files are automatically chunked (≤4000 tokens per chunk by default).
+    *   **Enhanced Validation:** File paths are validated with helpful error messages including:
+        *   Suggestions for similar files when path not found (e.g., "Did you mean: main.py, utils.py?").
+        *   Clear feedback for directory traversal attempts or invalid paths.
     *   **Pagination:** Response includes `has_more` and `next_start_line` fields to guide subsequent read requests.
     *   **Helpful Hints:** Response includes hints to guide the LLM:
         *   For complete files: "This is the COMPLETE file (N lines). No need to read it again."
@@ -245,6 +251,7 @@ The scanner provides **AI Tools** (function calling) that allow the LLM to inter
 3.  **list_directory(directory_path, recursive, offset):**
     *   Lists all files and subdirectories in a specified directory.
     *   Supports recursive listing to explore entire directory trees.
+    *   **Enhanced Validation:** Directory paths are validated with suggestions for similar directories when not found.
     *   **File Size Information:** Each file includes line count for text files, allowing the LLM to plan which files to read and whether chunking may be needed. Format: `{"path": "src/file.py", "lines": 150}`.
     *   **Pagination:** Results are paginated (100 items per page). Use `offset` parameter to fetch additional pages when `has_more` is `true`.
     *   Response includes: `total_items`, `returned_count`, `offset`, `has_more`, `next_offset`.
@@ -323,6 +330,35 @@ All tools use a consistent pagination pattern to enable the LLM to fetch more re
 *   Binary files are automatically detected and rejected.
 *   Partial content warnings ensure LLM is aware when it's not seeing complete information.
 *   Tool execution failures are communicated to the LLM as error messages.
+
+### 3.4 Text Processing Utilities
+
+The scanner includes a dedicated `text_utils` module providing advanced text processing capabilities:
+
+**String Similarity Functions:**
+*   **Levenshtein Distance:** Calculate edit distance between strings for fuzzy matching.
+*   **Similarity Ratio:** Compute similarity ratio (0.0 to 1.0) between strings using SequenceMatcher.
+*   **Fuzzy Matching:** Compare strings with configurable similarity threshold (default: 0.8).
+*   **Find Similar Strings:** Find top N most similar strings from a list of candidates.
+
+**Output Management:**
+*   **Truncation with Hints:** Large outputs are automatically truncated with actionable hints:
+    *   Maximum 2,000 lines per output (configurable).
+    *   Maximum 50KB per output (configurable).
+    *   Truncation includes helpful messages: "Output truncated. Use search_text with specific patterns to narrow results."
+*   **Whitespace Normalization:** Collapse multiple whitespace characters for consistent comparison.
+
+**Validation Helpers:**
+*   **File Path Validation:** Comprehensive validation with:
+    *   Empty path detection with clear error messages.
+    *   Path traversal prevention (denies `..` escaping repository).
+    *   File existence checking with similar file suggestions.
+    *   Directory vs file detection.
+*   **Line Number Validation:** Validates 1-based line numbers against file length.
+*   **File Suggestions:** When a file is not found, suggests similar files using:
+    *   Recursive search through repository (skipping hidden/build directories).
+    *   Similarity ranking using Levenshtein distance.
+    *   Returns top 5 most similar files by default.
 
 **Integration with Existing Architecture:**
 

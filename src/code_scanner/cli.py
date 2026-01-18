@@ -13,6 +13,7 @@ from typing import Optional
 
 from .config import Config, ConfigError, load_config
 from .ctags_index import CtagsIndex, CtagsNotFoundError, CtagsError
+from .ai_tools import RipgrepNotFoundError, verify_ripgrep
 from .file_filter import FileFilter
 from .git_watcher import GitWatcher, GitError
 from .issue_tracker import IssueTracker
@@ -88,7 +89,7 @@ class Application:
             self._setup()
             self._run_main_loop()
             return 0
-        except (ConfigError, GitError, LLMClientError, LockFileError, CtagsNotFoundError, CtagsError) as e:
+        except (ConfigError, GitError, LLMClientError, LockFileError, CtagsNotFoundError, CtagsError, RipgrepNotFoundError) as e:
             logger.error(str(e))
             return 1
         except KeyboardInterrupt:
@@ -181,6 +182,9 @@ class Application:
         self.ctags_index = CtagsIndex(self.config.target_directory)
         self.ctags_index.generate_index_async()
         # Index will complete in background - tools will return limited results until ready
+
+        # Verify ripgrep is installed (required for search_text tool)
+        verify_ripgrep()
 
         self.issue_tracker = IssueTracker()
         

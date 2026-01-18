@@ -18,12 +18,15 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 - 💰 **Cost Effective**: Zero token costs. Use your local resources instead of expensive API subscriptions.
 - 🔍 **Language-agnostic**: Works with any programming language.
 - 🧰 **AI Tools for Context Expansion**: LLM can interactively request additional codebase information (find usages, read files, list directories) for sophisticated architectural checks.
+- ⚡ **Ripgrep-Powered Search**: Uses `ripgrep` for blazing fast code search across the entire repository.
+- 🔍 **Fuzzy Matching**: Smart issue deduplication using fuzzy string matching to handle minor variations in descriptions.
 - ⚡ **Continuous Monitoring**: Runs in background mode, monitoring Git changes every 30 seconds and scanning indefinitely until stopped.
 - 🔄 **Smart Change Detection**: When changes are detected mid-scan, continues from current check with refreshed file contents (preserves progress).
 - 🔧 **Configurable Checks**: Define checks in plain English via TOML configuration with file pattern support.
 - 📊 **Issue Tracking**: Tracks issue lifecycle (new, existing, resolved) with scoped resolution—issues are only resolved for files that were actually scanned.
 - 📝 **Real-time Updates**: Output file updates immediately when issues are found (not just at end of scan).
-- 🛡️ **Hallucination Prevention**: Validates file paths from LLM responses, discarding issues for non-existent files.
+- 🛡️ **Hallucination Prevention**: Validates file paths from LLM responses with helpful suggestions for similar files when paths don't exist.
+- 📍 **Smart Error Messages**: When files are not found, suggests similar files using fuzzy matching (e.g., "Did you mean: main.py, utils.py?").
 - 🤖 **Daemon-Ready**: Fully uninteractive mode—no prompts, configurable via file only. Supports autostart on all platforms.
 
 ![Scanner Workflow](images/workflow.png)
@@ -35,7 +38,8 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 1. **Python 3.10 or higher**
 2. **Git** (for tracking file changes)
 3. **Universal Ctags** (for symbol indexing)
-4. **[LM Studio](https://lmstudio.ai)** or **[Ollama](https://ollama.ai)** - Local LLM backend
+4. **ripgrep** (for fast code search)
+5. **[LM Studio](https://lmstudio.ai)** or **[Ollama](https://ollama.ai)** - Local LLM backend
 
 For detailed platform-specific installation, see:
 - **[Linux Setup](docs/linux-setup.md)** | **[macOS Setup](docs/macos-setup.md)** | **[Windows Setup](docs/windows-setup.md)**
@@ -348,7 +352,7 @@ uv run pytest --cov=code_scanner --cov-report=term-missing
 uv run pytest --cov=code_scanner --cov-report=html  # Open htmlcov/index.html
 ```
 
-**Current Coverage:** 90% with 750+ tests.
+**Current Coverage:** 91% with 799+ tests.
 
 ### Project Structure
 
@@ -360,6 +364,7 @@ src/code_scanner/
 ├── lmstudio_client.py # LM Studio client
 ├── ollama_client.py # Ollama client
 ├── ai_tools.py      # AI tool executor for function calling
+├── text_utils.py    # Text processing utilities (fuzzy matching, validation)
 ├── git_watcher.py   # Git repository monitoring
 ├── issue_tracker.py # Issue lifecycle management
 ├── output.py        # Markdown report generation

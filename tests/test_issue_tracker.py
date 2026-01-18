@@ -106,6 +106,131 @@ class TestIssueMatching:
         
         assert issue1.matches(issue2)
 
+    def test_fuzzy_match_similar_code_snippets(self):
+        """Test fuzzy matching of similar code snippets (above threshold)."""
+        issue1 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Different description A",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="int result = calculateValue(x, y);",
+        )
+        issue2 = Issue(
+            file_path="src/main.cpp",
+            line_number=15,
+            description="Different description B",  # Different description
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="int result = calculateValue(x, y );",  # Minor change (space before paren)
+        )
+        
+        # Should match via fuzzy code snippet comparison
+        assert issue1.matches(issue2)
+
+    def test_fuzzy_match_similar_descriptions(self):
+        """Test fuzzy matching of similar descriptions (above threshold)."""
+        issue1 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Memory leak detected in function processData",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="",  # Empty code snippet
+        )
+        issue2 = Issue(
+            file_path="src/main.cpp",
+            line_number=15,
+            description="Memory leak detected in function process_data",  # Minor variation
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="",  # Empty code snippet
+        )
+        
+        # Should match via fuzzy description comparison
+        assert issue1.matches(issue2)
+
+    def test_fuzzy_match_below_threshold_no_match(self):
+        """Test that dissimilar issues don't match (below threshold)."""
+        issue1 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Completely different issue",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="int x = 1;",
+        )
+        issue2 = Issue(
+            file_path="src/main.cpp",
+            line_number=15,
+            description="Totally unrelated problem",  # Different
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="string name = 'hello';",  # Different
+        )
+        
+        # Should NOT match - both code and descriptions are too different
+        assert not issue1.matches(issue2)
+
+    def test_fuzzy_match_dissimilar_code_but_similar_descriptions(self):
+        """Test matching when code snippets differ but descriptions are similar.
+        
+        This specifically tests line 70 - fuzzy description match when code doesn't match.
+        """
+        issue1 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Unused variable 'counter' detected in function processData",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="int counter = 0;",  # Different code
+        )
+        issue2 = Issue(
+            file_path="src/main.cpp",
+            line_number=15,
+            description="Unused variable 'counter' found in function processData",  # Similar desc
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="string name = getData();",  # Very different code
+        )
+        
+        # Code snippets are too different (below threshold)
+        # But descriptions are similar enough (above threshold)
+        # Should match via description fuzzy comparison
+        assert issue1.matches(issue2)
+
+    def test_fuzzy_match_empty_code_only_descriptions_compared(self):
+        """Test matching when code snippets are empty - only descriptions matter."""
+        issue1 = Issue(
+            file_path="src/main.cpp",
+            line_number=10,
+            description="Unused variable detected",
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="",  # Empty
+        )
+        issue2 = Issue(
+            file_path="src/main.cpp",
+            line_number=15,
+            description="Unused variable found",  # Similar but not identical
+            suggested_fix="Fix",
+            check_query="Check",
+            timestamp=datetime.now(),
+            code_snippet="",  # Empty
+        )
+        
+        # Should match via fuzzy description comparison
+        assert issue1.matches(issue2)
+
 
 class TestIssueTracker:
     """Tests for IssueTracker class."""
@@ -189,20 +314,20 @@ class TestIssueTracker:
         issue1 = Issue(
             file_path="test.cpp",
             line_number=1,
-            description="Issue 1",
+            description="Memory leak detected in malloc call without corresponding free",
             suggested_fix="Fix",
             check_query="Check",
             timestamp=datetime.now(),
-            code_snippet="code1",  # Different snippets to avoid dedup
+            code_snippet="void* ptr = malloc(100);",  # Different snippets to avoid dedup
         )
         issue2 = Issue(
             file_path="test.cpp",
             line_number=2,
-            description="Issue 2 different",  # Different description
+            description="Null pointer dereference risk in function parameter",
             suggested_fix="Fix",
             check_query="Check",
             timestamp=datetime.now(),
-            code_snippet="code2",  # Different snippet
+            code_snippet="if (*ptr == 0)",  # Different snippet
         )
         
         tracker.add_issue(issue1)
@@ -250,29 +375,29 @@ class TestIssueTracker:
         tracker.add_issue(Issue(
             file_path="a.cpp",
             line_number=1,
-            description="A1 issue",
+            description="Memory leak found in constructor initialization",
             suggested_fix="",
             check_query="",
             timestamp=datetime.now(),
-            code_snippet="snippet_a1",  # Unique snippet
+            code_snippet="char* buffer = new char[256];",  # Unique snippet
         ))
         tracker.add_issue(Issue(
             file_path="b.cpp",
             line_number=1,
-            description="B1 issue",
+            description="Unchecked return value from system call",
             suggested_fix="",
             check_query="",
             timestamp=datetime.now(),
-            code_snippet="snippet_b1",  # Unique snippet
+            code_snippet="system(command);",  # Unique snippet
         ))
         tracker.add_issue(Issue(
             file_path="a.cpp",
             line_number=2,
-            description="A2 different issue",  # Different description
+            description="Buffer overflow risk in string concatenation",
             suggested_fix="",
             check_query="",
             timestamp=datetime.now(),
-            code_snippet="snippet_a2",  # Unique snippet
+            code_snippet="strcat(dest, source);",  # Unique snippet
         ))
         
         by_file = tracker.get_issues_by_file()

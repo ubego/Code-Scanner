@@ -36,7 +36,7 @@ checks = [
     "Check that stack allocation is preferred over heap allocation for small, short-lived objects.",
     "Check that smart pointers (unique_ptr, shared_ptr) are used instead of raw pointers where appropriate.",
     "Check that RAII patterns are used instead of manual new/delete.",
-    "Check that base classes with virtual methods have virtual destructors.",
+
     "Check for object slicing when copying derived classes.",
     "Check for dangling pointers after object destruction.",
     "Check for double-free vulnerabilities.",
@@ -97,10 +97,8 @@ checks = [
 [[checks]]
 pattern = "*"
 checks = [
-    "Check for headers that are included but not used.",
     "Check for circular header dependencies.",
-    "Check that implementation details are not exposed in headers.",
-    "Check that include guards or #pragma once is present.",
+
     "Check for dead code or unused files.",
     "Check for feature flags for features that have shipped.",
     "Check for duplicate implementations.",

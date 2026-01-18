@@ -89,6 +89,31 @@ ctags --version
 
 > **Note**: Make sure it's "Universal Ctags" (not "Exuberant Ctags"). Check with `ctags --version`.
 
+## Ripgrep Installation
+
+Ripgrep is required for fast code search across the repository.
+
+### Ubuntu/Debian
+
+```bash
+sudo apt install ripgrep
+rg --version
+```
+
+### Fedora
+
+```bash
+sudo dnf install ripgrep
+rg --version
+```
+
+### Arch Linux
+
+```bash
+sudo pacman -S ripgrep
+rg --version
+```
+
 ## UV Installation
 
 UV is the recommended package manager:

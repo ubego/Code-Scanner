@@ -26,11 +26,22 @@ class Issue:
     status: IssueStatus = IssueStatus.OPEN
     code_snippet: str = ""
 
-    def matches(self, other: "Issue") -> bool:
+    def matches(self, other: "Issue", fuzzy_threshold: float = 0.8) -> bool:
         """Check if this issue matches another issue for deduplication.
 
         Issues match if they have the same file and similar code pattern/description.
         Line numbers are NOT used for matching as code can move.
+        
+        Uses fuzzy matching with Levenshtein distance for more robust comparison
+        that handles minor code changes.
+
+        Args:
+            other: The other issue to compare against.
+            fuzzy_threshold: Minimum similarity ratio (0.0 to 1.0) to consider a match.
+                           Default 0.8 (80% similarity).
+
+        Returns:
+            True if issues match (should be deduplicated).
         """
         if self.file_path != other.file_path:
             return False
@@ -42,8 +53,23 @@ class Issue:
         self_desc = _normalize_whitespace(self.description)
         other_desc = _normalize_whitespace(other.description)
 
-        # Match if code snippets are similar OR descriptions are similar
-        return self_snippet == other_snippet or self_desc == other_desc
+        # Exact match first (fast path)
+        if self_snippet == other_snippet or self_desc == other_desc:
+            return True
+
+        # Fuzzy match for code snippets using similarity ratio
+        if self_snippet and other_snippet:
+            snippet_similarity = _similarity_ratio(self_snippet, other_snippet)
+            if snippet_similarity >= fuzzy_threshold:
+                return True
+
+        # Fuzzy match for descriptions
+        if self_desc and other_desc:
+            desc_similarity = _similarity_ratio(self_desc, other_desc)
+            if desc_similarity >= fuzzy_threshold:
+                return True
+
+        return False
 
     @classmethod
     def from_llm_response(
@@ -136,9 +162,7 @@ class LLMConfig:
         """Get the base URL for LLM API."""
         if self.backend == "lm-studio":
             return f"http://{self.host}:{self.port}/v1"
-        elif self.backend == "ollama":
-            return f"http://{self.host}:{self.port}"
-        else:
+        else:  # ollama
             return f"http://{self.host}:{self.port}"
 
 
@@ -194,3 +218,19 @@ def _normalize_whitespace(text: str) -> str:
     and strips leading/trailing whitespace.
     """
     return " ".join(text.split())
+
+
+def _similarity_ratio(s1: str, s2: str) -> float:
+    """Calculate similarity ratio between two strings using SequenceMatcher.
+    
+    This uses Python's built-in difflib for Levenshtein-like distance calculation.
+    
+    Args:
+        s1: First string.
+        s2: Second string.
+        
+    Returns:
+        Similarity ratio between 0.0 (completely different) and 1.0 (identical).
+    """
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, s1, s2).ratio()
