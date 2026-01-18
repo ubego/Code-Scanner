@@ -55,7 +55,6 @@ checks = [
     "Check that Model-View separation is maintained.",
     "Check that business logic is not placed in UI classes.",
     "Check for circular dependencies between modules.",
-    "Check for god classes with too many responsibilities.",
     "Check for improper use of singletons.",
     # Performance checks
     "Check that QStringView is used for QString operations in tight loops.",
