@@ -138,8 +138,10 @@ class Scanner:
                     self._last_scanned_files.clear()
                     self._last_file_contents_hash.clear()
                     # Wait for refresh signal or timeout
-                    self._refresh_event.wait(timeout=self.config.git_poll_interval)
+                    was_signaled = self._refresh_event.wait(timeout=self.config.git_poll_interval)
                     self._refresh_event.clear()
+                    if was_signaled:
+                        logger.debug("Woke up from refresh signal (no changes state)")
                     continue
 
                 # Check if files have actually changed since last scan
@@ -152,8 +154,10 @@ class Scanner:
                 else:
                     # No new changes - wait for refresh signal or timeout
                     logger.debug("No new file changes since last scan, waiting...")
-                    self._refresh_event.wait(timeout=self.config.git_poll_interval)
+                    was_signaled = self._refresh_event.wait(timeout=self.config.git_poll_interval)
                     self._refresh_event.clear()
+                    if was_signaled:
+                        logger.debug("Woke up from refresh signal (no content changes state)")
 
             except Exception as e:
                 logger.error(f"Scanner error: {e}", exc_info=True)
@@ -198,9 +202,16 @@ class Scanner:
         # Note: _refresh_event being set just means git watcher detected something,
         # but we still need to check if files ACTUALLY changed content-wise
         
-        # If set of files is different, need to scan
-        if current_files != self._last_scanned_files:
+        # Check for new files added (files committed/removed don't require rescan)
+        added_files = current_files - self._last_scanned_files
+        if added_files:
+            logger.debug(f"New files added to worktree: {list(added_files)[:5]}{'...' if len(added_files) > 5 else ''}")
             return True
+        
+        # Log removed files but don't trigger rescan
+        removed_files = self._last_scanned_files - current_files
+        if removed_files:
+            logger.debug(f"Files removed from worktree (committed/reverted): {list(removed_files)[:5]}{'...' if len(removed_files) > 5 else ''}")
         
         # Check if any file contents have changed by comparing hashes
         for changed_file in git_state.changed_files:
@@ -224,19 +235,24 @@ class Scanner:
                 if content is None:
                     # Binary or unreadable file - check if it's new
                     if changed_file.path not in self._last_file_contents_hash:
+                        logger.debug(f"New binary/unreadable file detected: {changed_file.path}")
                         return True
                     continue
                 
                 content_hash = hash(content)
                 
                 if changed_file.path not in self._last_file_contents_hash:
+                    logger.debug(f"New file detected: {changed_file.path}")
                     return True
                 if self._last_file_contents_hash[changed_file.path] != content_hash:
+                    logger.debug(f"File content changed: {changed_file.path}")
                     return True
-            except Exception:
+            except Exception as e:
                 # If we can't read the file, assume it changed
+                logger.debug(f"Cannot read file {changed_file.path}, assuming changed: {e}")
                 return True
         
+        logger.debug("No actual file content changes detected")
         return False
 
     def _run_scan(self, git_state: GitState) -> None:
@@ -395,11 +411,17 @@ class Scanner:
                         # Log but continue to next check
                         logger.error(f"LLM error during check (skipping): {e}")
 
-                # Track worktree changes - update watermark
+                # Track worktree changes - update watermark only if content actually changed
                 if self._refresh_event.is_set():
-                    last_change_at = check_idx
                     self._refresh_event.clear()
-                    logger.info(f"Worktree changed at check {check_idx + 1}, will rescan checks 1-{check_idx + 1}")
+                    # Verify content actually changed before triggering rescan
+                    # The git watcher uses mtime which can have false positives
+                    current_files = {f.path for f in git_state.changed_files if not f.is_deleted}
+                    if self._has_files_changed(current_files, git_state):
+                        last_change_at = check_idx
+                        logger.info(f"Worktree changed at check {check_idx + 1}, will rescan checks 1-{check_idx + 1}")
+                    else:
+                        logger.debug(f"Refresh event received at check {check_idx + 1}, but no actual content changes detected")
 
             if self._stop_event.is_set():
                 break

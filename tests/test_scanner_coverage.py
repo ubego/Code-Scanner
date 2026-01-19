@@ -948,7 +948,7 @@ class TestScannerAdditionalCoverage:
         assert result is False
 
     def test_has_files_changed_different_file_sets(self, mock_dependencies):
-        """Test _has_files_changed returns True when file sets differ."""
+        """Test _has_files_changed returns True when new files are added."""
         scanner = Scanner(**mock_dependencies)
         scanner._last_scanned_files = {"old_file.py"}
 
@@ -956,6 +956,18 @@ class TestScannerAdditionalCoverage:
         result = scanner._has_files_changed({"new_file.py"}, state)
 
         assert result is True
+
+    def test_has_files_changed_files_removed_no_rescan(self, mock_dependencies):
+        """Test _has_files_changed returns False when files are only removed (committed/reverted)."""
+        scanner = Scanner(**mock_dependencies)
+        scanner._last_scanned_files = {"file1.py", "file2.py", "file3.py"}
+
+        state = GitState()
+        # Files were committed, so current set is smaller
+        result = scanner._has_files_changed({"file1.py"}, state)
+
+        # Should NOT trigger rescan - no new files to scan
+        assert result is False
 
     def test_has_files_changed_file_content_changed(self, mock_dependencies, tmp_path):
         """Test _has_files_changed returns True when file content changes."""

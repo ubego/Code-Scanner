@@ -339,6 +339,7 @@ class GitWatcher:
         for changed_file in current_state.changed_files:
             # Skip excluded files (e.g., scanner output files)
             if changed_file.path in self.excluded_files:
+                logger.debug(f"Skipping excluded file in mtime check: {changed_file.path}")
                 continue
             if changed_file.is_deleted:
                 continue
@@ -350,6 +351,7 @@ class GitWatcher:
                 # Can't stat file (doesn't exist, encoding issue, etc.) - skip it
                 # This can happen with files that have special characters in names
                 # or files that were deleted but git status still shows them
+                logger.debug(f"Cannot stat file in mtime check: {changed_file.path}")
                 continue
             
             # Find matching file in last state to compare mtime
@@ -366,4 +368,5 @@ class GitWatcher:
                             pass
                     break
 
+        logger.debug("No mtime changes detected in has_changes_since")
         return False
