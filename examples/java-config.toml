@@ -33,7 +33,7 @@ context_limit = 16384    # Context window size in tokens (minimum 16384 recommen
 pattern = "*.java"
 checks = [
     # Architectural checks
-    "Check that classes have a single responsibility.",
+
     "Check for circular dependencies between packages.",
     "Check that service layer does not call presentation layer directly.",
     "Check for god classes with too many methods or fields.",

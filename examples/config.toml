@@ -36,7 +36,7 @@ context_limit = 16384    # Context window size in tokens (minimum 16384 recommen
 pattern = "*"
 checks = [
     # Architectural checks
-    "Check that classes and modules have a single responsibility and are not doing too many things.",
+
     "Check for circular dependencies between components or modules.",
     "Check that business logic is not placed in wrong layers (e.g., data access in UI layer).",
     "Check for tight coupling between components that should be independent.",

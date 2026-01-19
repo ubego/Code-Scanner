@@ -35,7 +35,6 @@ context_limit = 16384    # Context window size in tokens (minimum 16384 recommen
 pattern = "*.py"
 checks = [
     # Architectural checks
-    "Check that classes and functions have a single responsibility.",
     "Check for circular imports or circular dependencies between modules.",
     "Check that business logic is not placed in wrong layers (e.g., data validation in presentation layer).",
     "Check for god classes with too many public methods.",
@@ -60,7 +59,6 @@ checks = [
     "Check that external API responses are validated before use.",
     "Check for incorrect HTTP status codes in REST endpoints.",
     # Domain-specific checks
-    "Check for hardcoded business rules that should be configurable.",
     "Check for date and time handling without proper timezone awareness.",
     "Check for currency or money calculations using float instead of Decimal.",
     "Check for incorrect handling of Unicode strings or encodings.",

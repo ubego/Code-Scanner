@@ -59,7 +59,7 @@ checks = [
     "Check for modifying const objects through casts.",
     "Check for strict aliasing rule violations.",
     # Design checks
-    "Check that classes have a single responsibility.",
+
     "Check for circular dependencies between modules.",
     "Check for god classes with too many methods.",
     "Check for deeply nested inheritance hierarchies.",
