@@ -60,7 +60,6 @@ checks = [
     # Architecture checks
     "Check that View layer does not directly access database or network.",
     "Check that business logic is not in Activities or Fragments.",
-    "Check for god Activities or ViewModels with too many responsibilities.",
     "Check for circular dependencies between modules.",
     "Check that repository pattern is used for data access.",
     # UX and performance checks

@@ -18,16 +18,15 @@ AI-powered code scanner that uses local LLMs (LM Studio or Ollama) to identify i
 - 💰 **Cost Effective**: Zero token costs. Use your local resources instead of expensive API subscriptions.
 - 🔍 **Language-agnostic**: Works with any programming language.
 - 🧰 **AI Tools for Context Expansion**: LLM can interactively request additional codebase information (find usages, read files, list directories) for sophisticated architectural checks.
-- ⚡ **Ripgrep-Powered Search**: Uses `ripgrep` for blazing fast code search across the entire repository.
-- 🔍 **Fuzzy Matching**: Smart issue deduplication using fuzzy string matching to handle minor variations in descriptions.
 - ⚡ **Continuous Monitoring**: Runs in background mode, monitoring Git changes every 30 seconds and scanning indefinitely until stopped.
-- 🔄 **Smart Change Detection**: When changes are detected mid-scan, continues from current check with refreshed file contents (preserves progress).
+- 🔄 **Smart Change Detection**: Efficient git status caching with configurable TTL prevents redundant git operations. When changes are detected mid-scan, continues from current check with refreshed file contents (preserves progress).
 - 🔧 **Configurable Checks**: Define checks in plain English via TOML configuration with file pattern support.
 - 📊 **Issue Tracking**: Tracks issue lifecycle (new, existing, resolved) with scoped resolution—issues are only resolved for files that were actually scanned.
 - 📝 **Real-time Updates**: Output file updates immediately when issues are found (not just at end of scan).
 - 🛡️ **Hallucination Prevention**: Validates file paths from LLM responses with helpful suggestions for similar files when paths don't exist.
 - 📍 **Smart Error Messages**: When files are not found, suggests similar files using fuzzy matching (e.g., "Did you mean: main.py, utils.py?").
 - 🤖 **Daemon-Ready**: Fully uninteractive mode—no prompts, configurable via file only. Supports autostart on all platforms.
+- ✅ **Well-Tested**: 92% code coverage with 905 unit tests ensuring reliability and maintainability.
 
 ![Scanner Workflow](images/workflow.png)
 
@@ -62,7 +61,7 @@ uv sync
 Copy a language-specific example from `examples/` to your project root:
 
 ```bash
-cp examples/python-config.toml config.toml
+cp examples/python-config.toml code_scanner_config.toml
 ```
 
 See `examples/` directory for configs tailored to JavaScript, Java, C++, Android, iOS, and more.
@@ -240,7 +239,7 @@ Arguments:
   TARGET_DIRECTORY    Project directory to scan (must be a Git repository)
 
 Options:
-  -c, --config PATH   Path to config.toml (default: config.toml in scanner directory)
+  -c, --config PATH   Path to config file (default: code_scanner_config.toml in target directory)
   --commit HASH       Scan changes relative to specific commit
   --version           Show version
   --help              Show help message
@@ -348,7 +347,7 @@ uv run pytest --cov=code_scanner --cov-report=term-missing
 uv run pytest --cov=code_scanner --cov-report=html  # Open htmlcov/index.html
 ```
 
-**Current Coverage:** 91% with 799+ tests.
+**Current Coverage:** 91% with 873 tests.
 
 ### Project Structure
 

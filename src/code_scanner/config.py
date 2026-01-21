@@ -103,9 +103,8 @@ def load_config(
 
     # Find config file
     if config_file is None:
-        # Default to script directory
-        script_dir = Path(__file__).parent.parent.parent
-        config_file = script_dir / "config.toml"
+        # Default to target directory
+        config_file = target_directory / "code_scanner_config.toml"
 
     config_file = config_file.resolve()
 
@@ -113,7 +112,7 @@ def load_config(
         raise ConfigError(
             f"Configuration file not found: {config_file}\n"
             "Please provide a config file via --config argument or "
-            "create config.toml in the scanner directory."
+            "create code_scanner_config.toml in your project directory."
         )
 
     # Load TOML

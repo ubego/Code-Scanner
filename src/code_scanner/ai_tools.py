@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,7 +16,6 @@ from .text_utils import (
     validate_file_path,
     validate_line_number,
     format_validation_error,
-    truncate_output,
     MAX_OUTPUT_LINES,
     MAX_OUTPUT_BYTES,
 )
@@ -506,6 +504,149 @@ class AIToolExecutor:
         """Clear the file content cache. Call when files change."""
         self._file_cache.clear()
 
+    def _extract_imports_from_content(self, content: str, file_path: str) -> list[dict]:
+        """Extract import statements from file content for multiple languages.
+
+        Ctags doesn't reliably extract imports for many languages. This method
+        parses the first portion of a file to find import/include statements.
+
+        Args:
+            content: File content.
+            file_path: File path (used to determine language from extension).
+
+        Returns:
+            List of dicts with 'name' (import statement) and 'line' (line number).
+        """
+        import_lines = []
+        ext = Path(file_path).suffix.lower()
+        lines = content.split("\n")
+
+        # Scan first 100 lines (imports are typically at the top)
+        max_lines = min(100, len(lines))
+
+        # Language-specific import patterns
+        # Python: import x, from x import y
+        # JavaScript/TypeScript: import, require(), export from
+        # C/C++: #include
+        # Java/Kotlin: import
+        # Go: import
+        # Rust: use, extern crate, mod
+        # Ruby: require, require_relative, load, include (module)
+        # PHP: use, require, include, require_once, include_once
+        # C#: using
+        # Scala: import
+        # Swift: import
+        # Dart: import, export, part
+
+        for i, line in enumerate(lines[:max_lines], 1):
+            stripped = line.strip()
+
+            # Skip empty lines and comments
+            if not stripped:
+                continue
+
+            is_import = False
+
+            if ext in (".py", ".pyw", ".pyi"):
+                # Python imports
+                is_import = stripped.startswith(("import ", "from ")) and "import" in stripped
+
+            elif ext in (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"):
+                # JavaScript/TypeScript imports
+                is_import = (
+                    stripped.startswith(("import ", "import{", "import("))
+                    or stripped.startswith("export ") and " from " in stripped
+                    or "require(" in stripped
+                    or stripped.startswith("const ") and "require(" in stripped
+                    or stripped.startswith("let ") and "require(" in stripped
+                    or stripped.startswith("var ") and "require(" in stripped
+                )
+
+            elif ext in (".c", ".h", ".cpp", ".hpp", ".cc", ".cxx", ".hxx", ".c++", ".h++"):
+                # C/C++ includes
+                is_import = stripped.startswith("#include")
+
+            elif ext in (".java", ".kt", ".kts"):
+                # Java/Kotlin imports
+                is_import = stripped.startswith("import ")
+
+            elif ext == ".go":
+                # Go imports
+                is_import = stripped.startswith("import ") or stripped == "import ("
+
+            elif ext == ".rs":
+                # Rust imports
+                is_import = stripped.startswith(("use ", "extern crate ", "mod "))
+
+            elif ext in (".rb", ".rake", ".gemspec"):
+                # Ruby requires
+                is_import = stripped.startswith(("require ", "require_relative ", "load "))
+
+            elif ext == ".php":
+                # PHP imports
+                is_import = (
+                    stripped.startswith(("use ", "require ", "include ", "require_once ", "include_once "))
+                    or stripped.startswith("require(")
+                    or stripped.startswith("include(")
+                )
+
+            elif ext == ".cs":
+                # C# using
+                is_import = stripped.startswith("using ") and not stripped.startswith("using (")
+
+            elif ext in (".scala", ".sc"):
+                # Scala imports
+                is_import = stripped.startswith("import ")
+
+            elif ext == ".swift":
+                # Swift imports
+                is_import = stripped.startswith("import ")
+
+            elif ext == ".dart":
+                # Dart imports
+                is_import = stripped.startswith(("import ", "export ", "part "))
+
+            elif ext in (".m", ".mm"):
+                # Objective-C imports
+                is_import = stripped.startswith(("#import", "#include", "@import"))
+
+            elif ext == ".lua":
+                # Lua requires
+                is_import = "require(" in stripped or "require (" in stripped
+
+            elif ext in (".pl", ".pm"):
+                # Perl imports
+                is_import = stripped.startswith(("use ", "require "))
+
+            elif ext == ".r" or file_path.lower().endswith(".r"):
+                # R library calls
+                is_import = stripped.startswith(("library(", "require("))
+
+            elif ext == ".jl":
+                # Julia imports
+                is_import = stripped.startswith(("using ", "import "))
+
+            elif ext in (".ex", ".exs"):
+                # Elixir imports
+                is_import = stripped.startswith(("import ", "alias ", "require ", "use "))
+
+            elif ext == ".zig":
+                # Zig imports
+                is_import = "@import(" in stripped
+
+            elif ext == ".v":
+                # V lang imports
+                is_import = stripped.startswith("import ")
+
+            elif ext == ".nim":
+                # Nim imports
+                is_import = stripped.startswith(("import ", "from ", "include "))
+
+            if is_import:
+                import_lines.append({"name": stripped, "line": i})
+
+        return import_lines
+
     def _is_ctags_ready(self) -> bool:
         """Check if the ctags index is ready for queries."""
         return self.ctags_index.is_indexed
@@ -880,6 +1021,10 @@ class AIToolExecutor:
                 end_idx = total_lines
 
             # Extract requested lines
+            # Note: end_idx is based on 1-based inclusive end_line or total_lines.
+            # Python slice [start:end] excludes end index.
+            # Since line N is at index N-1, slice [0:10] gets indices 0..9 (lines 1..10).
+            # So end_idx as 1-based count works correctly as exclusive slice boundary.
             selected_lines = lines[start_idx:end_idx]
             chunk_content = "\n".join(selected_lines)
 
@@ -1256,6 +1401,10 @@ class AIToolExecutor:
                     "other": [],
                 }
 
+            # Ctags often doesn't extract imports for many languages - extract from content
+            if not structure["imports"] and content:
+                structure["imports"] = self._extract_imports_from_content(content, file_path)
+
             result_data = {
                 "file_path": file_path,
                 "total_lines": total_lines,
@@ -1571,6 +1720,9 @@ class AIToolExecutor:
                 end_line = min(end_line, total_lines)
                 
                 # Extract scope content
+                # Note: end_line is 1-based inclusive. Using it as exclusive slice end works correctly.
+                # Example: Lines 10-20. start_line=10, end_line=20.
+                # start_idx=9. Slice [9:20] gets indices 9..19 (lines 10..20).
                 scope_lines = lines[start_line - 1:end_line]
                 scope_content = "\n".join(scope_lines)
                 

@@ -135,12 +135,12 @@ class TestScannerStop:
 
 
 class TestScannerSignalRefresh:
-    """Tests for Scanner signal_refresh method."""
+    """Tests for Scanner _signal_refresh method."""
 
     def test_signal_refresh_sets_event(self, mock_dependencies):
         """Signal refresh sets the refresh event."""
         scanner = Scanner(**mock_dependencies)
-        scanner.signal_refresh()
+        scanner._signal_refresh()
         assert scanner._refresh_event.is_set()
 
 

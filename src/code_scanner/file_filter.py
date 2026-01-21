@@ -112,6 +112,18 @@ class FileFilter:
         
         # 2. Check config ignore patterns (O(patterns) fnmatch)
         for pattern in self.config_patterns:
+            # Handle directory patterns like /*tests*/ or /*vendor*/
+            if pattern.startswith("/*") and pattern.endswith("/"):
+                # Extract directory name pattern (e.g., "tests*" from "/*tests*/")
+                # Remove "/*" prefix and "/" suffix to get the fnmatch pattern
+                dir_pattern = pattern[2:-1]  # "/*tests*/" -> "tests*"
+                # Check if any path component matches the directory pattern
+                # Use fnmatch to support wildcards like /*cmake-build-*/
+                for part in path.split("/"):
+                    if fnmatch.fnmatch(part, dir_pattern):
+                        return True, f"config_pattern:{pattern}"
+                continue
+            
             # fnmatch on basename for simple patterns like "*.md"
             if fnmatch.fnmatch(basename, pattern):
                 return True, f"config_pattern:{pattern}"

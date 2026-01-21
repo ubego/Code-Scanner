@@ -2,6 +2,7 @@
 
 import os
 import pytest
+import subprocess
 import tempfile
 import shutil
 import signal
@@ -18,13 +19,14 @@ def temp_git_repo():
     """Create a temporary Git repository."""
     temp_dir = tempfile.mkdtemp()
     
-    os.system(f"cd {temp_dir} && git init -q")
-    os.system(f"cd {temp_dir} && git config user.email 'test@test.com'")
-    os.system(f"cd {temp_dir} && git config user.name 'Test'")
+    subprocess.run(['git', 'init', '-q'], cwd=temp_dir, check=True)
+    subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=temp_dir, check=True)
+    subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=temp_dir, check=True)
     
     readme = Path(temp_dir) / "README.md"
     readme.write_text("# Test\n")
-    os.system(f"cd {temp_dir} && git add . && git commit -m 'Initial' -q")
+    subprocess.run(['git', 'add', '.'], cwd=temp_dir, check=True)
+    subprocess.run(['git', 'commit', '-m', 'Initial', '-q'], cwd=temp_dir, check=True)
     
     yield Path(temp_dir)
     

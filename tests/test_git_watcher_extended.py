@@ -2,6 +2,7 @@
 
 import os
 import pytest
+import subprocess
 import tempfile
 import shutil
 from pathlib import Path
@@ -17,14 +18,15 @@ def temp_git_repo():
     temp_dir = tempfile.mkdtemp()
     
     # Initialize Git repo
-    os.system(f"cd {temp_dir} && git init -q")
-    os.system(f"cd {temp_dir} && git config user.email 'test@test.com'")
-    os.system(f"cd {temp_dir} && git config user.name 'Test'")
+    subprocess.run(['git', 'init', '-q'], cwd=temp_dir, check=True)
+    subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=temp_dir, check=True)
+    subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=temp_dir, check=True)
     
     # Create initial commit
     readme = Path(temp_dir) / "README.md"
     readme.write_text("# Test\n")
-    os.system(f"cd {temp_dir} && git add . && git commit -m 'Initial' -q")
+    subprocess.run(['git', 'add', '.'], cwd=temp_dir, check=True)
+    subprocess.run(['git', 'commit', '-m', 'Initial', '-q'], cwd=temp_dir, check=True)
     
     yield Path(temp_dir)
     
@@ -40,7 +42,8 @@ class TestGitWatcherIsIgnored:
         # Create .gitignore
         gitignore = temp_git_repo / ".gitignore"
         gitignore.write_text("*.log\n")
-        os.system(f"cd {temp_git_repo} && git add .gitignore && git commit -m 'Add gitignore' -q")
+        subprocess.run(['git', 'add', '.gitignore'], cwd=temp_git_repo, check=True)
+        subprocess.run(['git', 'commit', '-m', 'Add gitignore', '-q'], cwd=temp_git_repo, check=True)
         
         watcher = GitWatcher(temp_git_repo)
         watcher.connect()
@@ -83,7 +86,8 @@ class TestGitWatcherCommitComparison:
         # Make another commit
         test_file = temp_git_repo / "test.py"
         test_file.write_text("print('test')\n")
-        os.system(f"cd {temp_git_repo} && git add . && git commit -m 'Add test' -q")
+        subprocess.run(['git', 'add', '.'], cwd=temp_git_repo, check=True)
+        subprocess.run(['git', 'commit', '-m', 'Add test', '-q'], cwd=temp_git_repo, check=True)
         
         # Create watcher comparing to initial commit
         watcher = GitWatcher(temp_git_repo, commit_hash=initial_commit)
@@ -158,12 +162,13 @@ class TestGitWatcherFileStatuses:
         # Create and commit a file
         old_file = temp_git_repo / "old_name.txt"
         old_file.write_text("content\n")
-        os.system(f"cd {temp_git_repo} && git add . && git commit -m 'Add file' -q")
+        subprocess.run(['git', 'add', '.'], cwd=temp_git_repo, check=True)
+        subprocess.run(['git', 'commit', '-m', 'Add file', '-q'], cwd=temp_git_repo, check=True)
         
         # Rename the file
         new_file = temp_git_repo / "new_name.txt"
         old_file.rename(new_file)
-        os.system(f"cd {temp_git_repo} && git add .")
+        subprocess.run(['git', 'add', '.'], cwd=temp_git_repo, check=True)
         
         watcher = GitWatcher(temp_git_repo)
         watcher.connect()
@@ -178,7 +183,8 @@ class TestGitWatcherFileStatuses:
         # Create and commit a file
         test_file = temp_git_repo / "to_delete.txt"
         test_file.write_text("content\n")
-        os.system(f"cd {temp_git_repo} && git add . && git commit -m 'Add file' -q")
+        subprocess.run(['git', 'add', '.'], cwd=temp_git_repo, check=True)
+        subprocess.run(['git', 'commit', '-m', 'Add file', '-q'], cwd=temp_git_repo, check=True)
         
         # Delete the file
         test_file.unlink()

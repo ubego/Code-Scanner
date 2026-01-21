@@ -2073,6 +2073,385 @@ class TestGetFileSummaryEdgeCasesExtended:
         assert not result.success
 
 
+class TestExtractImportsFromContent:
+    """Tests for _extract_imports_from_content method which extracts imports from file content."""
+
+    def test_extract_python_imports(self, tmp_path: Path):
+        """Test extraction of Python import statements."""
+        content = """#!/usr/bin/env python
+import os
+import sys
+from pathlib import Path
+from typing import Optional, List
+
+def main():
+    pass
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.py")
+        
+        assert len(result) == 4
+        assert result[0] == {"name": "import os", "line": 2}
+        assert result[1] == {"name": "import sys", "line": 3}
+        assert result[2] == {"name": "from pathlib import Path", "line": 4}
+        assert result[3] == {"name": "from typing import Optional, List", "line": 5}
+
+    def test_extract_javascript_imports(self, tmp_path: Path):
+        """Test extraction of JavaScript/TypeScript imports."""
+        content = """import React from "react";
+import { useState } from "react";
+const fs = require("fs");
+export { default } from "./component";
+
+function Component() {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.js")
+        
+        assert len(result) == 4
+        assert result[0]["name"] == 'import React from "react";'
+        assert result[2]["name"] == 'const fs = require("fs");'
+
+    def test_extract_typescript_imports(self, tmp_path: Path):
+        """Test extraction of TypeScript imports."""
+        content = """import type { Config } from "./config";
+import { Component } from "@angular/core";
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.ts")
+        
+        assert len(result) == 2
+
+    def test_extract_cpp_includes(self, tmp_path: Path):
+        """Test extraction of C/C++ include statements."""
+        content = """#include <iostream>
+#include <vector>
+#include "myheader.h"
+
+int main() {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.cpp")
+        
+        assert len(result) == 3
+        assert result[0] == {"name": "#include <iostream>", "line": 1}
+        assert result[2] == {"name": '#include "myheader.h"', "line": 3}
+
+    def test_extract_go_imports(self, tmp_path: Path):
+        """Test extraction of Go import statements."""
+        content = """package main
+
+import "fmt"
+import (
+    "os"
+)
+
+func main() {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.go")
+        
+        assert len(result) == 2
+        assert result[0]["name"] == 'import "fmt"'
+
+    def test_extract_rust_imports(self, tmp_path: Path):
+        """Test extraction of Rust use/extern crate statements."""
+        content = """use std::io;
+use std::collections::HashMap;
+extern crate serde;
+mod utils;
+
+fn main() {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.rs")
+        
+        assert len(result) == 4
+        assert result[0]["name"] == "use std::io;"
+        assert result[2]["name"] == "extern crate serde;"
+
+    def test_extract_java_imports(self, tmp_path: Path):
+        """Test extraction of Java import statements."""
+        content = """package com.example;
+
+import java.util.List;
+import java.util.Map;
+import static org.junit.Assert.*;
+
+public class Test {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "Test.java")
+        
+        assert len(result) == 3
+        assert result[0]["name"] == "import java.util.List;"
+
+    def test_extract_csharp_usings(self, tmp_path: Path):
+        """Test extraction of C# using statements (excludes using blocks)."""
+        content = """using System;
+using System.Collections.Generic;
+using (var stream = new FileStream()) { }
+
+namespace Test {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.cs")
+        
+        # Should only get 2 - the "using (" block should be excluded
+        assert len(result) == 2
+        assert result[0]["name"] == "using System;"
+
+    def test_extract_ruby_requires(self, tmp_path: Path):
+        """Test extraction of Ruby require statements."""
+        content = """require 'json'
+require_relative 'utils'
+load 'config.rb'
+
+class MyClass
+end
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.rb")
+        
+        assert len(result) == 3
+
+    def test_extract_php_imports(self, tmp_path: Path):
+        """Test extraction of PHP use/require statements."""
+        content = """<?php
+use App\\Models\\User;
+require 'config.php';
+include 'helpers.php';
+
+class Test {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.php")
+        
+        assert len(result) == 3
+
+    def test_extract_swift_imports(self, tmp_path: Path):
+        """Test extraction of Swift import statements."""
+        content = """import Foundation
+import UIKit
+
+class MyClass {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.swift")
+        
+        assert len(result) == 2
+
+    def test_extract_empty_content(self, tmp_path: Path):
+        """Test extraction from empty content returns empty list."""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content("", "test.py")
+        
+        assert result == []
+
+    def test_extract_no_imports(self, tmp_path: Path):
+        """Test extraction from file with no imports."""
+        content = """def main():
+    print("Hello")
+
+if __name__ == "__main__":
+    main()
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.py")
+        
+        assert result == []
+
+    def test_extract_unknown_extension(self, tmp_path: Path):
+        """Test extraction from unknown file extension returns empty list."""
+        content = """Some random content
+with import statements
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.xyz")
+        
+        assert result == []
+
+    def test_extract_scala_imports(self, tmp_path: Path):
+        """Test extraction of Scala import statements."""
+        content = """import scala.collection.mutable
+import java.util.{List, Map}
+
+object Main {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.scala")
+        
+        assert len(result) == 2
+
+    def test_extract_dart_imports(self, tmp_path: Path):
+        """Test extraction of Dart import/export statements."""
+        content = """import 'dart:io';
+export 'src/utils.dart';
+part 'src/models.dart';
+
+void main() {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.dart")
+        
+        assert len(result) == 3
+
+    def test_extract_objectivec_imports(self, tmp_path: Path):
+        """Test extraction of Objective-C import statements."""
+        content = """#import <Foundation/Foundation.h>
+#include <stdio.h>
+@import UIKit;
+
+@interface MyClass : NSObject
+@end
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.m")
+        
+        assert len(result) == 3
+
+    def test_extract_lua_requires(self, tmp_path: Path):
+        """Test extraction of Lua require statements."""
+        content = """local json = require("json")
+local utils = require ("utils")
+
+function main() end
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.lua")
+        
+        assert len(result) == 2
+
+    def test_extract_perl_imports(self, tmp_path: Path):
+        """Test extraction of Perl use/require statements."""
+        content = """use strict;
+use warnings;
+require 'config.pl';
+
+sub main {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.pl")
+        
+        assert len(result) == 3
+
+    def test_extract_r_imports(self, tmp_path: Path):
+        """Test extraction of R library/require statements."""
+        content = """library(ggplot2)
+require(dplyr)
+
+main <- function() {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.r")
+        
+        assert len(result) == 2
+
+    def test_extract_julia_imports(self, tmp_path: Path):
+        """Test extraction of Julia using/import statements."""
+        content = """using Plots
+import Statistics: mean, std
+
+function main() end
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.jl")
+        
+        assert len(result) == 2
+
+    def test_extract_elixir_imports(self, tmp_path: Path):
+        """Test extraction of Elixir import/alias/require/use statements."""
+        content = """import Ecto.Query
+alias MyApp.User
+require Logger
+use GenServer
+
+defmodule MyModule do
+end
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.ex")
+        
+        assert len(result) == 4
+
+    def test_extract_zig_imports(self, tmp_path: Path):
+        """Test extraction of Zig @import statements."""
+        content = """const std = @import("std");
+const utils = @import("utils.zig");
+
+pub fn main() void {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.zig")
+        
+        assert len(result) == 2
+
+    def test_extract_v_imports(self, tmp_path: Path):
+        """Test extraction of V lang import statements."""
+        content = """import os
+import json
+
+fn main() {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.v")
+        
+        assert len(result) == 2
+
+    def test_extract_nim_imports(self, tmp_path: Path):
+        """Test extraction of Nim import/from/include statements."""
+        content = """import strutils
+from os import existsFile
+include prelude
+
+proc main() = discard
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.nim")
+        
+        assert len(result) == 3
+
+    def test_extract_kotlin_imports(self, tmp_path: Path):
+        """Test extraction of Kotlin import statements."""
+        content = """package com.example
+
+import kotlinx.coroutines.*
+import java.util.List
+
+fun main() {}
+"""
+        mock_ctags = make_mock_ctags(tmp_path)
+        executor = AIToolExecutor(target_directory=tmp_path, context_limit=10000, ctags_index=mock_ctags)
+        result = executor._extract_imports_from_content(content, "test.kt")
+        
+        assert len(result) == 2
+
+
 class TestSymbolExistsEdgeCases:
     """Edge case tests for symbol_exists using ctags."""
 

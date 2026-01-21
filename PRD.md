@@ -5,11 +5,11 @@
 The primary objective of this project is to implement a software program that **scans a target source code directory** using a separate application to identify potential issues or answer specific user-defined questions.
 
 *   **Core Value Proposition:** Provide developers with an automated, **language-agnostic** background scanner that identifies "undefined behavior," code style inconsistencies, optimization opportunities, and architectural violations (e.g., broken MVC patterns).
-*   **Quality Assurance:** The codebase maintains **91% test coverage** with 799+ unit tests ensuring reliability and maintainability.
+*   **Quality Assurance:** The codebase maintains **92% test coverage** with 905 unit tests ensuring reliability and maintainability.
 *   **Target Scope:** The application focuses on **uncommitted changes** in the Git branch by default, ensuring immediate feedback for the developer before code is finalized.
 *   **Directory Scope:** The scanner targets **strictly one directory**, but scans it **recursively** (all subdirectories).
 *   **Git Requirement:** The target directory **must be a Git repository**. The scanner will fail with an error if Git is not initialized.
-*   **Binary File Handling:** Binary files (images, compiled objects, etc.) are **silently skipped** during scanning.
+*   **Binary File Handling:** Binary files (images, compiled objects, etc.) are **silently skipped** during scanning. The change detection system correctly tracks these files to prevent infinite rescan loops.
 *   **Privacy and Efficiency:** By utilizing a **local AI model**, the application ensures that source code does not leave the local environment while providing the intelligence of a Large Language Model (LLM).
 *   **MVP Philosophy:** The initial delivery will be an **MVP (Minimum Viable Product)**, focusing on core functionality without excessive configuration or customization.
 *   **Cross-Platform:** The scanner must be **cross-platform**, supporting Windows, macOS, and Linux.
@@ -43,10 +43,10 @@ The primary objective of this project is to implement a software program that **
     3.  After completing the cycle, only checks 0..N (the "stale" checks) are re-run.
     4.  This repeats until a full cycle completes with no file changes.
     5.  This ensures **all checks run on a consistent worktree snapshot** without redundant work.
-*   **Scan Completion Behavior:** After completing all checks in a scan cycle with no mid-scan changes, the scanner **waits for new file changes** before starting another scan. It tracks file modification times and content hashes to detect actual changes—simply having uncommitted files or touched timestamps is not enough to trigger a rescan if content remains identical. This prevents endless scanning loops.
-*   **Scanner Output File Exclusion:** The scanner's own output files (`code_scanner_results.md` and `code_scanner_results.md.bak`) are **automatically excluded from change detection**. This prevents infinite rescan loops that would otherwise occur because the scanner writes to these files during each scan cycle.
+*   **Scan Completion Behavior:** After completing all checks in a scan cycle with no mid-scan changes, the scanner **waits for new file changes** before starting another scan. It tracks file modification times and content hashes to detect actual changes. Binary or unreadable files are tracked by path to ensure they don't trigger false rescans simply because their content wasn't hashed. This ensures a stable idle state without endless scanning loops.
+*   **Scanner Output File Exclusion:** The scanner's own output files (`code_scanner_results.md` and `code_scanner_results.md.bak`) and log file (`code_scanner.log`) are **automatically excluded from change detection**. This prevents infinite rescan loops that would otherwise occur because the scanner writes to these files during each scan cycle.
 *   **Startup Behavior:** If no uncommitted changes exist at startup, the application must **enter the wait state immediately** and poll for changes. It should not exit.
-*   **Change Detection Thread:** File change detection via Git runs in a **separate thread** from the AI scanning process.
+*   **Change Detection Integration:** File change detection via Git is integrated into the scanner's main loop with efficient caching to minimize git subprocess calls. Git status results are cached with a configurable TTL (default 1 second) to prevent redundant git operations.
 *   **Change Detection Logging:** When changes are detected, the scanner logs which specific files triggered the rescan. This includes:
     *   **New/removed files:** Files added to or removed from the changed files set.
     *   **Modified files:** Files whose content was modified in-place (detected via modification time).
@@ -79,8 +79,9 @@ The primary objective of this project is to implement a software program that **
 *   **Aggregated Context:** Each query is sent to the AI with the **entire content of all matching modified files** as context, not file-by-file.
 *   **Context Overflow Strategy:** If the combined content of all modified files exceeds the AI model's context window:
     1.  **Group by directory hierarchy:** Batch files from the same directory together, considering the **full directory hierarchy** (e.g., `src/utils/helpers/` first, then `src/utils/`, then `src/`).
-    2.  **File-by-file fallback:** If a directory group still exceeds the limit, process files individually.
-    3.  **Skip oversized files:** If a single file exceeds the context limit, skip it and log a warning.
+    2.  **Deterministic Batching:** Within each directory group, files are sorted alphabetically, and groups are processed deepest-first using OS-agnostic path depth calculation. This ensures consistent LLM context across different runs and operating systems.
+    3.  **File-by-file fallback:** If a directory group still exceeds the limit, process files individually.
+    4.  **Skip oversized files:** If a single file exceeds the context limit, skip it and log a warning.
     4.  **Merged Results:** When a check runs across multiple batches, all issues from all batches are **merged into a single result set**.
 *   **Dynamic Token Tracking:** To prevent context overflow during multi-turn tool calling:
     1.  **Batch Size:** Uses **55% of context limit** for file content, leaving 45% for system prompt, tool iterations, and response.
@@ -171,7 +172,10 @@ The primary objective of this project is to implement a software program that **
 *   **System Verbosity:** Verbose logging is **always enabled** (no quiet mode). The output includes system information and detailed runtime data for debugging purposes.
 *   **System Log Destination:** Internal system logs (retry attempts, skipped files, warnings, debug info) are written to **both**:
     *   **Console** (stdout/stderr) for real-time monitoring.
-    *   **Separate log file** at **`~/.code-scanner/code_scanner.log`** (centralized location shared across all projects).
+    *   **Separate log file** at **`~/.code-scanner/code_scanner.log`** (centralized location shared across all projects). The scanner automatically ensures the parent directory exists before initializing the file handler.
+*   **Robust Error Handling:** The scanner implements defensive programming for common I/O issues:
+    *   **Safe File Reading:** `read_file_content` uses fallback encodings (e.g., latin-1) and logs explicit warnings on decoding failures.
+    *   **Recursive Directory creation:** Ensures log directories are created before writing.
 *   **Colored Console Output:** Console log messages use **ANSI color codes** for improved readability:
     *   **DEBUG:** Gray/dim text for low-priority diagnostic information.
     *   **INFO:** Cyan message with green level label for normal operation messages.
@@ -202,10 +206,10 @@ The primary objective of this project is to implement a software program that **
 
 ### 3.2 System Architecture and Logic
 *   **Agnostic Design:** The scanner logic must remain **independent of the programming language** found in the target source directory.
-*   **Multi-Threaded Architecture:** The application must use at least **two threads**:
-    1.  **Git Watcher Thread:** Monitors the target directory for uncommitted changes via Git, polling every 30 seconds.
-    2.  **AI Scanner Thread:** Executes checks sequentially against the LM Studio API.
-*   **Thread Communication:** When the Git watcher detects changes, it must signal the AI scanner thread to **re-fetch file contents and continue** from the current check position. The scanner preserves its progress through the check list rather than restarting from the beginning.
+*   **Consolidated Architecture:** The scanner uses a single main thread that handles both change detection and AI scanning:
+    1.  **Scanner Loop:** Monitors for changes via Git (with caching), executes checks, and polls every 30 seconds when idle.
+    2.  **Git Status Caching:** Git status results are cached with configurable TTL to prevent redundant subprocess calls.
+*   **Change Detection:** When the scanner detects changes (via cached git status comparison), it **re-fetches file contents and continues** from the current check position. The scanner preserves its progress through the check list rather than restarting from the beginning.
 *   **Runtime Monitoring:** It is critical to include robust logging to identify all possible issues during the application's runtime.
 *   **Input Handling:** The application must accept:
     *   A **target directory** as a required CLI argument.
@@ -371,8 +375,8 @@ The scanner includes a dedicated `text_utils` module providing advanced text pro
 1.  **Check for lock file.** If exists and PID is running, fail with error. If stale (PID not running), remove and continue. Create lock file with current PID.
 2.  **Backup existing output file.** If `code_scanner_results.md` exists, append to `.bak` with timestamp, then start with a fresh empty results file. Print lock/log file paths.
 3.  Initialize by reading the **TOML config file**.
-4.  Start the **Git watcher thread** to monitor for changes every 30 seconds.
-5.  Start the **AI scanner thread** with **AI tool executor** initialized.
+4.  Initialize the **Git watcher** component with status caching.
+5.  Start the **scanner loop** with **AI tool executor** initialized.
 6.  **Wait Loop:** If no uncommitted changes (relative to HEAD or specified commit) exist, the scanner **must idle/wait**.
 7.  **Scanning:** When changes are found, identify the **entire content** of the modified files.
     *   *Context Check:* If combined files exceed context limit, apply **context overflow strategy** (group by directory, then file-by-file).

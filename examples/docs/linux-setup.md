@@ -224,11 +224,11 @@ context_limit = 16384  # Required
 # Navigate to your project
 cd /path/to/your/project
 
-# Create config.toml (see examples/)
-cp /path/to/code-scanner/examples/python-config.toml config.toml
+# Create code_scanner_config.toml (see examples/)
+cp /path/to/code-scanner/examples/python-config.toml code_scanner_config.toml
 
 # Run the scanner (runs continuously until Ctrl+C)
-uv run code-scanner --config config.toml
+uv run code-scanner
 ```
 
 ## Running as a Background Service
@@ -252,7 +252,7 @@ Run the autostart script:
 The script will interactively guide you through:
 
 1. **Project path** - The directory to scan
-2. **Config file path** - Your `config.toml` location
+2. **Config file path** - Your `code_scanner_config.toml` location
 3. **Test launch** - Verifies the scanner works before registering
 4. **Service registration** - Creates a systemd user service
 

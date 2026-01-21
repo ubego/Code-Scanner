@@ -40,7 +40,6 @@ checks = [
     "Check for circular dependencies between components or modules.",
     "Check that business logic is not placed in wrong layers (e.g., data access in UI layer).",
     "Check for tight coupling between components that should be independent.",
-    "Check for god classes or files that have too many responsibilities.",
     # Security checks
     "Check for hardcoded secrets, API keys, or credentials in the code.",
     "Check that user input is properly validated and sanitized before use.",

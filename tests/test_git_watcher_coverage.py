@@ -240,8 +240,9 @@ class TestGitWatcherHasChangesSince:
         
         state1 = watcher.get_state()
         
-        # Create a new file
+        # Create a new file and stage it so git status sees it
         (temp_git_repo / "new.txt").write_text("content")
+        subprocess.run(["git", "add", "new.txt"], cwd=temp_git_repo, capture_output=True)
         
         result = watcher.has_changes_since(state1)
         
@@ -340,7 +341,7 @@ class TestHasChangesSinceEdgeCases:
         watcher = GitWatcher(temp_git_repo)
         watcher.connect()
         
-        # Get state with the file (has mtime in content)
+        # Get state with the file (has mtime_ns)
         state = watcher.get_state()
         assert len(state.changed_files) > 0
         
@@ -349,7 +350,7 @@ class TestHasChangesSinceEdgeCases:
         fake_changed_file = ChangedFile(
             path="test_file.txt",
             status="unstaged", 
-            content=str(new_file.stat().st_mtime)
+            mtime_ns=new_file.stat().st_mtime_ns
         )
         fake_state = GitState(changed_files=[fake_changed_file])
         
@@ -387,11 +388,12 @@ class TestHasChangesSinceEdgeCases:
         result = watcher.has_changes_since(state1)
         assert result is False
 
-    def test_has_changes_since_invalid_mtime_content(self, temp_git_repo):
-        """Test has_changes_since handles invalid mtime in content field."""
-        # Create a file
+    def test_has_changes_since_none_mtime(self, temp_git_repo):
+        """Test has_changes_since handles None mtime_ns."""
+        # Create a file and stage it
         new_file = temp_git_repo / "test_file.txt"
         new_file.write_text("content")
+        subprocess.run(["git", "add", "test_file.txt"], cwd=temp_git_repo, capture_output=True)
         
         watcher = GitWatcher(temp_git_repo)
         watcher.connect()
@@ -399,14 +401,134 @@ class TestHasChangesSinceEdgeCases:
         # Get initial state
         state = watcher.get_state()
         
-        # Manually set invalid mtime content
+        # Manually set None mtime_ns
         if state.changed_files:
             state.changed_files[0] = ChangedFile(
                 path=state.changed_files[0].path, 
-                status="unstaged", 
-                content="not_a_number"
+                status="staged", 
+                mtime_ns=None
             )
         
-        # Should not crash and return False (invalid mtime treated as no change)
+        # Should not crash and return False (None mtime_ns means we can't compare mtime)
         result = watcher.has_changes_since(state)
         assert result is False
+
+class TestGitWatcherCaching:
+    """Tests for git status caching."""
+
+    def test_cache_returns_cached_state(self, temp_git_repo):
+        """Test that cache returns cached state within TTL."""
+        watcher = GitWatcher(temp_git_repo, cache_ttl=10.0)  # Long TTL
+        watcher.connect()
+        
+        # Create a file and stage it
+        (temp_git_repo / "test.txt").write_text("content")
+        subprocess.run(["git", "add", "test.txt"], cwd=temp_git_repo, capture_output=True)
+        
+        # First call - populates cache
+        state1 = watcher.get_state()
+        
+        # Second call should return cached state (same object)
+        state2 = watcher.get_state()
+        
+        assert state1 is state2
+
+    def test_force_refresh_bypasses_cache(self, temp_git_repo):
+        """Test that force_refresh=True bypasses cache."""
+        watcher = GitWatcher(temp_git_repo, cache_ttl=10.0)  # Long TTL
+        watcher.connect()
+        
+        # First call
+        state1 = watcher.get_state()
+        
+        # Force refresh - should get new state object
+        state2 = watcher.get_state(force_refresh=True)
+        
+        assert state1 is not state2
+
+    def test_invalidate_cache_clears_cache(self, temp_git_repo):
+        """Test that invalidate_cache clears the cache."""
+        watcher = GitWatcher(temp_git_repo, cache_ttl=10.0)
+        watcher.connect()
+        
+        # Populate cache
+        state1 = watcher.get_state()
+        
+        # Invalidate
+        watcher.invalidate_cache()
+        
+        # Next call should get fresh state
+        state2 = watcher.get_state()
+        
+        assert state1 is not state2
+
+    def test_cache_expires_after_ttl(self, temp_git_repo):
+        """Test that cache expires after TTL."""
+        import time
+        
+        watcher = GitWatcher(temp_git_repo, cache_ttl=0.1)  # Very short TTL
+        watcher.connect()
+        
+        # First call
+        state1 = watcher.get_state()
+        
+        # Wait for TTL to expire
+        time.sleep(0.15)
+        
+        # Should get new state
+        state2 = watcher.get_state()
+        
+        assert state1 is not state2
+
+
+class TestGitWatcherFileFilter:
+    """Tests for FileFilter integration."""
+
+    def test_uses_file_filter_for_gitignore(self, temp_git_repo):
+        """Test that watcher uses FileFilter for gitignore checking."""
+        from code_scanner.file_filter import FileFilter
+        
+        # Create gitignore
+        gitignore = temp_git_repo / ".gitignore"
+        gitignore.write_text("*.log\n")
+        subprocess.run(["git", "add", ".gitignore"], cwd=temp_git_repo, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "Add gitignore", "-q"], cwd=temp_git_repo, capture_output=True)
+        
+        # Create file filter
+        file_filter = FileFilter(
+            repo_path=temp_git_repo,
+            scanner_files=set()
+        )
+        
+        watcher = GitWatcher(temp_git_repo, file_filter=file_filter)
+        watcher.connect()
+        
+        # Create ignored file
+        (temp_git_repo / "test.log").write_text("log")
+        
+        state = watcher.get_state()
+        
+        # Ignored file should not be in changed files
+        paths = [f.path for f in state.changed_files]
+        assert "test.log" not in paths
+
+
+class TestGitWatcherUnmergedFiles:
+    """Tests for handling unmerged files."""
+
+    def test_handles_unmerged_files_during_merge_conflict(self, temp_git_repo):
+        """Test handling of unmerged files - merge conflicts are detected via state flags."""
+        watcher = GitWatcher(temp_git_repo)
+        watcher.connect()
+        
+        # Create MERGE_HEAD to simulate merge in progress
+        merge_head = temp_git_repo / ".git" / "MERGE_HEAD"
+        merge_head.write_text("abc123")
+        
+        state = watcher.get_state()
+        
+        # Should detect merge in progress
+        assert state.is_merging
+        
+        # Cleanup
+        merge_head.unlink()

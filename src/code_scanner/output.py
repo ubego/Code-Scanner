@@ -1,7 +1,7 @@
 """Markdown output generation."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -60,7 +60,7 @@ class OutputGenerator:
         # Header
         lines.append("# Code Scanner Results")
         lines.append("")
-        lines.append(f"*Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+        lines.append(f"*Last updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}*")
         lines.append("")
 
         # Summary
@@ -81,7 +81,9 @@ class OutputGenerator:
             if "skipped_files" in scan_info:
                 lines.append(f"- **Files Skipped:** {len(scan_info['skipped_files'])}")
             if "checks_run" in scan_info:
-                lines.append(f"- **Checks Run:** {scan_info['checks_run']}")
+                checks_run = scan_info['checks_run']
+                total_checks = scan_info.get('total_checks', checks_run)
+                lines.append(f"- **Checks Run:** {checks_run}/{total_checks}")
             lines.append("")
 
         # Issues by file

@@ -3,6 +3,7 @@
 import os
 import pytest
 import signal
+import subprocess
 import tempfile
 import threading
 import time
@@ -21,13 +22,14 @@ def temp_git_repo():
     import shutil
     temp_dir = tempfile.mkdtemp()
     
-    os.system(f"cd {temp_dir} && git init -q")
-    os.system(f"cd {temp_dir} && git config user.email 'test@test.com'")
-    os.system(f"cd {temp_dir} && git config user.name 'Test'")
+    subprocess.run(['git', 'init', '-q'], cwd=temp_dir, check=True)
+    subprocess.run(['git', 'config', 'user.email', 'test@test.com'], cwd=temp_dir, check=True)
+    subprocess.run(['git', 'config', 'user.name', 'Test'], cwd=temp_dir, check=True)
     
     readme = Path(temp_dir) / "README.md"
     readme.write_text("# Test\n")
-    os.system(f"cd {temp_dir} && git add . && git commit -m 'Initial' -q")
+    subprocess.run(['git', 'add', '.'], cwd=temp_dir, check=True)
+    subprocess.run(['git', 'commit', '-m', 'Initial', '-q'], cwd=temp_dir, check=True)
     
     yield Path(temp_dir)
     
@@ -206,29 +208,13 @@ class TestApplicationMainLoop:
         app = Application(mock_config)
         app.scanner = MagicMock()
         
-        def stop_after_brief_run(*args, **kwargs):
-            time.sleep(0.1)
-            app._stop_event.set()
+        app._stop_event.set()  # Exit immediately
         
-        with patch('signal.signal') as mock_signal, \
-             patch.object(threading.Thread, 'start', side_effect=stop_after_brief_run):
+        with patch('signal.signal') as mock_signal:
             app._run_main_loop()
         
         # Should register SIGINT and SIGTERM handlers
         assert mock_signal.call_count >= 2
-
-    def test_run_main_loop_starts_git_thread(self, mock_config):
-        """Main loop starts git watcher thread."""
-        app = Application(mock_config)
-        app.scanner = MagicMock()
-        
-        app._stop_event.set()  # Exit immediately
-        
-        with patch('signal.signal'):
-            app._run_main_loop()
-        
-        # Git thread should be created
-        assert app._git_thread is not None
 
     def test_run_main_loop_starts_scanner(self, mock_config):
         """Main loop starts scanner."""
@@ -241,61 +227,6 @@ class TestApplicationMainLoop:
             app._run_main_loop()
         
         app.scanner.start.assert_called_once()
-
-
-class TestApplicationGitWatchLoop:
-    """Tests for Application _git_watch_loop method."""
-
-    def test_git_watch_loop_exits_on_stop(self, mock_config):
-        """Git watch loop exits when stop event is set."""
-        app = Application(mock_config)
-        app.git_watcher = MagicMock()
-        app.scanner = MagicMock()
-        app._stop_event.set()
-        
-        # Should exit immediately
-        app._git_watch_loop()
-
-    def test_git_watch_loop_signals_restart_on_changes(self, mock_config):
-        """Git watch loop signals scanner restart when changes detected."""
-        app = Application(mock_config)
-        app.git_watcher = MagicMock()
-        app.scanner = MagicMock()
-        
-        call_count = [0]
-        def has_changes_side_effect(last_state):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return True
-            app._stop_event.set()
-            return False
-        
-        app.git_watcher.has_changes_since.side_effect = has_changes_side_effect
-        app.git_watcher.get_state.return_value = MagicMock()
-        
-        app._git_watch_loop()
-        
-        app.scanner.signal_refresh.assert_called_once()
-
-    def test_git_watch_loop_handles_exceptions(self, mock_config):
-        """Git watch loop handles exceptions and continues."""
-        app = Application(mock_config)
-        app.git_watcher = MagicMock()
-        app.scanner = MagicMock()
-        
-        call_count = [0]
-        def has_changes_side_effect(last_state):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise RuntimeError("Test error")
-            app._stop_event.set()
-            return False
-        
-        app.git_watcher.has_changes_since.side_effect = has_changes_side_effect
-        
-        # Should not raise
-        app._git_watch_loop()
-        assert call_count[0] >= 1
 
 
 class TestApplicationBackupOutput:
@@ -493,16 +424,6 @@ class TestApplicationCleanup:
         app._cleanup()
         
         app.scanner.stop.assert_called_once()
-
-    def test_cleanup_joins_git_thread(self, mock_config):
-        """Cleanup joins git thread."""
-        app = Application(mock_config)
-        app._git_thread = MagicMock()
-        app._git_thread.is_alive.return_value = True
-        
-        app._cleanup()
-        
-        app._git_thread.join.assert_called_once_with(timeout=2)
 
     def test_cleanup_releases_lock(self, mock_config):
         """Cleanup releases lock file."""

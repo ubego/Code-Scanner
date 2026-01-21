@@ -143,6 +143,95 @@ class TestFileFilterShouldSkip:
         should_skip, reason = filter.should_skip("src/test/unit/file.py")
         assert should_skip is True
 
+    def test_skip_directory_pattern_tests(self, tmp_path):
+        """Directory patterns like /*tests*/ match files in tests directories."""
+        filter = FileFilter(
+            repo_path=tmp_path,
+            config_ignore_patterns=["/*tests*/"],
+            load_gitignore=False,
+        )
+        
+        # Should match files in 'tests' directory
+        should_skip, reason = filter.should_skip("tests/test_main.py")
+        assert should_skip is True
+        assert "/*tests*/" in reason
+        
+        # Should match files in nested tests directory
+        should_skip, reason = filter.should_skip("src/tests/test_utils.py")
+        assert should_skip is True
+        
+        # Should not match files not in tests directory
+        should_skip, reason = filter.should_skip("src/main.py")
+        assert should_skip is False
+
+    def test_skip_directory_pattern_vendor(self, tmp_path):
+        """Directory patterns like /*vendor*/ match vendor directories."""
+        filter = FileFilter(
+            repo_path=tmp_path,
+            config_ignore_patterns=["/*vendor*/"],
+            load_gitignore=False,
+        )
+        
+        # Should match files in vendor directory
+        should_skip, reason = filter.should_skip("vendor/lib/file.js")
+        assert should_skip is True
+        
+        # Should match nested vendor directories
+        should_skip, reason = filter.should_skip("packages/vendor/dep.js")
+        assert should_skip is True
+        
+        # Should not match non-vendor paths
+        should_skip, reason = filter.should_skip("src/utils.js")
+        assert should_skip is False
+
+    def test_skip_directory_pattern_with_wildcard(self, tmp_path):
+        """Directory patterns with wildcards like /*cmake-build-*/ work."""
+        filter = FileFilter(
+            repo_path=tmp_path,
+            config_ignore_patterns=["/*cmake-build-*/"],
+            load_gitignore=False,
+        )
+        
+        # Should match cmake-build-debug
+        should_skip, reason = filter.should_skip("cmake-build-debug/CMakeCache.txt")
+        assert should_skip is True
+        
+        # Should match cmake-build-release
+        should_skip, reason = filter.should_skip("cmake-build-release/output.o")
+        assert should_skip is True
+        
+        # Should not match other directories
+        should_skip, reason = filter.should_skip("build/output.o")
+        assert should_skip is False
+
+    def test_skip_multiple_directory_patterns(self, tmp_path):
+        """Multiple directory patterns all work correctly."""
+        filter = FileFilter(
+            repo_path=tmp_path,
+            config_ignore_patterns=["/*tests*/", "/*test*/", "/*vendor*/", "/*3rdparty*/"],
+            load_gitignore=False,
+        )
+        
+        # tests directory
+        should_skip, _ = filter.should_skip("tests/test_main.py")
+        assert should_skip is True
+        
+        # test directory (singular)
+        should_skip, _ = filter.should_skip("test/unit_test.py")
+        assert should_skip is True
+        
+        # vendor directory
+        should_skip, _ = filter.should_skip("vendor/jquery.js")
+        assert should_skip is True
+        
+        # 3rdparty directory
+        should_skip, _ = filter.should_skip("3rdparty/boost/header.hpp")
+        assert should_skip is True
+        
+        # Regular source files should not be skipped
+        should_skip, _ = filter.should_skip("src/main.cpp")
+        assert should_skip is False
+
 
 class TestFileFilterGitignore:
     """Tests for gitignore pattern matching."""
@@ -314,3 +403,31 @@ class TestFileFilterWithoutPathspec:
             filter.scanner_files = {"results.md"}
             should_skip, reason = filter.should_skip("results.md")
             assert should_skip is True
+
+
+class TestFileFilterErrorHandling:
+    """Tests for error handling in FileFilter."""
+
+    def test_gitignore_read_oserror(self, tmp_path):
+        """Handle OSError when reading .gitignore."""
+        gitignore = tmp_path / ".gitignore"
+        gitignore.write_text("*.pyc\n")
+        
+        # Mock OSError when reading gitignore
+        with patch.object(Path, 'read_text', side_effect=OSError("Permission denied")):
+            filter = FileFilter(repo_path=tmp_path, load_gitignore=True)
+            # Should handle the error gracefully
+            # Gitignore won't be loaded but should not crash
+            assert filter._gitignore_spec is None
+
+    def test_gitignore_parse_error(self, tmp_path):
+        """Handle exception when parsing .gitignore patterns."""
+        gitignore = tmp_path / ".gitignore"
+        gitignore.write_text("*.pyc\n")
+        
+        # Mock PathSpec.from_lines to raise an exception
+        with patch("code_scanner.file_filter.pathspec.PathSpec.from_lines", 
+                   side_effect=Exception("Parse error")):
+            filter = FileFilter(repo_path=tmp_path, load_gitignore=True)
+            # Should handle the error gracefully
+            assert filter._gitignore_spec is None

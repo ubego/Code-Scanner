@@ -18,16 +18,11 @@ class Colors:
     GREEN = "\033[32m"
     YELLOW = "\033[33m"
     BLUE = "\033[34m"
-    MAGENTA = "\033[35m"
-    CYAN = "\033[36m"
-    WHITE = "\033[37m"
     GRAY = "\033[90m"
     
     # Bright foreground colors
     BRIGHT_RED = "\033[91m"
-    BRIGHT_GREEN = "\033[92m"
     BRIGHT_YELLOW = "\033[93m"
-    BRIGHT_BLUE = "\033[94m"
     BRIGHT_CYAN = "\033[96m"
 
 
@@ -206,7 +201,8 @@ def read_file_content(file_path: Path) -> str | None:
         try:
             with open(file_path, encoding="latin-1") as f:
                 return f.read()
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to read {file_path} with fallback encoding: {e}")
             return None
     except (OSError, IOError) as e:
         logger.warning(f"Could not read file {file_path}: {e}")
@@ -254,6 +250,9 @@ def setup_logging(log_file: Path, debug: bool = False) -> None:
     root_logger.addHandler(console_handler)
 
     # File handler (no colors)
+    if not log_file.parent.exists():
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+
     file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
     file_handler.setLevel(log_level)
     file_handler.setFormatter(file_formatter)
@@ -284,9 +283,13 @@ def group_files_by_directory(files: list[str]) -> dict[str, list[str]]:
         parent = str(Path(file_path).parent)
         groups[parent].append(file_path)
 
-    # Sort by depth (deepest first)
+    # Sort files within each group for deterministic batching
+    for parent in groups:
+        groups[parent].sort()
+
+    # Sort by depth (deepest first) using path parts for OS-agnostic depth
     sorted_groups = dict(
-        sorted(groups.items(), key=lambda x: -x[0].count(os.sep))
+        sorted(groups.items(), key=lambda x: -len(Path(x[0]).parts))
     )
 
     return sorted_groups

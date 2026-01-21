@@ -199,7 +199,7 @@ class TestColoredFormatter:
         assert hasattr(Colors, "GREEN")
         assert hasattr(Colors, "YELLOW")
         assert hasattr(Colors, "BLUE")
-        assert hasattr(Colors, "CYAN")
+        assert hasattr(Colors, "GRAY")
         
         # Verify they are ANSI escape codes
         assert Colors.RESET == "\033[0m"

@@ -27,6 +27,7 @@ class GitWatcher:
         commit_hash: Optional[str] = None,
         excluded_files: Optional[set[str]] = None,
         file_filter: Optional[FileFilter] = None,
+        cache_ttl: float = 1.0,
     ):
         """Initialize the Git watcher.
 
@@ -38,6 +39,7 @@ class GitWatcher:
                            These files (like scanner output files) will not trigger rescans.
             file_filter: Optional unified FileFilter for all exclusion rules.
                         If provided, replaces subprocess-based gitignore checking.
+            cache_ttl: Time-to-live for git status cache in seconds. Default 1.0.
 
         Raises:
             GitError: If path is not a valid Git repository.
@@ -48,6 +50,10 @@ class GitWatcher:
         self._repo: Optional[Repo] = None
         self._last_state: Optional[GitState] = None
         self._file_filter = file_filter
+        # Git status cache to reduce subprocess calls
+        self._cache_ttl = cache_ttl
+        self._cached_state: Optional[GitState] = None
+        self._cache_time: float = 0.0
 
     def connect(self) -> None:
         """Connect to the Git repository.
@@ -73,8 +79,13 @@ class GitWatcher:
                 "Please run 'git init' or choose a directory that is a Git repository."
             )
 
-    def get_state(self) -> GitState:
-        """Get the current Git state.
+    def get_state(self, force_refresh: bool = False) -> GitState:
+        """Get the current Git state with caching.
+
+        Uses a TTL-based cache to reduce subprocess calls to git status.
+
+        Args:
+            force_refresh: If True, bypass cache and fetch fresh state.
 
         Returns:
             Current GitState with changed files and merge/rebase status.
@@ -84,6 +95,14 @@ class GitWatcher:
         """
         if self._repo is None:
             raise GitError("Not connected to repository")
+
+        # Check cache (skip for merge/rebase detection which is fast)
+        import time
+        now = time.time()
+        if not force_refresh and self._cached_state is not None:
+            if (now - self._cache_time) < self._cache_ttl:
+                logger.debug(f"Using cached git state (age: {now - self._cache_time:.2f}s)")
+                return self._cached_state
 
         state = GitState()
 
@@ -103,7 +122,17 @@ class GitWatcher:
         # Get changed files
         state.changed_files = self._get_changed_files()
 
+        # Update cache
+        self._cached_state = state
+        self._cache_time = now
+        logger.debug(f"Refreshed git state cache with {len(state.changed_files)} changed files")
+
         return state
+
+    def invalidate_cache(self) -> None:
+        """Invalidate the git status cache, forcing next get_state() to refresh."""
+        self._cached_state = None
+        self._cache_time = 0.0
 
     def _get_changed_files(self) -> list[ChangedFile]:
         """Get list of files with uncommitted changes.
@@ -199,14 +228,14 @@ class GitWatcher:
 
                 # Skip ignored files
                 if not self._is_ignored(path):
-                    # Store modification time in content field for change detection
-                    mtime_str = None
+                    # Store modification time with nanosecond precision for change detection
+                    mtime_ns = None
                     if status != "deleted":
                         try:
-                            mtime_str = str((self.repo_path / path).stat().st_mtime)
+                            mtime_ns = (self.repo_path / path).stat().st_mtime_ns
                         except OSError:
                             pass
-                    changed_files.append(ChangedFile(path=path, status=status, content=mtime_str))
+                    changed_files.append(ChangedFile(path=path, status=status, mtime_ns=mtime_ns))
                     seen_paths.add(path)
 
             # If comparing against a specific commit, also get files changed since that commit
@@ -236,14 +265,14 @@ class GitWatcher:
                             status = "staged"
 
                         if not self._is_ignored(path):
-                            # Store modification time in content field for change detection
-                            mtime_str = None
+                            # Store modification time with nanosecond precision
+                            mtime_ns = None
                             if status != "deleted":
                                 try:
-                                    mtime_str = str((self.repo_path / path).stat().st_mtime)
+                                    mtime_ns = (self.repo_path / path).stat().st_mtime_ns
                                 except OSError:
                                     pass
-                            changed_files.append(ChangedFile(path=path, status=status, content=mtime_str))
+                            changed_files.append(ChangedFile(path=path, status=status, mtime_ns=mtime_ns))
                             seen_paths.add(path)
                 except GitCommandError as e:
                     logger.warning(f"Git diff error: {e}")
@@ -297,7 +326,8 @@ class GitWatcher:
         Returns:
             True if there are new changes.
         """
-        current_state = self.get_state()
+        # Force refresh to get latest state, not cached
+        current_state = self.get_state(force_refresh=True)
 
         if last_state is None:
             # Filter out excluded files when checking for changes
@@ -336,6 +366,9 @@ class GitWatcher:
 
         # Paths are same - check if any file's modification time changed
         # This catches in-place edits that don't change git status paths
+        # Build lookup dict for O(n) instead of O(n²) comparison
+        last_mtime_map = {f.path: f.mtime_ns for f in last_state.changed_files}
+        
         for changed_file in current_state.changed_files:
             # Skip excluded files (e.g., scanner output files)
             if changed_file.path in self.excluded_files:
@@ -346,7 +379,7 @@ class GitWatcher:
             
             file_path = self.repo_path / changed_file.path
             try:
-                current_mtime = file_path.stat().st_mtime
+                current_mtime_ns = file_path.stat().st_mtime_ns
             except OSError:
                 # Can't stat file (doesn't exist, encoding issue, etc.) - skip it
                 # This can happen with files that have special characters in names
@@ -354,19 +387,11 @@ class GitWatcher:
                 logger.debug(f"Cannot stat file in mtime check: {changed_file.path}")
                 continue
             
-            # Find matching file in last state to compare mtime
-            for last_file in last_state.changed_files:
-                if last_file.path == changed_file.path:
-                    # If last_file.content was set to mtime, compare it
-                    if last_file.content is not None:
-                        try:
-                            last_mtime = float(last_file.content)
-                            if current_mtime > last_mtime:
-                                logger.info(f"File modified since last check: {changed_file.path}")
-                                return True
-                        except ValueError:
-                            pass
-                    break
+            # O(1) lookup instead of nested loop
+            last_mtime = last_mtime_map.get(changed_file.path)
+            if last_mtime is not None and current_mtime_ns > last_mtime:
+                logger.info(f"File modified since last check: {changed_file.path}")
+                return True
 
         logger.debug("No mtime changes detected in has_changes_since")
         return False

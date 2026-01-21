@@ -3,7 +3,7 @@
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from .config import Config
@@ -107,13 +107,17 @@ class Scanner:
             self._thread.join(timeout=5)
         logger.info("Scanner thread stopped")
 
-    def signal_refresh(self) -> None:
+    def _signal_refresh(self) -> None:
         """Signal the scanner to refresh file contents for the current check.
+        
+        ⚠️ TEST ONLY: This method is intended for unit tests to simulate
+        file system change signals. Production code should rely on the
+        git watcher's file system monitoring.
         
         When files change, the scanner will continue from its current position
         with refreshed file contents, rather than restarting from the beginning.
         """
-        logger.info("Signaling scanner to refresh file contents")
+        logger.info("Refresh signal received - worktree changes detected by git watcher")
         self._refresh_event.set()
 
     def _run_loop(self) -> None:
@@ -220,6 +224,7 @@ class Scanner:
             
             # Skip ignored files - they don't affect scan results
             if self._is_file_ignored(changed_file.path):
+                logger.info(f"Ignoring file change: {changed_file.path} (matches ignore pattern)")
                 continue
             
             file_path = self.config.target_directory / changed_file.path
@@ -234,7 +239,7 @@ class Scanner:
                 content = read_file_content(file_path)
                 if content is None:
                     # Binary or unreadable file - check if it's new
-                    if changed_file.path not in self._last_file_contents_hash:
+                    if changed_file.path not in self._last_scanned_files:
                         logger.debug(f"New binary/unreadable file detected: {changed_file.path}")
                         return True
                     continue
@@ -252,7 +257,7 @@ class Scanner:
                 logger.debug(f"Cannot read file {changed_file.path}, assuming changed: {e}")
                 return True
         
-        logger.debug("No actual file content changes detected")
+        logger.info("Refresh event processed: no actual file content changes detected")
         return False
 
     def _run_scan(self, git_state: GitState) -> None:
@@ -294,10 +299,12 @@ class Scanner:
 
             # Update scan info - preserve checks_run count across iterations
             existing_checks_run = self._scan_info.get("checks_run", 0) if self._scan_info else 0
+            existing_total_checks = self._scan_info.get("total_checks", 0) if self._scan_info else 0
             self._scan_info = {
                 "files_scanned": list(filtered_content.keys()),
                 "skipped_files": ignored,
                 "checks_run": existing_checks_run,
+                "total_checks": existing_total_checks,
             }
 
             batches = self._create_batches(filtered_content)
@@ -329,6 +336,9 @@ class Scanner:
         run_until = total_checks  # First pass: run all checks
         all_issues: list[Issue] = []
         iteration = 0
+
+        # Store total_checks in scan_info for output
+        self._scan_info["total_checks"] = total_checks
 
         logger.info(f"Created {total_checks} check(s) to run")
 
@@ -640,6 +650,10 @@ class Scanner:
         # Group by directory hierarchy
         batches: list[dict[str, str]] = []
         groups = group_files_by_directory(list(files_content.keys()))
+        
+        # Ensure skipped_files list exists
+        if "skipped_files" not in self._scan_info:
+            self._scan_info["skipped_files"] = []
 
         current_batch: dict[str, str] = {}
         current_tokens = 0
@@ -723,7 +737,7 @@ class Scanner:
         """
         issues_data = response.get("issues", [])
         logger.info(f"LLM returned {len(issues_data)} issue(s) for batch {batch_idx + 1}")
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
 
         parsed_issues: list[Issue] = []
         skipped_count = 0
@@ -853,7 +867,16 @@ class Scanner:
         )
         logger.debug(f"Initial context usage: {accumulated_tokens} tokens ({accumulated_tokens * 100 // context_limit}% of {context_limit})")
 
-        max_tool_iterations = 10  # Prevent infinite loops
+        # Calculate dynamic iteration limit based on available context
+        # Estimate average tokens per tool call (conservative estimate)
+        avg_tool_result_tokens = 500  # Typical tool result size
+        remaining_tokens = max_context_tokens - accumulated_tokens
+        estimated_possible_iterations = max(1, remaining_tokens // avg_tool_result_tokens)
+        
+        # Cap at 50 to prevent endless loops, but use context-based limit if smaller
+        max_tool_iterations = min(estimated_possible_iterations, 50)
+        logger.debug(f"Max tool iterations set to {max_tool_iterations} (based on context: {estimated_possible_iterations}, capped at 50)")
+        
         iteration = 0
 
         while iteration < max_tool_iterations:

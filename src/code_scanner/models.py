@@ -98,7 +98,7 @@ class ChangedFile:
 
     path: str
     status: str  # 'staged', 'unstaged', 'untracked', 'deleted'
-    content: Optional[str] = None
+    mtime_ns: Optional[int] = None  # Nanosecond-precision mtime for change detection
 
     @property
     def is_deleted(self) -> bool:

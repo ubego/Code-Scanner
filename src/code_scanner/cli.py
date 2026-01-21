@@ -8,6 +8,7 @@ import signal
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -74,7 +75,6 @@ class Application:
         self.output_generator: Optional[OutputGenerator] = None
         self.scanner: Optional[Scanner] = None
 
-        self._git_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._lock_acquired = False
         self.ctags_index: Optional[CtagsIndex] = None
@@ -119,7 +119,8 @@ class Application:
 
         # Set up logging
         setup_logging(self.config.log_path, debug=self.config.debug)
-        total_checks = sum(len(g.checks) for g in self.config.check_groups)
+        unique_checks = {c for g in self.config.check_groups for c in g.checks}
+        total_checks = len(unique_checks)
         logger.info(
             f"{'=' * 60}\n"
             f"Code Scanner starting\n"
@@ -290,7 +291,7 @@ class Application:
 
         if output_path.exists():
             backup_path = output_path.parent / f"{output_path.name}.bak"
-            timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+            timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
             
             try:
                 content = output_path.read_text(encoding='utf-8')
@@ -317,39 +318,13 @@ class Application:
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
-        # Start Git watcher thread
-        self._git_thread = threading.Thread(target=self._git_watch_loop, daemon=True)
-        self._git_thread.start()
-
-        # Start scanner
+        # Start scanner (handles its own change detection - no separate git watcher needed)
         self.scanner.start()
 
         # Wait for stop signal
         logger.info("Scanner running. Press Ctrl+C to stop.")
         while not self._stop_event.is_set():
             time.sleep(0.5)
-
-    def _git_watch_loop(self) -> None:
-        """Git watcher loop - polls for changes."""
-        logger.info("Git watcher started")
-        last_state = None
-
-        while not self._stop_event.is_set():
-            try:
-                # Check for changes
-                if self.git_watcher.has_changes_since(last_state):
-                    logger.info("Git changes detected, signaling scanner to refresh")
-                    self.scanner.signal_refresh()
-                    last_state = self.git_watcher.get_state()
-
-                # Wait before next poll
-                self._stop_event.wait(timeout=self.config.git_poll_interval)
-
-            except Exception as e:
-                logger.error(f"Git watcher error: {e}")
-                time.sleep(5)
-
-        logger.info("Git watcher stopped")
 
     def _signal_handler(self, signum: int, _frame: object) -> None:
         """Handle termination signals."""
@@ -367,9 +342,6 @@ class Application:
 
         if self.scanner:
             self.scanner.stop()
-
-        if self._git_thread and self._git_thread.is_alive():
-            self._git_thread.join(timeout=2)
 
         self._release_lock()
 

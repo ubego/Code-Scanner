@@ -218,14 +218,14 @@ context_limit = 16384  # Required
 # Navigate to your project
 cd C:\path\to\your\project
 
-# Create config.toml (copy from examples)
-Copy-Item C:\path\to\code-scanner\examples\python-config.toml config.toml
+# Create code_scanner_config.toml (copy from examples)
+Copy-Item C:\path\to\code-scanner\examples\python-config.toml code_scanner_config.toml
 
-# Edit config.toml with your preferred editor
-notepad config.toml
+# Edit code_scanner_config.toml with your preferred editor
+notepad code_scanner_config.toml
 
 # Run the scanner (runs continuously until Ctrl+C)
-uv run code-scanner --config config.toml
+uv run code-scanner
 ```
 
 ### Using Git Bash
@@ -234,11 +234,11 @@ uv run code-scanner --config config.toml
 # Navigate to your project
 cd /c/path/to/your/project
 
-# Create config.toml
-cp /c/path/to/code-scanner/examples/python-config.toml config.toml
+# Create code_scanner_config.toml
+cp /c/path/to/code-scanner/examples/python-config.toml code_scanner_config.toml
 
 # Run the scanner
-uv run code-scanner --config config.toml
+uv run code-scanner
 ```
 
 ### Using Command Prompt (cmd)
@@ -248,7 +248,7 @@ uv run code-scanner --config config.toml
 cd C:\path\to\your\project
 
 :: Run the scanner
-uv run code-scanner --config config.toml
+uv run code-scanner
 ```
 
 ## GPU Acceleration
@@ -288,7 +288,7 @@ scripts\autostart-windows.bat
 The script will interactively guide you through:
 
 1. **Project path** - The directory to scan
-2. **Config file path** - Your `config.toml` location
+2. **Config file path** - Your `code_scanner_config.toml` location
 3. **Test launch** - Verifies the scanner works before registering
 4. **Task Scheduler registration** - Creates a login task
 

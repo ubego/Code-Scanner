@@ -238,9 +238,11 @@ class TestScannerWithTools:
             batch_idx=0,
         )
 
-        # Should stop at max_tool_iterations (10)
-        assert llm_client.query.call_count == 10
-        assert len(issues) == 0  # No final answer
+        # Max iterations is dynamically calculated based on context window
+        # The loop should eventually stop and return empty issues
+        assert llm_client.query.call_count > 0  # At least one call
+        assert llm_client.query.call_count <= 50  # Capped at 50 max
+        assert len(issues) == 0  # No final answer after max iterations
 
     def test_run_check_tool_failure_handling(self, mock_components, tmp_path):
         """Test handling of tool execution failures."""
@@ -349,7 +351,7 @@ class TestToolIntegrationEndToEnd:
         # Mock git state
         git_state = GitState(
             changed_files=[
-                ChangedFile(path="src/main.py", status="unstaged", content=None)
+                ChangedFile(path="src/main.py", status="unstaged", mtime_ns=None)
             ]
         )
 

@@ -741,7 +741,7 @@ class TestScannerThreading:
         scanner = Scanner(**mock_dependencies)
         
         assert not scanner._refresh_event.is_set()
-        scanner.signal_refresh()
+        scanner._signal_refresh()
         assert scanner._refresh_event.is_set()
 
 

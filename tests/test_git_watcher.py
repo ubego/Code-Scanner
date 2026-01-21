@@ -144,8 +144,9 @@ class TestGitWatcher:
         # No changes yet
         assert not watcher.has_changes_since(state1)
         
-        # Make a change
+        # Make a change and stage it so git status sees it
         (git_repo / "new.txt").write_text("new")
+        subprocess.run(["git", "add", "new.txt"], cwd=git_repo, capture_output=True)
         
         # Now there should be changes
         assert watcher.has_changes_since(state1)
