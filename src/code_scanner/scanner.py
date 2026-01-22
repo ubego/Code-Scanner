@@ -68,7 +68,6 @@ class Scanner:
         # State
         self._last_scanned_files: set[str] = set()  # Files scanned in last cycle
         self._last_file_contents_hash: dict[str, int] = {}  # Hash of file contents
-        self._last_file_mtime: dict[str, float] = {}  # Optimization: mtime cache
         self._scan_info: dict = {}
 
     @property
@@ -150,7 +149,11 @@ class Scanner:
 
                 # Check if files have actually changed since last scan
                 current_files = {f.path for f in git_state.changed_files if not f.is_deleted}
-                if self._has_files_changed(current_files, git_state):
+                logger.debug(f"Checking if files changed: git_state.has_changes={git_state.has_changes}, "
+                            f"current_files={len(current_files)}")
+                has_changed = self._has_files_changed(current_files, git_state)
+                logger.debug(f"_has_files_changed returned: {has_changed}")
+                if has_changed:
                     # Clear refresh event before scan - any signals during scan will set it again
                     self._refresh_event.clear()
                     # Run scan
@@ -206,14 +209,21 @@ class Scanner:
         # Note: _refresh_event being set just means git watcher detected something,
         # but we still need to check if files ACTUALLY changed content-wise
         
+        # Filter out ignored files from current set to match _last_scanned_files
+        # (_last_scanned_files only contains non-ignored files after scan completes)
+        current_non_ignored = {f for f in current_files if not self._is_file_ignored(f)}
+        
+        logger.debug(f"_has_files_changed: current_files={len(current_files)}, current_non_ignored={len(current_non_ignored)}, "
+                    f"last_scanned={len(self._last_scanned_files)}")
+        
         # Check for new files added (files committed/removed don't require rescan)
-        added_files = current_files - self._last_scanned_files
+        added_files = current_non_ignored - self._last_scanned_files
         if added_files:
             logger.debug(f"New files added to worktree: {list(added_files)[:5]}{'...' if len(added_files) > 5 else ''}")
             return True
         
         # Log removed files but don't trigger rescan
-        removed_files = self._last_scanned_files - current_files
+        removed_files = self._last_scanned_files - current_non_ignored
         if removed_files:
             logger.debug(f"Files removed from worktree (committed/reverted): {list(removed_files)[:5]}{'...' if len(removed_files) > 5 else ''}")
         
@@ -223,18 +233,12 @@ class Scanner:
                 continue
             
             # Skip ignored files - they don't affect scan results
+            # Skip early to avoid unnecessary hash checks and file reading
             if self._is_file_ignored(changed_file.path):
-                logger.info(f"Ignoring file change: {changed_file.path} (matches ignore pattern)")
                 continue
             
             file_path = self.config.target_directory / changed_file.path
             try:
-                # Optimization: Check mtime_ns first (nanosecond precision) before reading
-                stat = file_path.stat()
-                mtime_ns = stat.st_mtime_ns
-                if mtime_ns == self._last_file_mtime.get(changed_file.path):
-                    continue  # Mtime unchanged, assume content unchanged
-                
                 # Use helper for safe file reading (handles encoding issues)
                 content = read_file_content(file_path)
                 if content is None:
@@ -252,12 +256,22 @@ class Scanner:
                 if self._last_file_contents_hash[changed_file.path] != content_hash:
                     logger.debug(f"File content changed: {changed_file.path}")
                     return True
+            except OSError as e:
+                # File system error - file doesn't exist or can't be accessed
+                # Check if it's a new file (not in _last_scanned_files)
+                if changed_file.path not in self._last_scanned_files:
+                    logger.debug(f"New file detected (OSError): {changed_file.path}")
+                    return True
+                # Existing file that can't be read - skip it (don't assume it changed)
+                logger.debug(f"Cannot read existing file {changed_file.path}, skipping: {e}")
+                continue
             except Exception as e:
-                # If we can't read the file, assume it changed
+                # Other errors (encoding, etc.) - assume it changed
                 logger.debug(f"Cannot read file {changed_file.path}, assuming changed: {e}")
                 return True
         
         logger.info("Refresh event processed: no actual file content changes detected")
+        logger.debug(f"_has_files_changed returning False")
         return False
 
     def _run_scan(self, git_state: GitState) -> None:
@@ -480,21 +494,15 @@ class Scanner:
         logger.info(f"Output file updated with {self.issue_tracker.get_stats()['total']} total issues")
 
         # Track scanned files and their content hashes to avoid rescanning unchanged files
-        # Store ALL changed files (not just filtered ones) so _has_files_changed comparison works
+        # Store only non-ignored files to match what's in _last_file_contents_hash
         all_changed_paths = {f.path for f in git_state.changed_files if not f.is_deleted}
-        self._last_scanned_files = all_changed_paths
+        all_changed_non_ignored = {f for f in all_changed_paths if not self._is_file_ignored(f)}
+        self._last_scanned_files = all_changed_non_ignored
         
         # Update hash tracking with current content (reuse files_content from above)
         self._last_file_contents_hash = {}
-        self._last_file_mtime = {}
         for file_path, content in files_content.items():
             self._last_file_contents_hash[file_path] = hash(content)
-            # Update mtime_ns (nanosecond precision)
-            try:
-                full_path = self.config.target_directory / file_path
-                self._last_file_mtime[file_path] = full_path.stat().st_mtime_ns
-            except OSError:
-                pass
         logger.info("Scan cycle complete. Waiting for new file changes...")
 
     def _filter_batches_by_pattern(
